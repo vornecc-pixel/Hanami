@@ -6,10 +6,10 @@ The original 1,300-line script is now split into **19 short files** (`src/`, big
 ## Load it (one line)
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Hanami/arena%2Fbb927757-hanami/loader.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/vornecc-pixel/Hanami/refs/heads/arena/bb927757-hanami/loader.lua"))()
 ```
 
-If your executor has trouble with the `%2F` branch URL, use the `refs/heads` form instead:
+If your executor won't follow redirects or blocks that host, use the `github.com` form:
 
 ```lua
 loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/arena/bb927757-hanami/loader.lua"))()

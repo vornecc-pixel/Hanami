@@ -31,10 +31,11 @@ local PARTS = {
     "19_banner.lua",
 }
 
--- raw.githubusercontent.com needs %2F for a branch containing "/".
--- The other two roots are fallbacks in case a host/redirect differs.
+-- GitHub's own "Raw" links use refs/heads/<branch>, which also avoids any
+-- ambiguity when the branch name contains a slash. The rest are fallbacks.
 local PLAIN = (REF:gsub("%%2F", "/"))
 local ROOTS = {
+    "https://raw.githubusercontent.com/" .. REPO .. "/refs/heads/" .. PLAIN .. "/" .. DIR,
     "https://raw.githubusercontent.com/" .. REPO .. "/" .. REF   .. "/" .. DIR,
     "https://raw.githubusercontent.com/" .. REPO .. "/" .. PLAIN .. "/" .. DIR,
     "https://github.com/" .. REPO .. "/raw/refs/heads/" .. PLAIN .. "/" .. DIR,
@@ -46,8 +47,13 @@ local function fetch(path)
         local ok, body = pcall(function()
             return game:HttpGet(root .. path .. BUST)
         end)
-        if ok and type(body) == "string" and #body > 0 then return body end
-        if not ok then err = tostring(body) end
+        local isHtml = type(body) == "string"
+            and (body:find("<!DOCTYPE", 1, true) or body:find("<html", 1, true)
+              or body:find("404: Not Found", 1, true))
+        if ok and type(body) == "string" and #body > 0 and not isHtml then
+            return body
+        end
+        if not ok then err = tostring(body) elseif isHtml then err = "got an error page" end
     end
     error("[Hanami] could not load " .. path .. " — " .. err, 0)
 end
