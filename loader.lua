@@ -1,0 +1,66 @@
+-- ==================================================================
+-- Hanami — short loader. This is the ONLY file you paste/load.
+-- It downloads every src/*.lua part, joins them in order, then runs
+-- them as ONE chunk so all the `local`s stay shared (no refactoring).
+-- ==================================================================
+
+local REPO = "vornecc-pixel/Hanami"
+local REF  = "arena%2Fbb927757-hanami"   -- branch name; %2F means "/"
+local DIR  = "src/"
+local BUST = "?t=" .. tostring(os.time()) -- bypass CDN cache after updates
+
+local PARTS = {
+    "01_config.lua",
+    "02_shared.lua",
+    "03_manipulation.lua",
+    "04_firing_and_guns.lua",
+    "05_silent_aim.lua",
+    "06_fov_circle.lua",
+    "07_esp_players.lua",
+    "08_esp_players_refresh.lua",
+    "09_esp_crates.lua",
+    "10_esp_crates_refresh.lua",
+    "11_render_loop.lua",
+    "12_gun_mods.lua",
+    "13_hitlog.lua",
+    "14_ui_aiming.lua",
+    "15_ui_esp.lua",
+    "16_ui_gunmods.lua",
+    "17_ui_visual.lua",
+    "18_ui_misc.lua",
+    "19_banner.lua",
+}
+
+-- raw.githubusercontent.com needs %2F for a branch containing "/".
+-- The other two roots are fallbacks in case a host/redirect differs.
+local PLAIN = (REF:gsub("%%2F", "/"))
+local ROOTS = {
+    "https://raw.githubusercontent.com/" .. REPO .. "/" .. REF   .. "/" .. DIR,
+    "https://raw.githubusercontent.com/" .. REPO .. "/" .. PLAIN .. "/" .. DIR,
+    "https://github.com/" .. REPO .. "/raw/refs/heads/" .. PLAIN .. "/" .. DIR,
+}
+
+local function fetch(path)
+    local err = "no source responded"
+    for _, root in ipairs(ROOTS) do
+        local ok, body = pcall(function()
+            return game:HttpGet(root .. path .. BUST)
+        end)
+        if ok and type(body) == "string" and #body > 0 then return body end
+        if not ok then err = tostring(body) end
+    end
+    error("[Hanami] could not load " .. path .. " — " .. err, 0)
+end
+
+local chunks = {}
+for i, name in ipairs(PARTS) do
+    chunks[i] = fetch(name)
+end
+
+local source = table.concat(chunks, "\n\n")
+local chunk, compileErr = loadstring(source, "Hanami")
+if not chunk then
+    error("[Hanami] compile error: " .. tostring(compileErr), 0)
+end
+
+return chunk()

@@ -1,0 +1,4 @@
+# Local scratch + generated single-file bundle
+.work/
+dist/
+node_modules/
