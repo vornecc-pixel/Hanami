@@ -1,10 +1,8 @@
 -- ==================================================================
--- Hanami / 08_esp_players_refresh.lua — Player ESP per-frame refresh + enable/disable
+-- Hanami / 11_esp_players_refresh.lua — Player ESP refresh + enable/disable
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
-
-local espColor = Color3.fromRGB(255, 60, 60)
 
 local function refreshESP()
     local cam = ws.CurrentCamera
@@ -25,14 +23,33 @@ local function refreshESP()
                 o.bb.Enabled = false; o.highlight.Enabled = false
                 for _, l in pairs(o.lines) do l.Visible = false end
             else
+                -- GREEN = clear line of sight, RED = behind a wall
+                local visible = CFG.espVisibleCheck and SA.IsVisible(char, hrp.Position)
+                local col = CFG.espVisibleCheck
+                    and (visible and espColorVisible or espColorHidden) or espColor
+
                 o.bb.Enabled = true; o.highlight.Enabled = true
-                o.highlight.FillColor = espColor
+                o.highlight.FillColor = col
                 o.nameLbl.Visible = CFG.espShowName
                 o.nameLbl.Text = plr.Name
+                o.nameLbl.TextColor3 = col
                 if CFG.espShowDist then
                     o.distLbl.Visible = true
                     o.distLbl.Text = string.format("[%dm]", math.floor(dist / 3.571))
                 else o.distLbl.Visible = false end
+
+                local bits = {}
+                if CFG.espShowTool or CFG.espShowState then
+                    local info = SA.ScanEntity(char, hum)
+                    if CFG.espShowTool  then table.insert(bits, "W: " .. info.tool)  end
+                    if CFG.espShowState then table.insert(bits, "S: " .. info.state) end
+                end
+                if CFG.espVisibleCheck then
+                    table.insert(bits, visible and "VIS" or "WALL")
+                end
+                o.infoLbl.Text = table.concat(bits, " | ")
+                o.infoLbl.TextColor3 = col
+                o.infoLbl.Visible = #bits > 0
 
                 local hrpPos, onScreen = cam:WorldToViewportPoint(hrp.Position)
                 local headPos = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
@@ -47,7 +64,7 @@ local function refreshESP()
                     o.lines.left.From = Vector2.new(x, y); o.lines.left.To = Vector2.new(x, y + height)
                     o.lines.right.From = Vector2.new(x + width, y); o.lines.right.To = Vector2.new(x + width, y + height)
                     for _, l in pairs({ o.lines.top, o.lines.bottom, o.lines.left, o.lines.right }) do
-                        l.Color = espColor; l.Visible = true
+                        l.Color = col; l.Visible = true
                     end
                     if CFG.espShowHealth then
                         local hx = x - 4
@@ -84,4 +101,3 @@ Players.PlayerAdded:Connect(function(p)
     end)
 end)
 Players.PlayerRemoving:Connect(function(p) clearESP(p) end)
-

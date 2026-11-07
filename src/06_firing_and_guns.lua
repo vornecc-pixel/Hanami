@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 04_firing_and_guns.lua — Firing state, gun speed/id lookups, cooldown
+-- Hanami / 06_firing_and_guns.lua — Firing state, gun speed/id lookups, cooldown
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

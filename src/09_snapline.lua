@@ -1,0 +1,88 @@
+-- ==================================================================
+-- Hanami / 09_snapline.lua — Aim preview line + target marker
+-- Loaded in order by loader.lua. Parts are joined into ONE chunk
+-- before running, so every `local` is shared just like the original.
+-- ==================================================================
+
+-- ────────────────────────────────────────────────────────────────────
+-- SNAPLINE (FOV AIM PREVIEW)
+-- Draws from the FOV centre to the exact target silent aim would pick.
+-- GREEN = line of sight clear, RED = wall/blocked (will need wall pen).
+-- Uses `preview` mode so hit-chance RNG can't make the line flicker.
+-- ────────────────────────────────────────────────────────────────────
+
+local snapLine, snapDot = nil, nil
+do
+    local ok = pcall(function()
+        snapLine = Drawing.new("Line")
+        snapDot  = Drawing.new("Circle")
+    end)
+    if ok and snapLine and snapDot then
+        snapLine.Thickness = 1
+        snapLine.Transparency = 0.2
+        snapLine.Visible = false
+        snapDot.Radius = 4
+        snapDot.Filled = true
+        snapDot.NumSides = 24
+        snapDot.Transparency = 0.2
+        snapDot.Visible = false
+    else
+        snapLine, snapDot = nil, nil
+    end
+end
+
+local function hideSnap()
+    if snapLine then snapLine.Visible = false end
+    if snapDot  then snapDot.Visible  = false end
+end
+
+local function snapOrigin(cam)
+    if CFG.snapLineOrigin == "Center" then
+        return Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    elseif CFG.snapLineOrigin == "Bottom" then
+        return Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
+    end
+    return UserInputService:GetMouseLocation()
+end
+
+local function updateSnapLine()
+    if not (snapLine and CFG.snapLineEnabled and CFG.masterEnabled and CFG.gunEnabled) then
+        hideSnap(); return
+    end
+    local cam = ws.CurrentCamera
+    if not cam then hideSnap(); return end
+    local aimPx = UserInputService:GetMouseLocation()
+    -- the FOV picker is always measured from the mouse, even when the
+    -- line itself is drawn from screen centre / bottom
+    local best = pickBestTarget(cam, aimPx, cam.CFrame.Position, true)
+    if not best then
+        SA.Target.model, SA.Target.pos = nil, nil
+        hideSnap(); return
+    end
+    local sp, onScreen = cam:WorldToViewportPoint(best.pos)
+    if not onScreen then hideSnap(); return end
+
+    local toPx = Vector2.new(sp.X, sp.Y)
+    local visible = SA.IsVisible(best.model, best.pos)
+    local col = visible and snapColorVisible or snapColorHidden
+
+    snapLine.From = snapOrigin(cam)
+    snapLine.To = toPx
+    snapLine.Color = col
+    snapLine.Thickness = CFG.snapLineThickness
+    snapLine.Visible = true
+
+    snapDot.Position = toPx
+    snapDot.Color = col
+    snapDot.Visible = true
+
+    SA.Target.model   = best.model
+    SA.Target.pos     = best.pos
+    SA.Target.visible = visible
+    SA.Target.screen  = toPx
+    SA.Target.t       = tick()
+end
+
+if snapLine then
+    RunService.RenderStepped:Connect(updateSnapLine)
+end

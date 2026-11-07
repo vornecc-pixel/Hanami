@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 18_ui_misc.lua — Misc tab, quick actions, UI init
+-- Hanami / 23_ui_misc.lua — Misc tab, quick actions, UI init
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -8,9 +8,11 @@
 local infoCol = MiscTab:column()
 local infoSec = infoCol:section({ name = "Info" })
 infoSec:label({ name = "@abusegpt — full suite" })
-infoSec:label({ name = "Silent Aim + Wall Pen + ESP + Crates + Gun Mods" })
+infoSec:label({ name = "Aim + Wall Pen + Player/NPC/Crate ESP + Gun Mods" })
 infoSec:label({ name = "Toggle key: RightShift (silent aim)" })
 infoSec:label({ name = "Menu key: Insert | UI: Atlanta library" })
+infoSec:label({ name = "ESP: green = visible, red = behind wall" })
+infoSec:label({ name = "NPC names: Guard / Scavenger / Soldier" })
 infoSec:label({ name = "Gun Mods: GC scan (getgc + rawset)" })
 
 -- ── MISC : Quick Actions ───────────────────────────────────────────
@@ -19,12 +21,18 @@ local actSec = actCol:section({ name = "Quick Actions" })
 
 bindToggle(actSec, "Hit Sound", "hitSoundEnabled")
 
+addButton(actSec, "Scan All Entities", function()
+    SA.PrintScan()
+end)
+
 addButton(actSec, "Disable All", function()
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
     setFlag("espEnabled", false)
+    setFlag("npcEspEnabled", false)
     setFlag("crateEnabled", false)
     setFlag("showFov", false)
+    setFlag("snapLineEnabled", false)
 end)
 
 addButton(actSec, "Apply Blatant", function()
@@ -40,7 +48,7 @@ end)
 addButton(actSec, "Unload Everything", function()
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
-    disableESP(); disableCrateESP()
+    disableESP(); disableNpcESP(); disableCrateESP()
     if HitLogGui then HitLogGui:Destroy() end
     RunService:UnbindFromRenderStep(snapName)
     RunService:UnbindFromRenderStep(restoreName)

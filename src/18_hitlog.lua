@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 13_hitlog.lua — Hit log GUI, hit sound, damage tracker
+-- Hanami / 18_hitlog.lua — Hit log GUI, hit sound, damage tracker
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

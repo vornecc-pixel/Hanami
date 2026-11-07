@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 05_silent_aim.lua — Camera sandwich renderstep binds
+-- Hanami / 07_silent_aim.lua — Camera sandwich renderstep binds
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -50,7 +50,11 @@ RunService:BindToRenderStep(snapName, snapPrio, function()
         camera.CFrame = CFrame.lookAt(manipOrigin, targetPos)
     end)
     snapped = ok
-    if ok then dbg("snap ->", best.model.Name, manipOrigin == origin and "" or "[manip]") end
+    if ok then
+        SA.Target.lastShot = best.model
+        SA.Target.lastShotAt = tick()
+        dbg("snap ->", best.model.Name, manipOrigin == origin and "" or "[manip]")
+    end
 end)
 
 RunService:BindToRenderStep(restoreName, restorePrio, function()

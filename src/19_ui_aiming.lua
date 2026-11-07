@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 14_ui_aiming.lua — Atlanta UI setup + Aiming tab
+-- Hanami / 19_ui_aiming.lua — Atlanta UI setup + Aiming tab
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -106,9 +106,11 @@ local presetDropdown = masterSec:dropdown({
 bindToggle(gunSec, "Gun Silent Aim", "gunEnabled")
 bindToggle(gunSec, "Only While Firing", "gunShotOnly")
 bindToggle(gunSec, "Prediction", "prediction")
-bindToggle(gunSec, "Wall Check", "wallCheck")
+bindToggle(gunSec, "Wall Check", "wallCheck",
+    "Strict LOS-only shots. Automatically bypassed while Manipulation is ON, so leave OFF for wall pen")
 bindToggle(gunSec, "Team Check", "teamCheck")
-bindToggle(gunSec, "Target NPCs", "targetNpcs")
+bindToggle(gunSec, "Target NPCs", "targetNpcs",
+    "Guard / Scavenger / Soldier models are found anywhere in Workspace (not just an Npcs folder)")
 
 -- ── AIMING : column 2 (Target / Wall Penetration) ──────────────────
 local aimCol2 = Aiming:column()
@@ -120,10 +122,29 @@ bindSlider(targetSec, "Max Distance (studs)", "distance", 0, 500, 1, "")
 cooldownSlider = bindSlider(targetSec, "Cooldown (s)", "gunCooldown", 0, 1, 0.01, "s")
 bindSlider(targetSec, "Bullet Speed Override (0 = auto)", "gunBulletSpeed", 0, 1500, 1, "")
 
-bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation")
+bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
+    "Best all-round: ON, Wall Check OFF, Range 75, Peek 4, Parts 3, Budget 64, Hysteresis 5, Max Delta 6, FOV ~150")
 bindSlider(manipSec, "Range (studs)", "manipDist", 5, 100, 1, "")
 bindSlider(manipSec, "Max Peek Offset", "manipPeek", 0, 8, 0.5, "")
 bindSlider(manipSec, "Max CanQuery Parts", "manipMaxParts", 0, 8, 1, "")
 bindSlider(manipSec, "Ray Budget / Frame", "manipBudget", 8, 128, 1, "")
 bindSlider(manipSec, "Cache Hysteresis (frames)", "manipHysteresis", 0, 12, 1, "")
 bindSlider(manipSec, "Max Peek Delta", "manipMaxPeekDelta", 2, 12, 1, "")
+
+manipSec:label({ name = "Recommended: 75 / 4 / 3 / 64 / 5 / 6" })
+manipSec:label({ name = "Range | Peek | Parts | Budget | Hyst | Delta" })
+manipSec:label({ name = "Tighter FOV (~150px) = fewer peeks per frame" })
+addButton(manipSec, "Apply Recommended Wall Pen", function()
+    setFlag("manipulation", true)
+    setFlag("wallCheck", false)
+    setFlag("manipDist", 75)
+    setFlag("manipPeek", 4)
+    setFlag("manipMaxParts", 3)
+    setFlag("manipBudget", 64)
+    setFlag("manipHysteresis", 5)
+    setFlag("manipMaxPeekDelta", 6)
+    setFlag("fov", 150)
+    setFlag("hitChance", 100)
+    setFlag("gunCooldown", 0)
+    print("[sa] recommended wall pen applied")
+end)

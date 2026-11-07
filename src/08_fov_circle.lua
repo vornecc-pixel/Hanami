@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 06_fov_circle.lua — FOV circle drawing
+-- Hanami / 08_fov_circle.lua — FOV circle drawing
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -8,8 +8,7 @@
 -- FOV CIRCLE
 -- ────────────────────────────────────────────────────────────────────
 
--- shared with the Visual tab colourpicker (17_ui_visual.lua)
-local fovColor = Color3.fromRGB(255, 50, 50)
+-- fovColor is declared in 01_config.lua and shared with the Visual tab colourpicker
 local fovCircle = nil
 do
     local ok, c = pcall(function() return Drawing.new("Circle") end)

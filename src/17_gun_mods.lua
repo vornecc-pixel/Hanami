@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 12_gun_mods.lua — GC scan gun mods + per-frame state writes
+-- Hanami / 17_gun_mods.lua — GC scan gun mods + per-frame state writes
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

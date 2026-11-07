@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 19_banner.lua — Startup banner + return CFG
+-- Hanami / 24_banner.lua — Startup banner + return CFG
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -16,8 +16,12 @@ print("  binds :", snapName, "/", restoreName)
 print("  aim   :", CFG.masterEnabled and "on" or "off")
 print("  manip :", CFG.manipulation and "on" or "off")
 print("  esp   :", CFG.espEnabled and "on" or "off")
+print("  npcesp:", CFG.npcEspEnabled and "on" or "off")
 print("  crates:", CFG.crateEnabled and "on" or "off")
 print("  gunmod:", CFG.gmEnabled and "on" or "off")
+print("  snapln:", CFG.snapLineEnabled and "on" or "off")
+print("  npcaim:", CFG.targetNpcs and "on" or "off")
+print("  npcs  :", #SA.GetNpcs())
 print("  ui    : Atlanta")
 print("  toggle: RightShift | menu: Insert")
 print("══════════════════════════════════════════════")

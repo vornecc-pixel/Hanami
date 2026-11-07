@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 07_esp_players.lua — Player ESP objects, box, health bar
+-- Hanami / 10_esp_players.lua — Player ESP objects, box, health bar
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -10,12 +10,16 @@
 
 local espObjects = {}
 
+local function removeDrawing(d)
+    if (typeof(d) == "userdata" or type(d) == "table") and d.Remove then
+        pcall(d.Remove, d)
+    end
+end
+
 local function clearESP(plr)
     local o = espObjects[plr]
     if not o then return end
-    for _, d in pairs(o) do
-        if typeof(d) == "userdata" and d.Remove then pcall(d.Remove, d) end
-    end
+    if o.lines then for _, d in pairs(o.lines) do removeDrawing(d) end end
     if o.bb then o.bb:Destroy() end
     if o.highlight then o.highlight:Destroy() end
     espObjects[plr] = nil
@@ -32,7 +36,7 @@ local function buildESP(plr)
     clearESP(plr)
 
     local bb = Instance.new("BillboardGui")
-    bb.Size = UDim2.fromOffset(200, 40)
+    bb.Size = UDim2.fromOffset(220, 56)
     bb.StudsOffset = Vector3.new(0, 2.5, 0)
     bb.AlwaysOnTop = true
     bb.Parent = head
@@ -56,6 +60,18 @@ local function buildESP(plr)
     distLbl.TextStrokeTransparency = 0
     distLbl.Parent = bb
 
+    -- weapon / state / VIS-WALL line (filled by 11_esp_players_refresh)
+    local infoLbl = Instance.new("TextLabel")
+    infoLbl.Size = UDim2.new(1, 0, 0, 12)
+    infoLbl.Position = UDim2.new(0, 0, 0, 28)
+    infoLbl.BackgroundTransparency = 1
+    infoLbl.Font = Enum.Font.GothamMedium
+    infoLbl.TextSize = 10
+    infoLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+    infoLbl.TextStrokeTransparency = 0
+    infoLbl.Visible = false
+    infoLbl.Parent = bb
+
     local hl = Instance.new("Highlight")
     hl.Adornee = char
     hl.FillTransparency = 0.3
@@ -72,8 +88,7 @@ local function buildESP(plr)
     lines.hpBg.Thickness = 2; lines.hpFill.Thickness = 2
 
     espObjects[plr] = {
-        bb = bb, nameLbl = nameLbl, distLbl = distLbl,
+        bb = bb, nameLbl = nameLbl, distLbl = distLbl, infoLbl = infoLbl,
         highlight = hl, lines = lines,
     }
 end
-

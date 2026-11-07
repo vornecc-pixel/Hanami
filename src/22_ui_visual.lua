@@ -1,12 +1,12 @@
 -- ==================================================================
--- Hanami / 17_ui_visual.lua — Visual tab (FOV + debug)
+-- Hanami / 22_ui_visual.lua — Visual tab (FOV, snapline, debug)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
 
--- ── VISUAL : FOV ───────────────────────────────────────────────────
+-- ── VISUAL : FOV + Snapline ─────────────────────────────────────────
 local fovCol = VisualTab:column()
-local fovSec = fovCol:section({ name = "FOV Circle" })
+local fovSec = fovCol:section({ name = "FOV Circle / Snapline" })
 
 bindToggle(fovSec, "Show FOV Circle", "showFov")
     :colorpicker({
@@ -18,6 +18,19 @@ bindToggle(fovSec, "Filled", "fovFilled")
 bindSlider(fovSec, "Aim / Circle Radius (px)", "fov", 30, 500, 1, "px")
 bindSlider(fovSec, "Transparency (%)", "fovTransparency", 0, 100, 1, "%")
 bindSlider(fovSec, "Thickness", "fovThickness", 1, 5, 1, "")
+
+bindToggle(fovSec, "Snapline (aim preview)", "snapLineEnabled",
+    "Line from the FOV centre to the exact target silent aim would pick. GREEN = clear, RED = blocked")
+    :colorpicker({
+        name = "Visible", flag = "hn_snap_vis_color", color = snapColorVisible,
+        callback = function(c) snapColorVisible = c end,
+    })
+    :colorpicker({
+        name = "Hidden", flag = "hn_snap_hidden_color", color = snapColorHidden,
+        callback = function(c) snapColorHidden = c end,
+    })
+bindDropdown(fovSec, "Line Origin", "snapLineOrigin", { "Mouse", "Center", "Bottom" })
+bindSlider(fovSec, "Snapline Thickness", "snapLineThickness", 1, 5, 1, "")
 
 -- ── VISUAL : Debug ─────────────────────────────────────────────────
 local dbgCol = VisualTab:column()
@@ -39,4 +52,11 @@ addButton(dbgSec, "Print Manip State", function()
     local n = 0; for _ in pairs(saManipCache) do n = n + 1 end
     print(string.format("[manip] frame=%d budget=%d disabled=%d cached=%d",
         saManipFrame, saManipBudget, #saManipDisabled, n))
+end)
+addButton(dbgSec, "Print Current Target", function()
+    local t = SA.Target
+    if not t.model then print("[sa] target: none in FOV"); return end
+    print(string.format("[sa] target: %s | %s | age %.2fs | last shot: %s",
+        t.model.Name, t.visible and "VISIBLE" or "BLOCKED",
+        tick() - (t.t or 0), t.lastShot and t.lastShot.Name or "never"))
 end)

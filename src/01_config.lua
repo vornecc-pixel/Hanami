@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 01_config.lua — Services, config defaults, backfill, gun speeds
+-- Hanami / 01_config.lua — Services, config defaults, backfill, shared state
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -19,6 +19,27 @@ local lp                = Players.LocalPlayer
 local ws                = workspace
 
 -- ────────────────────────────────────────────────────────────────────
+-- SHARED STATE
+-- A plain table so early parts can call helpers assigned by later parts
+-- (no forward-local problem), while `_G` keeps it across re-executes.
+-- ────────────────────────────────────────────────────────────────────
+
+local SA = _G.__saShared or {}
+_G.__saShared = SA
+SA.Target = SA.Target or {}   -- current aim-preview target, written by 09_snapline
+
+-- Colours live here so every drawing part and every UI colourpicker
+-- writes the same shared locals.
+local espColor         = Color3.fromRGB(255, 60, 60)  -- flat colour when check is off
+local espColorVisible  = Color3.fromRGB(60, 255, 100)
+local espColorHidden   = Color3.fromRGB(255, 60, 60)
+local npcColorVisible  = Color3.fromRGB(60, 255, 100)
+local npcColorHidden   = Color3.fromRGB(255, 60, 60)
+local snapColorVisible = Color3.fromRGB(60, 255, 100)
+local snapColorHidden  = Color3.fromRGB(255, 60, 60)
+local fovColor         = Color3.fromRGB(255, 50, 50)
+
+-- ────────────────────────────────────────────────────────────────────
 -- CONFIG
 -- ────────────────────────────────────────────────────────────────────
 
@@ -33,7 +54,7 @@ local CFG = _G.__saCFG or {
     teamCheck  = true,
     hitChance  = 100,
     prediction = true,
-    targetNpcs = false,
+    targetNpcs = true,
     targetBone = "Head",
 
     -- gun silent aim
@@ -58,11 +79,29 @@ local CFG = _G.__saCFG or {
     manipMaxPeekDelta = 6,
 
     -- player esp
-    espEnabled     = false,
-    espShowName    = true,
-    espShowDist    = true,
-    espShowHealth  = true,
-    espMaxDist     = 2000,
+    espEnabled      = false,
+    espShowName     = true,
+    espShowDist     = true,
+    espShowHealth   = true,
+    espMaxDist      = 2000,
+    espVisibleCheck = true,
+    espShowTool     = true,
+    espShowState    = true,
+
+    -- npc esp (Guard / Scavenger / Soldier)
+    npcEspEnabled   = false,
+    npcShowName     = true,
+    npcShowDist     = true,
+    npcShowHealth   = true,
+    npcShowTool     = true,
+    npcShowState    = true,
+    npcVisibleCheck = true,
+    npcMaxDist      = 2000,
+
+    -- aim preview / snapline
+    snapLineEnabled   = true,
+    snapLineOrigin    = "Mouse",
+    snapLineThickness = 1,
 
     -- crate esp
     crateEnabled       = false,
@@ -86,12 +125,17 @@ local CFG = _G.__saCFG or {
 }
 _G.__saCFG = CFG
 
--- backfill
+-- backfill (keeps settings from older versions usable)
 for k, v in pairs({
     manipulation = false, manipDist = 30, manipPeek = 4, manipMaxParts = 3,
     manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
+    espVisibleCheck = true, espShowTool = true, espShowState = true,
+    npcEspEnabled = false, npcShowName = true, npcShowDist = true,
+    npcShowHealth = true, npcShowTool = true, npcShowState = true,
+    npcVisibleCheck = true, npcMaxDist = 2000,
+    snapLineEnabled = true, snapLineOrigin = "Mouse", snapLineThickness = 1,
     crateEnabled = false, crateShowMilitary = true, crateShowElite = true,
     crateShowOpened = true, crateMaxDist = 3000,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
@@ -107,4 +151,3 @@ local GUN_SPEEDS = {
     musket = 1100, flintlock = 700, rocket_launcher = 250,
 }
 local GUN_DEFAULT_SPEED = 1000
-

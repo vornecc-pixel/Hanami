@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 03_manipulation.lua — Wall-peek + CanQuery manipulation
+-- Hanami / 05_manipulation.lua — Wall-peek + CanQuery manipulation
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
