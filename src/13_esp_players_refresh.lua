@@ -26,7 +26,7 @@ local function refreshESP()
                 -- GREEN = clear line of sight, RED = behind a wall
                 local visible = CFG.espVisibleCheck and SA.IsVisible(char, hrp.Position)
                 local col = CFG.espVisibleCheck
-                    and (visible and espColorVisible or espColorHidden) or espColor
+                    and (visible and ESP_COLORS.playerVisible or ESP_COLORS.playerHidden) or ESP_COLORS.playerFlat
 
                 o.bb.Enabled = true; o.highlight.Enabled = true
                 o.highlight.FillColor = col

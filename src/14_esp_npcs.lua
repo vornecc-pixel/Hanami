@@ -14,6 +14,7 @@ local function clearNpc(model)
     local o = npcObjects[model]
     if not o then return end
     if o.lines then for _, d in pairs(o.lines) do removeDrawing(d) end end
+    if SA.DisposeEspFx then SA.DisposeEspFx(o) end
     if o.bb then o.bb:Destroy() end
     if o.highlight then o.highlight:Destroy() end
     npcObjects[model] = nil
@@ -53,7 +54,7 @@ local function buildNpc(model)
     distLbl.TextStrokeTransparency = 0
     distLbl.Parent = bb
 
-    -- weapon / state / VIS-WALL line (filled by 13_esp_npcs_refresh)
+    -- weapon / state / VIS-WALL line (filled by 15_esp_npcs_refresh)
     local infoLbl = Instance.new("TextLabel")
     infoLbl.Size = UDim2.new(1, 0, 0, 12)
     infoLbl.Position = UDim2.new(0, 0, 0, 28)

@@ -26,7 +26,7 @@ local function refreshNpcESP()
                 -- GREEN = clear line of sight, RED = behind a wall
                 local visible = CFG.npcVisibleCheck and SA.IsVisible(model, hrp.Position)
                 local col = CFG.npcVisibleCheck
-                    and (visible and npcColorVisible or npcColorHidden) or espColor
+                    and (visible and ESP_COLORS.npcVisible or ESP_COLORS.npcHidden) or ESP_COLORS.npcFlat
 
                 o.bb.Enabled = true; o.highlight.Enabled = true
                 o.highlight.FillColor = col

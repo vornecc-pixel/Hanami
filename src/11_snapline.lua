@@ -76,7 +76,7 @@ local function updateSnapLine()
 
     local toPx = Vector2.new(sp.X, sp.Y)
     local visible = SA.IsVisible(best.model, best.pos)
-    local col = visible and snapColorVisible or snapColorHidden
+    local col = visible and ESP_COLORS.snapVisible or ESP_COLORS.snapHidden
 
     snapLine.From = snapOrigin(cam)
     snapLine.To = toPx
@@ -96,10 +96,10 @@ local function updateSnapLine()
         if leadOn and (leadPx - toPx).Magnitude > 1.5 and info.inRange then
             leadLine.From = toPx
             leadLine.To = leadPx
-            leadLine.Color = leadColor
+            leadLine.Color = ESP_COLORS.lead
             leadLine.Visible = true
             leadDot.Position = leadPx
-            leadDot.Color = leadColor
+            leadDot.Color = ESP_COLORS.lead
             leadDot.Visible = true
         else
             leadLine.Visible = false; leadDot.Visible = false

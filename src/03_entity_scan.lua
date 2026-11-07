@@ -53,8 +53,10 @@ function SA.RefreshNpcs()
     return SA.GetNpcs()
 end
 
--- One background scanner + one event pair per game session. Re-executing
--- the loader reuses the same _G.__saNpcList table, so no duplicate loops.
+-- One event pair per game session, but one scanner loop per loader run:
+-- SA.Generation bumps on re-execute so the previous loop exits instead of
+-- doubling up. The list itself is shared through _G.__saNpcList.
+local npcGeneration = SA.Generation
 if not _G.__saNpcScanner then
     _G.__saNpcScanner = true
     local scanPending = false
@@ -73,13 +75,14 @@ if not _G.__saNpcScanner then
     ws.DescendantRemoving:Connect(function(d)
         if NPC_NAMES[d.Name] then requestScan() end
     end)
-    task.spawn(function()
-        while true do
-            pcall(collectNpcs)
-            task.wait(NPC_SCAN_INTERVAL)
-        end
-    end)
 end
+task.spawn(function()
+    while true do
+        if SA.Alive == false or SA.Generation ~= npcGeneration then break end
+        pcall(collectNpcs)
+        task.wait(NPC_SCAN_INTERVAL)
+    end
+end)
 
 -- ────────────────────────────────────────────────────────────────────
 -- VISIBILITY (LOS)

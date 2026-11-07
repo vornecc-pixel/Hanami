@@ -8,13 +8,13 @@
 -- FOV CIRCLE
 -- ────────────────────────────────────────────────────────────────────
 
--- fovColor is declared in 01_config.lua and shared with the Visual tab colourpicker
+-- ESP_COLORS.fov lives in 01_config.lua; the ESP -> Colours tab owns its picker
 local fovCircle = nil
 do
     local ok, c = pcall(function() return Drawing.new("Circle") end)
     if ok and c then
         c.Thickness = 1; c.Filled = false
-        c.Color = fovColor; c.Visible = false
+        c.Color = ESP_COLORS.fov; c.Visible = false
         fovCircle = c
     end
 end
@@ -27,7 +27,7 @@ if fovCircle then
             fovCircle.Thickness    = CFG.fovThickness
             fovCircle.Transparency = 1 - math.clamp(CFG.fovTransparency / 100, 0, 1)
             fovCircle.Color        = CFG.manipulation
-                and Color3.fromRGB(255, 160, 40) or fovColor
+                and ESP_COLORS.fovManip or ESP_COLORS.fov
             fovCircle.Visible = true
         else
             fovCircle.Visible = false

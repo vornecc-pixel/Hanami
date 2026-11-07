@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 25_banner.lua — Startup banner + return CFG
+-- Hanami / 26_banner.lua — Startup banner + return CFG
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -26,6 +26,9 @@ print(string.format("  gun   : %s | %s | %.0f studs/s",
     equippedGun.id, tostring(equippedGun.ammo), equippedGun.speed))
 print("  npcaim:", CFG.targetNpcs and "on" or "off")
 print("  npcs  :", #SA.GetNpcs())
+print("  crates:", #SA.GetCrates(), "(live registry)")
+print("  espfx :", CFG.espPerElementColors and "per-element" or "visibility colours")
+print("  colors:", "ESP -> Colours tab (every element)")
 print("  ui    : Atlanta")
 print("  toggle: RightShift | menu: Insert")
 print("══════════════════════════════════════════════")

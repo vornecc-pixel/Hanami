@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 23_ui_visual.lua — Visual tab (FOV, snapline, debug)
+-- Hanami / 24_ui_visual.lua — Visual tab (FOV, snapline, debug)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -9,11 +9,8 @@ local fovCol = VisualTab:column()
 local fovSec = fovCol:section({ name = "FOV Circle / Snapline" })
 
 bindToggle(fovSec, "Show FOV Circle", "showFov")
-    :colorpicker({
-        name = "FOV Color", flag = "hn_fov_color", color = fovColor,
-        callback = function(c) fovColor = c end,
-    })
 bindToggle(fovSec, "Filled", "fovFilled")
+fovSec:label({ name = "FOV / snapline / lead colours: ESP -> Colours -> Global" })
 -- CFG.fov is used by both the target picker and the drawn circle
 bindSlider(fovSec, "Aim / Circle Radius (px)", "fov", 30, 500, 1, "px")
 bindSlider(fovSec, "Transparency (%)", "fovTransparency", 0, 100, 1, "%")
@@ -21,22 +18,10 @@ bindSlider(fovSec, "Thickness", "fovThickness", 1, 5, 1, "")
 
 bindToggle(fovSec, "Snapline (aim preview)", "snapLineEnabled",
     "Line from the FOV centre to the exact target silent aim would pick. GREEN = clear, RED = blocked")
-    :colorpicker({
-        name = "Visible", flag = "hn_snap_vis_color", color = snapColorVisible,
-        callback = function(c) snapColorVisible = c end,
-    })
-    :colorpicker({
-        name = "Hidden", flag = "hn_snap_hidden_color", color = snapColorHidden,
-        callback = function(c) snapColorHidden = c end,
-    })
 bindDropdown(fovSec, "Line Origin", "snapLineOrigin", { "Mouse", "Center", "Bottom" })
 bindSlider(fovSec, "Snapline Thickness", "snapLineThickness", 1, 5, 1, "")
 bindToggle(fovSec, "Show Lead Marker", "snapShowLead",
-    "Gold ring = the exact point the ballistic solver will aim at (moving targets / bullet drop)")
-    :colorpicker({
-        name = "Lead Color", flag = "hn_lead_color", color = leadColor,
-        callback = function(c) leadColor = c end,
-    })
+    "Ring = the exact point the ballistic solver will aim at (moving targets / bullet drop)")
 
 -- ── VISUAL : Debug ─────────────────────────────────────────────────
 local dbgCol = VisualTab:column()

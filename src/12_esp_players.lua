@@ -20,6 +20,7 @@ local function clearESP(plr)
     local o = espObjects[plr]
     if not o then return end
     if o.lines then for _, d in pairs(o.lines) do removeDrawing(d) end end
+    if SA.DisposeEspFx then SA.DisposeEspFx(o) end
     if o.bb then o.bb:Destroy() end
     if o.highlight then o.highlight:Destroy() end
     espObjects[plr] = nil
@@ -60,7 +61,7 @@ local function buildESP(plr)
     distLbl.TextStrokeTransparency = 0
     distLbl.Parent = bb
 
-    -- weapon / state / VIS-WALL line (filled by 11_esp_players_refresh)
+    -- weapon / state / VIS-WALL line (filled by 13_esp_players_refresh)
     local infoLbl = Instance.new("TextLabel")
     infoLbl.Size = UDim2.new(1, 0, 0, 12)
     infoLbl.Position = UDim2.new(0, 0, 0, 28)
