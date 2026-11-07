@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 15_esp_crates_refresh.lua — Crate ESP refresh, scanning, events
+-- Hanami / 17_esp_crates_refresh.lua — Crate ESP refresh, scanning, events
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

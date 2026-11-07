@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 20_ui_gunmods.lua — Gun Mods tab controls
+-- Hanami / 22_ui_gunmods.lua — Gun Mods tab controls
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

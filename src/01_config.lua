@@ -36,6 +36,7 @@ local npcColorVisible  = Color3.fromRGB(60, 255, 100)
 local npcColorHidden   = Color3.fromRGB(255, 60, 60)
 local snapColorVisible = Color3.fromRGB(60, 255, 100)
 local snapColorHidden  = Color3.fromRGB(255, 60, 60)
+local leadColor        = Color3.fromRGB(255, 200, 60)
 local fovColor         = Color3.fromRGB(255, 50, 50)
 
 -- ────────────────────────────────────────────────────────────────────
@@ -52,15 +53,24 @@ local CFG = _G.__saCFG or {
     wallCheck  = false,
     teamCheck  = true,
     hitChance  = 100,
-    prediction = true,
     targetNpcs = true,
     targetBone = "Head",
 
     -- gun silent aim
     gunEnabled     = true,
     gunShotOnly    = true,
-    gunBulletSpeed = 0,
     gunCooldown    = 0,
+
+    -- ballistics / prediction
+    prediction           = true,
+    predictionGravity    = true,
+    predictionAmmo       = true,
+    predictionIterations = 4,
+    predictionLatency    = 0,
+    gunBulletSpeed       = 0,     -- 0 = exact speed from 07_gun_specs.lua
+    gunAmmoOverride      = "Auto",
+    saturday2Mode        = false,
+    muzzleBoost          = false,
 
     -- fov visual
     showFov         = false,
@@ -101,6 +111,7 @@ local CFG = _G.__saCFG or {
     snapLineEnabled   = true,
     snapLineOrigin    = "Mouse",
     snapLineThickness = 1,
+    snapShowLead      = true,
 
     -- crate esp
     crateEnabled       = false,
@@ -132,6 +143,10 @@ for k, v in pairs({
     npcShowHealth = true, npcShowTool = true, npcShowState = true,
     npcVisibleCheck = true, npcMaxDist = 2000,
     snapLineEnabled = true, snapLineOrigin = "Mouse", snapLineThickness = 1,
+    snapShowLead = true,
+    prediction = true, predictionGravity = true, predictionAmmo = true,
+    predictionIterations = 4, predictionLatency = 0, gunBulletSpeed = 0,
+    gunAmmoOverride = "Auto", saturday2Mode = false, muzzleBoost = false,
     crateEnabled = false, crateShowMilitary = true, crateShowElite = true,
     crateShowOpened = true, crateMaxDist = 3000,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
@@ -139,11 +154,6 @@ for k, v in pairs({
     gmNoSway = false, gmNoKick = false,
 }) do if CFG[k] == nil then CFG[k] = v end end
 
-local GUN_SPEEDS = {
-    assault_rifle = 1173, semi_auto_rifle = 1110, bolt_action_rifle = 1200,
-    hunting_rifle = 1100, tactical_smg = 825, custom_smg = 824, hunt_smg = 825,
-    m249 = 1097, pump_shotgun = 525, double_barrel = 525, pipe_shotgun = 525,
-    pistol = 828, service_pistol = 828, revolver = 885,
-    musket = 1100, flintlock = 700, rocket_launcher = 250,
-}
-local GUN_DEFAULT_SPEED = 1000
+-- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
+-- Exact per-gun projectile speeds, ammo damage, gravity, life and range
+-- live in 07_gun_specs.lua; 08_prediction.lua does the intercept solve.

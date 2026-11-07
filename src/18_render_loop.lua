@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 16_render_loop.lua — Master player/NPC/crate ESP render loop
+-- Hanami / 18_render_loop.lua — Master player/NPC/crate ESP render loop
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

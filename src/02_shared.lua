@@ -8,39 +8,8 @@
 -- SHARED LOGIC
 -- ────────────────────────────────────────────────────────────────────
 
-local velCache = _G.__saVelCache or {}
-_G.__saVelCache = velCache
-if not _G.__saVelCleanup then
-    _G.__saVelCleanup = true
-    task.spawn(function()
-        while true do
-            task.wait(5)
-            local now = tick()
-            for k, v in pairs(velCache) do
-                if now - v.t > 3 then velCache[k] = nil end
-            end
-        end
-    end)
-end
-
-local function getVelocity(part)
-    local model = part and part.Parent
-    if not model then return Vector3.zero end
-    local hrp = model:FindFirstChild("HumanoidRootPart")
-    if not hrp then return Vector3.zero end
-    local now, pos = tick(), hrp.Position
-    local e = velCache[model]
-    if not e then
-        velCache[model] = { p = pos, t = now, v = Vector3.zero }
-        return Vector3.zero
-    end
-    local dt = now - e.t
-    if dt < 0.016 then return e.v end
-    local v = (pos - e.p) / dt
-    if v.Magnitude > 100 then v = Vector3.zero end
-    e.p, e.t, e.v = pos, now, v
-    return v
-end
+-- Target velocity is now sampled/smoothed by 08_prediction.lua
+-- (SA.TargetVelocity); the old single-frame velCache is gone.
 
 local function isTeammate(p)
     local mates = lp:GetAttribute("FustMates")

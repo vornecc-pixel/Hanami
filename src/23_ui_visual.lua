@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 21_ui_visual.lua — Visual tab (FOV, snapline, debug)
+-- Hanami / 23_ui_visual.lua — Visual tab (FOV, snapline, debug)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -31,6 +31,12 @@ bindToggle(fovSec, "Snapline (aim preview)", "snapLineEnabled",
     })
 bindDropdown(fovSec, "Line Origin", "snapLineOrigin", { "Mouse", "Center", "Bottom" })
 bindSlider(fovSec, "Snapline Thickness", "snapLineThickness", 1, 5, 1, "")
+bindToggle(fovSec, "Show Lead Marker", "snapShowLead",
+    "Gold ring = the exact point the ballistic solver will aim at (moving targets / bullet drop)")
+    :colorpicker({
+        name = "Lead Color", flag = "hn_lead_color", color = leadColor,
+        callback = function(c) leadColor = c end,
+    })
 
 -- ── VISUAL : Debug ─────────────────────────────────────────────────
 local dbgCol = VisualTab:column()
@@ -44,9 +50,20 @@ addButton(dbgSec, "Print Sandwich", function()
     print(string.format("[sa] actual binds: %s @ %d / %s @ %d",
         snapName, snapPrio, restoreName, restorePrio))
 end)
-addButton(dbgSec, "Print Equipped Gun", function()
-    local id = getEquippedGunId()
-    print("[sa] equipped:", id or "nothing")
+addButton(dbgSec, "Print Gun Spec", function()
+    SA.PrintGunSpec()
+end)
+addButton(dbgSec, "Print Prediction", function()
+    local cam = ws.CurrentCamera
+    local t = SA.Target
+    if not (cam and t.model and t.pos) then
+        print("[sa] prediction: no target in FOV"); return
+    end
+    SA.PrintPrediction(cam.CFrame.Position, t.pos, t.model)
+end)
+addButton(dbgSec, "Sync Gun Defs (GC)", function()
+    local n = SA.SyncGunDefs()
+    if n == 0 then print("[sa] no live gun tables found; using static specs") end
 end)
 addButton(dbgSec, "Print Manip State", function()
     local n = 0; for _ in pairs(saManipCache) do n = n + 1 end

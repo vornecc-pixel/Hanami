@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 19_ui_esp.lua — ESP tab (players, NPCs, loot crates)
+-- Hanami / 21_ui_esp.lua — ESP tab (players, NPCs, loot crates)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

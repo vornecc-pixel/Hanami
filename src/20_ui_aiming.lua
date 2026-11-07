@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 18_ui_aiming.lua — Atlanta UI setup + Aiming tab
+-- Hanami / 20_ui_aiming.lua — Atlanta UI setup + Aiming tab
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -105,22 +105,45 @@ local presetDropdown = masterSec:dropdown({
 
 bindToggle(gunSec, "Gun Silent Aim", "gunEnabled")
 bindToggle(gunSec, "Only While Firing", "gunShotOnly")
-bindToggle(gunSec, "Prediction", "prediction")
 bindToggle(gunSec, "Wall Check", "wallCheck",
     "Strict LOS-only shots. Automatically bypassed while Manipulation is ON, so leave OFF for wall pen")
 bindToggle(gunSec, "Team Check", "teamCheck")
 bindToggle(gunSec, "Target NPCs", "targetNpcs",
     "Guard / Scavenger / Soldier models are found anywhere in Workspace (not just an Npcs folder)")
 
--- ── AIMING : column 2 (Target / Wall Penetration) ──────────────────
+-- ── AIMING : column 2 (Target / Ballistics / Wall Penetration) ──────
 local aimCol2 = Aiming:column()
-local targetSec, manipSec = aimCol2:multi_section({ names = { "Target", "Wall Penetration" } })
+local targetSec, ballSec, manipSec = aimCol2:multi_section({
+    names = { "Target", "Ballistics", "Wall Penetration" },
+})
 
 bindDropdown(targetSec, "Target Bone", "targetBone", { "Head", "Hrp" })
 hitChanceSlider = bindSlider(targetSec, "Hit Chance (%)", "hitChance", 0, 100, 1, "%")
 bindSlider(targetSec, "Max Distance (studs)", "distance", 0, 500, 1, "")
 cooldownSlider = bindSlider(targetSec, "Cooldown (s)", "gunCooldown", 0, 1, 0.01, "s")
-bindSlider(targetSec, "Bullet Speed Override (0 = auto)", "gunBulletSpeed", 0, 1500, 1, "")
+
+-- ── AIMING : Ballistics ─────────────────────────────────────────────
+bindToggle(ballSec, "Ballistic Prediction", "prediction",
+    "Exact quadratic intercept using the equipped gun's real speed (not the old distance/speed guess)")
+bindToggle(ballSec, "Bullet Drop Compensation", "predictionGravity",
+    "Aims above by 0.5 * gravity * t^2 for guns with gravity/life (SMGs and the two snipers)")
+bindToggle(ballSec, "Detect Alt Ammo", "predictionAmmo",
+    "Reads hv_rifle_ammo (1.5x speed), buckshot_shell, slug_shell and hv_rocket from the tool")
+bindSlider(ballSec, "Solver Iterations", "predictionIterations", 1, 8, 1, "")
+bindSlider(ballSec, "Extra Lead (ping ms)", "predictionLatency", 0, 300, 5, "ms")
+bindSlider(ballSec, "Bullet Speed Override (0 = auto)", "gunBulletSpeed", 0, 3000, 10, "")
+bindDropdown(ballSec, "Ammo Override", "gunAmmoOverride", {
+    "Auto", "handmade_shell", "pistol_bullet", "rifle_ammo", "rocket",
+    "hv_rifle_ammo", "explosive_rifle_ammo", "buckshot_shell", "slug_shell",
+    "hv_rocket", "incendiary_rocket",
+})
+bindToggle(ballSec, "Saturday2 Damage", "saturday2Mode",
+    "Uses the s2Damage branch of u3492.GunDamage if the game exposes it; otherwise Defs[ammo].damage x damageMult")
+bindToggle(ballSec, "Muzzle Boost Equipped", "muzzleBoost",
+    "muzzle_boost: +15% fire rate, -10% damage (affects the spec readout, not projectile speed)")
+ballSec:label({ name = "Speeds are the gun's `speed` field (GUNS overrides applied)" })
+ballSec:label({ name = "Damage = Defs[ammo].damage x damageMult (the damage field is 0)" })
+addButton(ballSec, "Print Gun Spec", function() SA.PrintGunSpec() end)
 
 bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
     "Best all-round: ON, Wall Check OFF, Range 75, Peek 4, Parts 3, Budget 64, Hysteresis 5, Max Delta 6, FOV ~150")

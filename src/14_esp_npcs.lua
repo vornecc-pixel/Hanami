@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 12_esp_npcs.lua — NPC ESP objects + enable/disable
+-- Hanami / 14_esp_npcs.lua — NPC ESP objects + enable/disable
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

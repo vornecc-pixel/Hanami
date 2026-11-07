@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 07_silent_aim.lua — Camera sandwich renderstep binds
+-- Hanami / 09_silent_aim.lua — Camera sandwich renderstep binds
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -30,14 +30,20 @@ RunService:BindToRenderStep(snapName, snapPrio, function()
     local aimPx = UserInputService:GetMouseLocation()
     local best  = pickBestTarget(camera, aimPx, camera.CFrame.Position)
     if not best then return end
+    local origin = camera.CFrame.Position
     local targetPos = best.pos
     if CFG.prediction then
-        local speed  = getGunSpeed()
-        local travel = (targetPos - camera.CFrame.Position).Magnitude / speed
-        local vel    = getVelocity(best.bone)
-        if vel.Magnitude > 0.5 then targetPos = targetPos + vel * travel end
+        -- exact ballistic intercept: per-gun speed, quadratic lead,
+        -- bullet-drop compensation and alt-ammo modifiers (08_prediction.lua)
+        local aim, info = SA.Predict(origin, targetPos, best.model)
+        targetPos = aim
+        SA.Target.pred = info
+        if CFG.debug then
+            dbg(string.format("pred %s | speed %.0f | t %.3fs | lead %.1f | drop %.2f | %s",
+                info.id, info.speed, info.t, info.lead, info.drop,
+                info.inRange and "in range" or "OUT OF RANGE"))
+        end
     end
-    local origin = camera.CFrame.Position
     if (targetPos - origin).Magnitude < 0.05 then return end
     local manipOrigin = origin
     if CFG.manipulation then

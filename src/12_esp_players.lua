@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 10_esp_players.lua — Player ESP objects, box, health bar
+-- Hanami / 12_esp_players.lua — Player ESP objects, box, health bar
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

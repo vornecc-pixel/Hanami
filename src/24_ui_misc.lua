@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 22_ui_misc.lua — Misc tab, quick actions, UI init
+-- Hanami / 24_ui_misc.lua — Misc tab, quick actions, UI init
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -13,6 +13,7 @@ infoSec:label({ name = "Toggle key: RightShift (silent aim)" })
 infoSec:label({ name = "Menu key: Insert | UI: Atlanta library" })
 infoSec:label({ name = "ESP: green = visible, red = behind wall" })
 infoSec:label({ name = "NPC names: Guard / Scavenger / Soldier" })
+infoSec:label({ name = "Ballistics: per-gun speed + drop + alt ammo" })
 infoSec:label({ name = "Gun Mods: GC scan (getgc + rawset)" })
 
 -- ── MISC : Quick Actions ───────────────────────────────────────────

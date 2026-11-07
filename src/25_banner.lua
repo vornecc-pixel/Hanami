@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 23_banner.lua — Startup banner + return CFG
+-- Hanami / 25_banner.lua — Startup banner + return CFG
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -20,6 +20,10 @@ print("  npcesp:", CFG.npcEspEnabled and "on" or "off")
 print("  crates:", CFG.crateEnabled and "on" or "off")
 print("  gunmod:", CFG.gmEnabled and "on" or "off")
 print("  snapln:", CFG.snapLineEnabled and "on" or "off")
+print("  pred  :", CFG.prediction and "ballistic" or "off")
+local equippedGun = SA.GetEquippedGun()
+print(string.format("  gun   : %s | %s | %.0f studs/s",
+    equippedGun.id, tostring(equippedGun.ammo), equippedGun.speed))
 print("  npcaim:", CFG.targetNpcs and "on" or "off")
 print("  npcs  :", #SA.GetNpcs())
 print("  ui    : Atlanta")

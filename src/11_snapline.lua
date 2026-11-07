@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 09_snapline.lua — Aim preview line + target marker
+-- Hanami / 11_snapline.lua — Aim preview line + target/lead markers
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -11,13 +11,15 @@
 -- Uses `preview` mode so hit-chance RNG can't make the line flicker.
 -- ────────────────────────────────────────────────────────────────────
 
-local snapLine, snapDot = nil, nil
+local snapLine, snapDot, leadLine, leadDot = nil, nil, nil, nil
 do
     local ok = pcall(function()
         snapLine = Drawing.new("Line")
         snapDot  = Drawing.new("Circle")
+        leadLine = Drawing.new("Line")
+        leadDot  = Drawing.new("Circle")
     end)
-    if ok and snapLine and snapDot then
+    if ok and snapLine and snapDot and leadLine and leadDot then
         snapLine.Thickness = 1
         snapLine.Transparency = 0.2
         snapLine.Visible = false
@@ -26,14 +28,24 @@ do
         snapDot.NumSides = 24
         snapDot.Transparency = 0.2
         snapDot.Visible = false
+        leadLine.Thickness = 1
+        leadLine.Transparency = 0.35
+        leadLine.Visible = false
+        leadDot.Radius = 5
+        leadDot.Filled = false
+        leadDot.NumSides = 24
+        leadDot.Transparency = 0.35
+        leadDot.Visible = false
     else
-        snapLine, snapDot = nil, nil
+        snapLine, snapDot, leadLine, leadDot = nil, nil, nil, nil
     end
 end
 
 local function hideSnap()
     if snapLine then snapLine.Visible = false end
     if snapDot  then snapDot.Visible  = false end
+    if leadLine then leadLine.Visible = false end
+    if leadDot  then leadDot.Visible  = false end
 end
 
 local function snapOrigin(cam)
@@ -75,6 +87,26 @@ local function updateSnapLine()
     snapDot.Position = toPx
     snapDot.Color = col
     snapDot.Visible = true
+
+    -- lead marker: where the ballistic solver will actually send the shot
+    if leadLine and CFG.snapShowLead and CFG.prediction then
+        local aimPos, info = SA.Predict(cam.CFrame.Position, best.pos, best.model)
+        local lp2, leadOn = cam:WorldToViewportPoint(aimPos)
+        local leadPx = Vector2.new(lp2.X, lp2.Y)
+        if leadOn and (leadPx - toPx).Magnitude > 1.5 and info.inRange then
+            leadLine.From = toPx
+            leadLine.To = leadPx
+            leadLine.Color = leadColor
+            leadLine.Visible = true
+            leadDot.Position = leadPx
+            leadDot.Color = leadColor
+            leadDot.Visible = true
+        else
+            leadLine.Visible = false; leadDot.Visible = false
+        end
+    elseif leadLine then
+        leadLine.Visible = false; leadDot.Visible = false
+    end
 
     SA.Target.model   = best.model
     SA.Target.pos     = best.pos
