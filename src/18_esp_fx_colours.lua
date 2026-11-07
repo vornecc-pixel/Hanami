@@ -88,7 +88,7 @@ local SKELETON = {
 local function tracerOrigin(cam)
     local vp = cam.ViewportSize
     local mode = CFG.espTracerOrigin or "Bottom"
-    if mode == "Mouse" then return UserInputService:GetMouseLocation() end
+    if mode == "Mouse" then return SA.AimPoint() end
     if mode == "Center" then return Vector2.new(vp.X / 2, vp.Y / 2) end
     return Vector2.new(vp.X / 2, vp.Y - 8)
 end

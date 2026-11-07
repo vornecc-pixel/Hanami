@@ -27,7 +27,8 @@ RunService:BindToRenderStep(snapName, snapPrio, function()
     if not gunCanSnap() then return end
     local camera = ws.CurrentCamera
     if not camera then return end
-    local aimPx = UserInputService:GetMouseLocation()
+    -- FOV circle centre is the one and only aiming reference point
+    local aimPx = SA.AimPoint()
     local best  = pickBestTarget(camera, aimPx, camera.CFrame.Position)
     if not best then return end
     local origin = camera.CFrame.Position

@@ -70,12 +70,16 @@ bindToggle(crateSec, "Show Elite Crates", "crateShowElite")
 bindToggle(crateSec, "Show Other Loot", "crateShowLoot",
     "Supply drops, airdrops, caches, chests and any other container")
 bindToggle(crateSec, "Show Opened Crates", "crateShowOpened")
+crateSec:label({ name = "── OPENED / UNOPENED STATE ──" })
+bindToggle(crateSec, "Invert Crate State", "crateInvertState",
+    "Turn ON if every label is backwards in your game. Flips OPENED <-> UNOPENED everywhere (label, colour, filter)")
+bindToggle(crateSec, "Lid Angle Detection", "crateLidDetect",
+    "OFF by default. Only use if the game exposes NO state attribute/Prompt; lid angle is an unreliable guess")
 bindToggle(crateSec, "Crate Chams Highlight", "crateHighlight",
     "OFF by default. When ON, the highlight is bound to the crate's own anchor part only — never to scenery")
 bindToggle(crateSec, "Loose Crate Detection", "crateLooseDetect",
     "Fuzzy name + attribute matching. Fixes crates named MilitaryCrate, Crate_Military, hashes, Folders…")
 bindSlider(crateSec, "Crate Max Distance", "crateMaxDist", 200, 5000, 10, "")
-crateSec:label({ name = "Live registry re-scans Workspace every 1.5s" })
 addButton(crateSec, "Rescan Crates", function()
     local snap = {}
     for m in pairs(crateObjects) do table.insert(snap, m) end
@@ -85,6 +89,9 @@ addButton(crateSec, "Rescan Crates", function()
 end)
 addButton(crateSec, "Print Crate Names (debug)", function()
     SA.PrintCrateCandidates()
+end)
+addButton(crateSec, "Print Crate States (debug)", function()
+    SA.PrintCrateStates()
 end)
 
 bindToggle(featSec, "Per-Element Colours", "espPerElementColors",

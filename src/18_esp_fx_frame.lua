@@ -16,10 +16,8 @@ function SA.ApplyEspFx(cam)
     local seed = 0
     -- shared with the FOV circle (10_fov_circle.lua) so off-screen arrows
     -- ride the exact same radius/centre the user sees
-    local fovC = SA.FovCenter and SA.FovCenter()
-        or Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local fovR = math.clamp(CFG.fov or 150, 20,
-        math.min(cam.ViewportSize.X, cam.ViewportSize.Y) / 2)
+    local fovC = SA.AimPoint()
+    local fovR = SA.FovRadius()
 
     if CFG.espEnabled then
         for plr, o in pairs(espObjects) do

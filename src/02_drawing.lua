@@ -7,49 +7,84 @@
 -- ────────────────────────────────────────────────────────────────────
 -- WHY THIS EXISTS
 -- FOV circle, ESP boxes, skeleton, head dots, tracers and off-screen
--- arrows are all `Drawing` objects. Many executors expose only part of
--- that API (or none at all): `Drawing.new` fails inside a pcall and every
--- visual silently disappears, while BillboardGui text still renders.
+-- arrows are all `Drawing` objects. Many executors expose only PART of
+-- that API: `Drawing.new("Line")` works but `Drawing.new("Circle")`
+-- returns an object whose Radius / NumSides / Filled cannot be written.
+-- The old code probed only "Line" once, so a broken Circle silently
+-- killed the FOV circle (and could abort the whole chunk at load time).
 --
--- SA.NewDraw(kind) probes the native API once. If it is missing or
--- incomplete, it returns a proxy backed by real Roblox GUI Frames in a
--- ScreenGui, implementing the exact same property interface:
---   Line     : Visible Color Transparency Thickness From To
---   Circle   : Visible Color Transparency Thickness Filled NumSides Radius Position
---   Triangle : Visible Color Transparency Filled PointA PointB PointC
---   all      : Remove()
+-- FIXES:
+--  * capability is probed PER KIND, against every property that kind
+--    actually uses, not just "Line";
+--  * a failed property write at runtime can invalidate that kind and
+--    force the GUI fallback (SA.InvalidateDrawKind);
+--  * `CFG.forceGuiDrawing` lets the user skip the native API entirely;
+--  * the ScreenGui parent is searched in the most reliable order
+--    (gethui -> CoreGui -> PlayerGui) and re-tried on every call, so a
+--    GUI that becomes available later is picked up;
+--  * `SA.DrawDiag()` reports exactly what is available.
 -- ────────────────────────────────────────────────────────────────────
 
-local drawNative = false
-local drawGui = _G.__saDrawGui
+local drawGui       = _G.__saDrawGui
+local nativeOK      = {}      -- kind -> true / false (lazy capability cache)
+local proxyCount    = 0
+local drawLastError = "none"
 
-local function probeNative()
-    local ok, newFn = pcall(function() return Drawing and Drawing.new end)
-    if not ok or not newFn then return false end
-    local made, obj = pcall(function() return Drawing.new("Line") end)
-    if not made or not obj then return false end
-    local writable = pcall(function()
-        obj.Visible = false
-        obj.Color = Color3.new(1, 1, 1)
-        obj.Transparency = 0.5
-        obj.Thickness = 1
-        obj.From = Vector2.new(0, 0)
-        obj.To = Vector2.new(10, 10)
-    end)
+local PROPS = {
+    Line     = { "Visible", "Color", "Transparency", "Thickness", "From", "To" },
+    Circle   = { "Visible", "Color", "Transparency", "Thickness", "Filled",
+                 "NumSides", "Radius", "Position" },
+    Triangle = { "Visible", "Color", "Transparency", "Thickness", "Filled",
+                 "PointA", "PointB", "PointC" },
+}
+local TESTVAL = {
+    Visible = false, Color = Color3.new(1, 1, 1), Transparency = 0.5,
+    Thickness = 1, Filled = true, NumSides = 24, Radius = 10,
+    Position = Vector2.new(0, 0), From = Vector2.new(0, 0),
+    To = Vector2.new(10, 10), PointA = Vector2.new(0, 0),
+    PointB = Vector2.new(10, 0), PointC = Vector2.new(5, 10),
+}
+
+local function nativeAvailable(kind, ignoreForce)
+    if not ignoreForce and CFG and CFG.forceGuiDrawing then return false end
+    if nativeOK[kind] ~= nil then return nativeOK[kind] end
+    local ok, obj = pcall(function() return Drawing.new(kind) end)
+    if not ok or not obj then
+        nativeOK[kind] = false
+        drawLastError = "Drawing.new(" .. kind .. ") failed"
+        return false
+    end
+    local good, why = true, nil
+    for _, p in ipairs(PROPS[kind] or {}) do
+        local wrote = pcall(function() obj[p] = TESTVAL[p] end)
+        if not wrote then good, why = false, p; break end
+    end
     pcall(function() if obj.Remove then obj:Remove() end end)
-    return writable
+    nativeOK[kind] = good
+    if not good then drawLastError = "native " .. kind .. " cannot write " .. tostring(why) end
+    return good
 end
 
-drawNative = probeNative()
-
 local function getDrawGui()
+    -- A destroyed / unparented overlay from a previous run must be replaced.
     if drawGui and drawGui.Parent then return drawGui end
+    drawGui = nil
+
     local parents = {}
+    -- PlayerGui FIRST: it is the standard Roblox container and is
+    -- guaranteed to render. CoreGui often accepts a child from an
+    -- executor but hides it behind CoreGui content (another reason the
+    -- FOV circle "didn't show up"). gethui() is the last resort.
+    pcall(function()
+        local pg = lp and (lp:FindFirstChildOfClass("PlayerGui")
+                          or lp:FindFirstChild("PlayerGui"))
+        if pg then table.insert(parents, pg) end
+    end)
     pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
-    pcall(function() table.insert(parents, lp:FindFirstChild("PlayerGui")) end)
     if typeof(gethui) == "function" then
         pcall(function() table.insert(parents, gethui()) end)
     end
+
     for _, parent in ipairs(parents) do
         if parent then
             local ok, sg = pcall(function()
@@ -60,6 +95,7 @@ local function getDrawGui()
                 gui.ResetOnSpawn = false
                 gui.IgnoreGuiInset = true
                 gui.DisplayOrder = 999
+                gui.Enabled = true
                 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
                 gui.Parent = parent
                 return gui
@@ -67,16 +103,24 @@ local function getDrawGui()
             if ok and sg then
                 drawGui = sg
                 _G.__saDrawGui = sg
+                pcall(function()
+                    drawLastError = "overlay parent: " .. tostring(parent:GetFullName())
+                end)
                 return drawGui
             end
         end
     end
+    drawLastError = "no usable ScreenGui parent (gethui / CoreGui / PlayerGui)"
     return nil
 end
 
--- Discard a stale overlay from a previous run if this run uses native.
-if drawNative and _G.__saDrawGui then
-    pcall(function() _G.__saDrawGui:Destroy(); _G.__saDrawGui = nil end)
+-- Re-executing the loader must not reuse a stale overlay: an older build
+-- may have parented it to CoreGui where the executor hides it. Destroy it
+-- and let getDrawGui() create a fresh one with the new parent order.
+if _G.__saDrawGui then
+    pcall(function() _G.__saDrawGui:Destroy() end)
+    _G.__saDrawGui = nil
+    drawGui = nil
 end
 
 local function fallbackDraw(kind)
@@ -94,9 +138,9 @@ local function fallbackDraw(kind)
     frame.ZIndex = 1
     frame.Parent = gui
 
-    local corner, stroke
+    local stroke
     if kind == "Circle" then
-        corner = Instance.new("UICorner")
+        local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0.5, 0)
         corner.Parent = frame
         stroke = Instance.new("UIStroke")
@@ -162,8 +206,12 @@ local function fallbackDraw(kind)
     setmetatable(proxy, {
         __index = function(_, k)
             if k == "Remove" then
-                return function() pcall(function() frame:Destroy() end) end
+                return function()
+                    pcall(function() frame:Destroy() end)
+                    proxyCount = math.max(proxyCount - 1, 0)
+                end
             end
+            if k == "Backend" then return "ScreenGui" end
             return st[k]
         end,
         __newindex = function(_, k, v)
@@ -176,28 +224,83 @@ local function fallbackDraw(kind)
             pcall(sync)
         end,
     })
+    proxyCount = proxyCount + 1
     sync()
     return proxy
 end
 
+-- A GUI parent may not exist yet (very early execution, protected CoreGui).
+-- Returning nil made callers such as buildESP() crash on `d.Thickness = 1`
+-- inside a RenderStepped callback. A harmless no-op proxy keeps every
+-- caller alive; the FOV circle retries until a real backend is available.
+local function noopDraw()
+    local st = { Backend = "none", Visible = false }
+    return setmetatable({}, {
+        __index = function(_, k)
+            if k == "Remove" then return function() end end
+            return st[k]
+        end,
+        __newindex = function(_, k, v) st[k] = v end,
+    })
+end
+
 function SA.NewDraw(kind)
-    if drawNative then
-        local ok, obj = pcall(function() return Drawing.new(kind) end)
-        if ok and obj then
-            local usable = true
-            if kind == "Triangle" then
-                usable = pcall(function() obj.PointA = Vector2.new(0, 0) end)
-            end
-            if usable then return obj end
-            pcall(function() if obj.Remove then obj:Remove() end end)
-            drawNative = false   -- downgrade this session to the GUI backend
-        else
-            drawNative = false
-        end
+    local guiFirst = (CFG and CFG.forceGuiDrawing) == true or nativeOK[kind] == false
+
+    -- Preferred backend: ScreenGui (forced, or native already proven bad).
+    if guiFirst then
+        local g = fallbackDraw(kind)
+        if g then return g end
+        -- No GUI parent exists on this executor at all -> try native below
+        -- instead of returning a dead no-op object.
     end
-    return fallbackDraw(kind)
+
+    -- `ignoreForce` lets native be a LAST RESORT when the GUI parent is
+    -- missing, so "Force ScreenGui Drawing" can never make everything
+    -- disappear on an executor that only supports Drawing.
+    if nativeAvailable(kind, guiFirst) then
+        local ok, obj = pcall(function() return Drawing.new(kind) end)
+        if ok and obj then return obj end
+        nativeOK[kind] = false
+        drawLastError = "Drawing.new(" .. kind .. ") failed at runtime"
+    end
+
+    if not guiFirst then
+        local g = fallbackDraw(kind)
+        if g then return g end
+    end
+    return noopDraw()
+end
+
+-- Called when a native object's property write fails at runtime: force
+-- that kind (and everything else, for consistency) onto the GUI backend.
+function SA.InvalidateDrawKind(kind)
+    if kind then nativeOK[kind] = false end
+    drawLastError = "runtime write on native " .. tostring(kind) .. " failed -> GUI fallback"
 end
 
 function SA.DrawBackend()
-    return drawNative and "Drawing" or (drawGui and "ScreenGui" or "unavailable")
+    if CFG and CFG.forceGuiDrawing then
+        return (drawGui and drawGui.Parent) and "ScreenGui (forced)"
+            or "ScreenGui (forced, NO PARENT YET)"
+    end
+    if drawGui and drawGui.Parent then return "ScreenGui" end
+    local any = false
+    for _, v in pairs(nativeOK) do if v then any = true end end
+    return any and "Drawing" or "unavailable / lazy"
+end
+
+function SA.DrawDiag()
+    local kinds = {}
+    for _, k in ipairs({ "Line", "Circle", "Triangle" }) do
+        kinds[#kinds + 1] = k .. "=" .. (CFG.forceGuiDrawing
+            and "skipped(forced GUI)" or tostring(nativeAvailable(k)))
+    end
+    return table.concat({
+        "backend=" .. SA.DrawBackend(),
+        "native: " .. table.concat(kinds, ", "),
+        "overlay=" .. (drawGui and drawGui.Parent and drawGui:GetFullName() or "NONE"),
+        "proxies=" .. tostring(proxyCount),
+        "last=" .. drawLastError,
+    }, " | ")
 end

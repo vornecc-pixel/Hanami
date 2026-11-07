@@ -91,28 +91,179 @@ local function crateKind(d)
     return nil
 end
 
+-- ────────────────────────────────────────────────────────────────────
+-- OPENED / UNOPENED STATE — was showing the exact opposite label
+--
+-- Causes found:
+--  * `local _, x = lid.CFrame:ToEulerAnglesXYZ()` grabs the SECOND return
+--    (Y rotation), not X. Crates spawn at random Y rotations, so closed
+--    crates were reported OPENED and vice versa.
+--  * The lid angle was measured in WORLD space, so the crate's own
+--    placement rotation counted as "the lid is open".
+--  * ANY non-BoolValue child called "Opened"/"Looted" (a Part, a Folder…)
+--    returned true unconditionally.
+--  * ANY non-empty string attribute returned true — including "false",
+--    "0", "no" and "closed".
+--  * There was no way to flip the label for games whose flag is inverted.
+--
+-- Now: strict truthiness, explicit "still closed" signals win, a
+-- ProximityPrompt / loot container is used as a reliable secondary signal,
+-- the lid guess is opt-in and measured relative to the crate, and
+-- ESP -> Crate ESP -> Invert Crate State flips the result if needed.
+-- ────────────────────────────────────────────────────────────────────
+
+local OPENED_ATTRS = { "Opened", "Looted", "IsOpen", "WasOpened", "Used",
+                       "Empty", "LootedBy", "OpenedBy", "Searched", "Taken" }
+local CLOSED_ATTRS = { "Closed", "Sealed", "Unopened", "Available", "CanOpen",
+                       "CanLoot", "HasLoot", "Full", "Ready", "NotLooted" }
+local OPENED_CHILDREN = { "Opened", "Looted", "IsOpen", "WasOpened", "Used",
+                          "Empty", "Searched", "Taken" }
+local CLOSED_CHILDREN = { "Closed", "Sealed", "Unopened", "Available",
+                          "CanOpen", "HasLoot", "Full" }
+
+-- nil = no signal at all; true/false = explicit state
+local function stateTruthy(v)
+    if v == nil then return nil end
+    local tv = type(v)
+    if tv == "boolean" then return v end
+    if tv == "number"  then return v ~= 0 end
+    if tv == "string" then
+        local s = v:lower():gsub("%s", "")
+        if s == "" or s == "false" or s == "0" or s == "no" or s == "nil"
+            or s == "none" or s == "closed" or s == "unopened" or s == "off" then
+            return false
+        end
+        return true
+    end
+    return nil
+end
+
+-- Only real state ValueBase objects count. A Part named "Opened" is NOT a
+-- state flag (the old code treated it as one).
+local function valueBaseTruthy(c)
+    if not c then return nil end
+    local ok, r = pcall(function()
+        if c:IsA("BoolValue") then return c.Value end
+        if c:IsA("IntValue") or c:IsA("NumberValue") then return c.Value ~= 0 end
+        if c:IsA("StringValue") then return stateTruthy(c.Value) end
+        return nil
+    end)
+    if not ok then return nil end
+    return r          -- false is a real signal, do not collapse it to nil
+end
+
+-- Any explicit `true` wins; an explicit `false` is only returned when no
+-- signal said true (so `Opened=false, Looted=true` still reads as opened).
+local function anySignal(model, attrs, children)
+    local sawFalse, falseName = false, nil
+    for _, a in ipairs(attrs) do
+        local ok, v = pcall(function() return stateTruthy(model:GetAttribute(a)) end)
+        if ok and v == true then return true, a end
+        if ok and v == false then sawFalse, falseName = true, a end
+    end
+    for _, n in ipairs(children) do
+        local v = valueBaseTruthy(model:FindFirstChild(n))
+        if v == true then return true, n end
+        if v == false then sawFalse, falseName = true, n end
+    end
+    if sawFalse then return false, falseName end
+    return nil, nil
+end
+
 local function isCrateOpened(model)
     if not model or not model.Parent then return false end
-    for _, attr in ipairs({ "Opened", "Looted", "IsOpen", "WasOpened", "Used", "Empty", "LootedBy" }) do
-        local v = model:GetAttribute(attr)
-        if v == true or (type(v) == "number" and v ~= 0)
-            or (type(v) == "string" and v ~= "") then return true end
+    -- explicit if, NOT `and/or`: `false or state` would break the flip
+    local applyInvert = function(state)
+        if CFG.crateInvertState then return not state end
+        return state
     end
-    for _, name in ipairs({ "Opened", "Looted" }) do
-        local c = model:FindFirstChild(name)
-        if c then
-            if c:IsA("BoolValue") then
-                if c.Value then return true end
-            else return true end
+
+    -- 1. An explicit "still closed / loot available" signal is the most
+    --    reliable, and it also auto-corrects games with inverted "Opened".
+    local closed = anySignal(model, CLOSED_ATTRS, CLOSED_CHILDREN)
+    if closed == true then return applyInvert(false) end
+
+    -- 2. Explicit "already consumed" signals.
+    local opened = anySignal(model, OPENED_ATTRS, OPENED_CHILDREN)
+
+    -- 3. A disabled ProximityPrompt means the crate can no longer be
+    --    opened; an enabled one means it is still lootable.
+    local prompt, promptEnabled
+    pcall(function() prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true) end)
+    if prompt then
+        pcall(function() promptEnabled = prompt.Enabled end)
+    end
+
+    -- 3b. AUTO-CORRECT inverted games: if the attribute says OPENED but
+    --     the crate is still interactable (or says UNOPENED but the prompt
+    --     is disabled), the two signals contradict. The prompt is the
+    --     player-facing truth, so it wins. This is exactly the "every
+    --     label is backwards" case in games whose `Opened` flag means
+    --     "available to open".
+    if opened ~= nil and type(promptEnabled) == "boolean" then
+        if opened ~= (not promptEnabled) then
+            return applyInvert(not promptEnabled)
         end
     end
-    local lid = model:FindFirstChild("Lid") or model:FindFirstChild("Door")
-    if lid and lid:IsA("BasePart") then
-        local ok, pitchX = pcall(function()
-            local _, x = lid.CFrame:ToEulerAnglesXYZ(); return x end)
-        if ok and math.abs(math.deg(pitchX)) > 30 then return true end
+
+    if opened == true then return applyInvert(true) end
+    if opened == false then return applyInvert(false) end
+    if type(promptEnabled) == "boolean" then return applyInvert(not promptEnabled) end
+
+    -- 4. Loot container: empty = already taken, contents = untouched.
+    for _, n in ipairs({ "Loot", "Contents", "Items", "Rewards", "Inventory" }) do
+        local box = model:FindFirstChild(n)
+        if box then
+            local n2 = 0
+            pcall(function() n2 = #box:GetChildren() end)
+            return applyInvert(n2 == 0)
+        end
     end
-    return false
+
+    -- 5. OPT-IN lid-angle guess (default OFF). Measured RELATIVE to the
+    --    crate so the crate's world rotation cannot trigger a false hit.
+    if CFG.crateLidDetect then
+        local lid = model:FindFirstChild("Lid") or model:FindFirstChild("Door")
+        if lid and lid:IsA("BasePart") then
+            local ok, rx = pcall(function()
+                local rel = model:GetPivot():ToObjectSpace(lid.CFrame)
+                return (rel:ToEulerAnglesXYZ())   -- FIRST return = X rotation
+            end)
+            if ok and type(rx) == "number" and math.abs(math.deg(rx)) > 30 then
+                return applyInvert(true)
+            end
+        end
+    end
+    return applyInvert(false)
+end
+
+-- Raw diagnostics: prints every state signal so the game's real flags can
+-- be identified instead of guessing.
+local function crateStateDebug(model)
+    local parts = {}
+    for _, a in ipairs(OPENED_ATTRS) do
+        local ok, v = pcall(function() return model:GetAttribute(a) end)
+        if ok and v ~= nil then parts[#parts + 1] = a .. "=" .. tostring(v) end
+    end
+    for _, a in ipairs(CLOSED_ATTRS) do
+        local ok, v = pcall(function() return model:GetAttribute(a) end)
+        if ok and v ~= nil then parts[#parts + 1] = a .. "=" .. tostring(v) end
+    end
+    for _, n in ipairs(OPENED_CHILDREN) do
+        local c = model:FindFirstChild(n)
+        if c then
+            local v = valueBaseTruthy(c)
+            parts[#parts + 1] = c.ClassName .. ":" .. n .. "=" .. tostring(v)
+        end
+    end
+    local prompt
+    pcall(function() prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true) end)
+    if prompt then
+        local en = "?"; pcall(function() en = tostring(prompt.Enabled) end)
+        parts[#parts + 1] = "Prompt.Enabled=" .. en
+    end
+    if #parts == 0 then parts[1] = "(no state signals found)" end
+    return table.concat(parts, ", ")
 end
 
 local function crateAnchor(model)

@@ -21,7 +21,10 @@ local function refreshCrateESP()
                 local pos = cratePivotPos(model)
                 local dist = (myPos and pos) and (myPos - pos).Magnitude or 0
                 local opened = isCrateOpened(model)
-                local stateOk = opened and CFG.crateShowOpened or (not opened)
+                -- explicit if instead of `a and b or c` so the state filter
+                -- can never be misread or flipped by Lua precedence
+                local stateOk = true
+                if opened and not CFG.crateShowOpened then stateOk = false end
                 local show = allowed and stateOk and pos ~= nil and dist <= CFG.crateMaxDist
 
                 if not show then

@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **31 short files** (`src/`, largest is 278 lines) plus a short **loader**.
+The original 1,300-line script is split into **31 short files** (`src/`, largest is 353 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -22,6 +22,8 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **FOV circle fixed + made the aim reference** | Visual → FOV Circle / Snapline | See [FOV fixes](#fov-fixes--one-reference-point). Now defaults ON, draws through a reliable ScreenGui backend, and its centre + radius are the single reference used by silent aim, snapline, tracers and arrows. |
+| **Crate opened / unopened labels fixed** | ESP → Crate ESP | See [Crate state fixes](#crate-state-fixes). The inverted labels came from a Y-rotation destructuring bug plus false-positive state guesses. Added strict state parsing, `Invert Crate State` and a state debug print. |
 | **No more ~3 s frame skip** | everywhere | See [Stability & fixes](#stability--fixes). One shared, yielding Workspace walker replaces both `GetDescendants()` scanners; GUI builds are capped; stale render loops disconnect on re-execute. |
 | **One text-size slider for ALL ESP text** | ESP → ESP Features → Text Size | Scales name, distance, tool / state, `VIS`/`WALL`, health % on players, NPCs **and** crates, and re-stacks the rows so they never overlap. Plus `Show Health %` and `Text Outline` toggles. |
 | **FOV circle actually shows** | Visual → FOV Circle / Snapline | `SA.NewDraw` falls back to real Roblox GUI Frames when the executor has no usable `Drawing` API; no longer gated on aim being ON; transparency slider now means what it says (0 % = solid). ON by default. |
@@ -89,6 +91,45 @@ The loose classifier accepted *any* instance with an `Opened` / `Looted` attribu
 
 `CFG.espTextSize` (6–30 px, default **11**) is applied in the unified `drawEntity()` styling pass to **every** `TextLabel` the three ESP types create — player name / distance / info, NPC name / distance / info, crate name / state / distance. Rows are re-stacked and the `BillboardGui` is resized to fit. `Show Health %` appends `HP: NN%` to the player / NPC info line; `Text Outline` toggles the stroke.
 
+## FOV fixes & one reference point
+
+### Why the circle did not load / did not show up
+
+| # | Problem | Fix |
+|---|---|---|
+| 1 | `ensureFov()` required **all** of `Filled` / `Thickness` / `NumSides` / `Visible` to be writable. One unsupported property (commonly `NumSides`) returned `nil` forever, so no circle was ever created. | Each property is written independently and tolerantly; `Visible` is always written last. |
+| 2 | Every frame all property writes sat inside **one** `pcall`. A single failure meant `c.Visible = true` was never reached and the object was removed — invisible, recreated forever. | Independent per-property writes, plus a runtime downgrade to the ScreenGui backend. |
+| 3 | `SA.NewDraw` probed only `"Line"`. An executor with Line but a broken Circle silently killed the FOV (and ESP rings). `11_snapline.lua` also wrote ~14 native properties **outside** any pcall at load, so a bad write aborted the whole joined chunk — literally "it doesn't load". | Capability is probed **per kind** against every property that kind uses; snapline init is fully guarded and `SA.NewDraw` never returns `nil` (a no-op proxy keeps callers alive). |
+| 4 | `showFov` defaulted to `false` in older builds, and `_G.__saCFG` persists — so the new `true` default never applied. The transparency slider was also inverted (`0 %` = fully invisible). | One-time migration forces the circle ON; transparency now means what it says (0 % = solid). |
+| 5 | The overlay was parented to `CoreGui` first, which some executors accept but hide. | Parent order is now **PlayerGui → CoreGui → `gethui()`**, the stale overlay is destroyed on re-execute, and `gethui()` is the last resort. |
+| 6 | The circle used its own mouse lookup while aim, snapline, tracers and arrows each called `GetMouseLocation()` independently. | One canonical reference point (below). |
+
+**Visual → FOV Circle / Snapline** now has **FOV Centre** (`Mouse` / `Screen Center`), **Force ScreenGui Drawing** (ON by default — turn OFF only to try the native `Drawing` API), and **Visual → Debug → Print FOV State** / **Print Draw Backend** which report the backend, centre, radius, visibility and any write failures. Invalid mouse positions (`0,0` or off-screen) automatically fall back to the screen centre, so the circle can never be drawn off-screen.
+
+### The FOV circle IS the reference point
+
+`src/02_shared.lua` owns both values:
+
+```
+SA.AimPoint()    -> centre (mouse, or screen centre when unavailable/chosen)
+SA.FovRadius()   -> radius = CFG.fov, capped at half the shorter viewport side
+```
+
+Everything measures from them: `pickBestTarget()` (silent aim + snapline preview), `09_silent_aim.lua`, `11_snapline.lua` (`Mouse` line origin), `18_esp_fx_colours.lua` (`Mouse` tracer origin), `18_esp_fx_frame.lua` (off-screen arrows) and `10_fov_circle.lua` (the drawn circle). Change **Aim / Circle Radius** and the target cone, tracers and arrows all move with the circle — targets inside the circle are exactly the ones silent aim picks.
+
+## Crate state fixes
+
+The `[ OPENED ]` / `[ UNOPENED ]` label was showing the exact opposite. Four real bugs in `isCrateOpened()`:
+
+1. **`local _, x = lid.CFrame:ToEulerAnglesXYZ()`** takes the **second** return (`Y` rotation), not X. Crates spawn at random Y rotations, so closed crates were reported opened. It was also measured in world space, so the crate's placement counted as "lid open".
+2. Any child named `Opened` / `Looted` that was **not** a `BoolValue` (a Part, a Folder…) returned `true` unconditionally.
+3. Any non-empty **string** attribute returned `true` — including `"false"`, `"0"`, `"no"` and `"closed"`.
+4. There was no way to flip the label for games whose flag is inverted.
+
+**Fix:** strict `stateTruthy()` (booleans, non-zero numbers and parsed strings), `ValueBase`-only child parsing, explicit "still closed" signals (`Closed` / `Sealed` / `Unopened` / `Available` / `CanOpen` / `HasLoot` …) taking priority, `ProximityPrompt.Enabled` and loot-container contents as reliable secondary signals, and a **conflict check** that auto-corrects games whose `Opened` flag means "available to open" (attribute says opened while the crate is still interactable). The lid-angle guess is now **opt-in** (`Lid Angle Detection`, OFF) and measured relative to the crate with the correct X rotation.
+
+If labels are still backwards in your game, turn on **ESP → Crate ESP → Invert Crate State**. **Print Crate States (debug)** dumps every raw attribute / ValueBase / Prompt signal per crate alongside the resolved label, so the game's real flags can be identified. The state filter is now an explicit `if` instead of an `and/or` chain.
+
 ## ESP overhaul: crate fix, colours and new features
 
 ### Why the Crate ESP didn't work
@@ -137,6 +178,7 @@ The dynamic **visible / hidden** colour always paints an outer frame around the 
 | Rainbow Mode + Speed | all colours cycle through HSV (speed slider) | OFF |
 | Distance Fade + Fade Start (%) | transparency ramps in over the last N% of `Max Distance` | OFF |
 | Line Thickness / Tracer Origin | 1–5 px, Mouse / Center / Bottom | 1 / Bottom |
+| Invert Crate State / Lid Angle Detection | flip backwards labels / opt-in lid guess | OFF / OFF |
 | NPC Type Colours | Guard / Scavenger / Soldier get distinct colours | OFF |
 
 All extra drawing objects are created **lazily** per entity and destroyed by `SA.DisposeEspFx(o)` when the object is cleared, so a feature that is off costs zero drawings. `SA.ApplyEspFx(cam)` runs once per frame after the player/NPC/crate refreshes. The FX pipeline is split across `18_esp_fx_colours.lua` / `18_esp_fx_draw.lua` / `18_esp_fx_frame.lua`.
@@ -284,6 +326,8 @@ Misc     → Info · Quick Actions
 * **Keys:** `RightShift` toggles silent aim (chained keybind on the master toggle), `Insert` shows/hides the menu (Atlanta default).
 * **48 colourpickers** live in `ESP → Colours` and write straight into `ESP_COLORS`. Chained onto `label` rows (labels expose `right_holder`), each has a unique `hn_col_<key>` flag. FOV / snapline / lead / target colours moved here from the Visual tab so there is exactly one picker per colour. `Reset ESP Colours` restores defaults and syncs the swatches.
 * The old Shaman `RadioButton` preset is now a `Custom / Legit / Blatant` dropdown ("Custom" is the default so opening the menu doesn't apply a preset). The `Bullet Speed Override` slider (0–3000) now lives in the Ballistics section.
+* **FOV controls:** `Show FOV Circle` (ON), `FOV Centre` (Mouse / Screen Center), `Force ScreenGui Drawing` (ON), `Aim / Circle Radius`, plus `Print FOV State` / `Print Draw Backend` in Visual → Debug.
+* **Crate controls:** `Invert Crate State`, `Lid Angle Detection` (OFF), `Print Crate States (debug)` in ESP → Crate ESP.
 * Quick actions: Disable All (also clears NPC ESP + snapline), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle and stops the scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
 
 Two things from the Atlanta template that were intentionally **not** copied: the duplicated `vis, other` multi-section block, and `window.esp_section:esp_preview({})` (it clones your character and assumes an `Animate` script, so it errors on spawn/respawn). Everything else from the template's init block is kept: `open_tab()`, `config_list_update()`, the theme pass, and `old_config = get_config()` — each guarded with `pcall` where it touches filesystem/config APIs.
@@ -309,9 +353,9 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill, `SA` state, `bindRender`, **48-colour palette** | 278 |
-| `src/02_drawing.lua` | **`SA.NewDraw` compatibility layer** (native Drawing or ScreenGui proxy) | 203 |
-| `src/02_shared.lua` | team/NPC checks, LOS raycast, target picking, debug | 116 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill, `SA` state, `bindRender`, **48-colour palette** | 297 |
+| `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, no-op fallback, draw diagnostics | 306 |
+| `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
 | `src/03_entity_scan.lua` | NPC registry handler + LOS visibility cache | 90 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
@@ -319,25 +363,25 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/06_firing_and_guns.lua` | firing state + snap cooldown | 50 |
 | `src/07_gun_specs.lua` | exact gun DB: speeds, ammo, damage, alt ammo, falloff, ranges | 208 |
 | `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, latency, debug | 221 |
-| `src/09_silent_aim.lua` | camera sandwich RenderStep binds using `SA.Predict` | 74 |
-| `src/10_fov_circle.lua` | FOV circle + `SA.FovCenter` (shared with arrows) | 68 |
-| `src/11_snapline.lua` | aim preview line + target/lead markers | 120 |
+| `src/09_silent_aim.lua` | camera sandwich RenderStep binds using `SA.Predict` | 75 |
+| `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
+| `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
 | `src/12_esp_players.lua` | player ESP objects, box, health bar, info label | 95 |
 | `src/13_esp_players_refresh.lua` | player ESP refresh (visibility + scanner + HP) + enable/disable | 108 |
 | `src/14_esp_npcs.lua` | NPC ESP objects + enable/disable + events | 110 |
 | `src/15_esp_npcs_refresh.lua` | NPC ESP refresh (visibility + scanner + HP) | 88 |
-| `src/16_esp_crates.lua` | **tight crate classification**, opened detection, recursive anchors, GUI objects | 202 |
-| `src/16_esp_crates_registry.lua` | **live crate registry** via the shared walker + diagnostics | 95 |
-| `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, highlight gate) + enable/disable + events | 80 |
+| `src/16_esp_crates.lua` | crate classification, **strict opened-state resolver**, anchors, GUI objects | 353 |
+| `src/16_esp_crates_registry.lua` | live crate registry, **crate-state debug**, walker diagnostics | 113 |
+| `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, highlight gate) + enable/disable + events | 83 |
 | `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry | 128 |
 | `src/18_esp_fx_draw.lua` | **unified styling**: text size, boxes, chams, skeleton, tracers, FOV arrows, fade | 241 |
-| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` for players / NPCs / crates | 130 |
+| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` for players / NPCs / crates | 128 |
 | `src/19_render_loop.lua` | master render loop: ESP refresh + build caps + FX pass | 56 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods | 89 |
 | `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / Wall Pen) | 182 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** | 202 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** | 209 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab | 22 |
-| `src/24_ui_visual.lua` | Visual tab (FOV, snapline, lead marker, backend/prediction debug) | 69 |
+| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **FOV state debug**) | 84 |
 | `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init | 78 |
 | `src/26_banner.lua` | startup banner, `return CFG` | 36 |
 

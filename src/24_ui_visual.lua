@@ -9,10 +9,14 @@ local fovCol = VisualTab:column()
 local fovSec = fovCol:section({ name = "FOV Circle / Snapline" })
 
 bindToggle(fovSec, "Show FOV Circle", "showFov",
-    "Works with aim OFF and on executors without a full Drawing API (ScreenGui fallback)")
+    "The circle IS the aim reference point: silent aim, snapline, tracers and arrows all use the same centre + radius")
 bindToggle(fovSec, "Filled", "fovFilled")
+bindDropdown(fovSec, "FOV Centre", "fovCenterMode", { "Mouse", "Screen Center" })
+fovSec:label({ name = "Centre = crosshair / screen centre; invalid mouse -> centre" })
+bindToggle(fovSec, "Force ScreenGui Drawing", "forceGuiDrawing",
+    "ON (default) = reliable Roblox GUI frames. Turn OFF only if you want to try the executor's native Drawing API")
 fovSec:label({ name = "FOV / snapline / lead colours: ESP -> Colours -> Global" })
--- CFG.fov is used by both the target picker and the drawn circle
+-- CFG.fov -> SA.FovRadius(): ONE radius for the circle, aim cone, tracers and arrows
 bindSlider(fovSec, "Aim / Circle Radius (px)", "fov", 30, 500, 1, "px")
 bindSlider(fovSec, "Transparency (%)", "fovTransparency", 0, 100, 1, "%")
 fovSec:label({ name = "Transparency 0% = solid, 100% = nearly invisible" })
@@ -39,6 +43,17 @@ addButton(dbgSec, "Print Sandwich", function()
 end)
 addButton(dbgSec, "Print Draw Backend", function()
     print("[sa] drawing backend:", SA.DrawBackend())
+    print("[sa]", SA.DrawDiag())
+end)
+addButton(dbgSec, "Print FOV State", function()
+    local s = SA.FovState()
+    print("[fov] enabled:", s.enabled, "| exists:", s.exists, "| visible:", s.visible)
+    print(string.format("[fov] centre: %.0f,%.0f (%s) | radius: %.0f | filled: %s | transparency: %s | thickness: %s",
+        s.centre.X, s.centre.Y, tostring(s.centreMode), s.radius,
+        tostring(s.filled), tostring(s.transparency), tostring(s.thickness)))
+    print("[fov] backend:", s.backend, "| write failures:", s.failures)
+    print("[fov]", s.diag)
+    print("[fov] fix: toggle 'Show FOV Circle', set Centre = Screen Center, keep 'Force ScreenGui Drawing' ON")
 end)
 addButton(dbgSec, "Print Gun Spec", function()
     SA.PrintGunSpec()

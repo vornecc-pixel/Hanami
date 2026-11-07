@@ -56,6 +56,24 @@ function SA.CrateKind(d) return crateKind(d) end
 -- This is the ONLY synchronous Workspace:GetDescendants() left in the
 -- script: it runs once, only when the user clicks the debug button, and is
 -- never called from a timer, an event or a render loop.
+-- Diagnose the opened/unopened problem: dumps every raw state signal the
+-- game actually exposes, plus the resolved label, for each known crate.
+function SA.PrintCrateStates()
+    print("════════ CRATE STATE DEBUG ════════")
+    local crates = SA.GetCrates()
+    print("  known crates:", #crates, "| invert:", tostring(CFG.crateInvertState),
+          "| lid detect:", tostring(CFG.crateLidDetect))
+    for i, d in ipairs(crates) do
+        if i > 30 then print("  … truncated"); break end
+        local state = isCrateOpened(d)
+        print(string.format("  %-26s -> %-9s | %s",
+            tostring(d.Name):sub(1, 26), state and "OPENED" or "UNOPENED",
+            crateStateDebug(d)))
+    end
+    print("  If every label is backwards, turn ON 'Invert Crate State'.")
+    print("═══════════════════════════════════")
+end
+
 function SA.PrintCrateCandidates()
     print("════════ CRATE SCAN ════════")
     local shown, total = 0, 0

@@ -155,11 +155,13 @@ local CFG = _G.__saCFG or {
     saturday2Mode        = false,
     muzzleBoost          = false,
 
-    -- fov visual
+    -- fov visual (the FOV circle is THE reference point for aiming)
     showFov         = true,
     fovFilled       = false,
     fovTransparency = 50,
     fovThickness    = 1,
+    fovCenterMode   = "Mouse",     -- "Mouse" / "Screen Center"
+    forceGuiDrawing = true,        -- ScreenGui backend always works; native Drawing often doesn't
 
     -- manipulation
     manipulation      = false,
@@ -204,6 +206,8 @@ local CFG = _G.__saCFG or {
     crateShowOpened    = true,
     crateLooseDetect   = true,
     crateHighlight     = false,    -- off by default: no stray chams on scenery
+    crateInvertState   = false,    -- flip if the game's opened/closed signal is inverted
+    crateLidDetect     = false,    -- lid-angle guess is unreliable; opt-in only
     crateMaxDist       = 3000,
 
     -- esp visual features (shared by players, NPCs and crates)
@@ -259,7 +263,10 @@ for k, v in pairs({
     gunAmmoOverride = "Auto", saturday2Mode = false, muzzleBoost = false,
     crateEnabled = false, crateShowMilitary = true, crateShowElite = true,
     crateShowLoot = true, crateShowOpened = true, crateLooseDetect = true,
-    crateHighlight = false, crateMaxDist = 3000,
+    crateHighlight = false, crateInvertState = false, crateLidDetect = false,
+    crateMaxDist = 3000,
+    showFov = true, fovFilled = false, fovTransparency = 50, fovThickness = 1,
+    fovCenterMode = "Mouse", forceGuiDrawing = true,
     espPerElementColors = true, espShowBox = true, espCornerBox = false,
     espShowFill = true, espShowOutline = false, espShowSkeleton = false,
     espShowHeadDot = false, espShowTracer = false, espShowOffscreen = false,
@@ -272,6 +279,18 @@ for k, v in pairs({
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
     gmNoSway = false, gmNoKick = false,
 }) do if CFG[k] == nil then CFG[k] = v end end
+
+-- One-time migration for configs saved by older builds: those defaulted
+-- showFov to FALSE and inverted the transparency slider, so the circle
+-- stayed invisible even after the code was fixed. Force it visible ONCE.
+if _G.__saFovFix ~= 2 then
+    CFG.showFov = true
+    CFG.fovTransparency = 50
+    CFG.fovThickness = math.max(CFG.fovThickness or 1, 1)
+    CFG.fovCenterMode = "Mouse"
+    CFG.forceGuiDrawing = true
+    _G.__saFovFix = 2
+end
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

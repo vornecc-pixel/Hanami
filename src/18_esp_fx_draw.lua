@@ -204,7 +204,7 @@ local function drawEntity(cam, o, opt)
 
     -- tracer + off-screen arrow
     -- With "Arrows Follow FOV" the arrow sits ON the FOV circle perimeter
-    -- (radius = CFG.fov, centre = the same mouse point as the FOV circle),
+    -- (radius = SA.FovRadius(), centre = SA.AimPoint() — both shared with the circle),
     -- and it is also shown for targets that are on-screen but outside the
     -- aim cone. Change the FOV radius and the arrows move with it.
     local px, onScr = screenPoint(cam, g.raw, g.ok)
