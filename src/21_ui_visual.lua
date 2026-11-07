@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 22_ui_visual.lua — Visual tab (FOV, snapline, debug)
+-- Hanami / 21_ui_visual.lua — Visual tab (FOV, snapline, debug)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

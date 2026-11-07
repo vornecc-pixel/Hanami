@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 24_banner.lua — Startup banner + return CFG
+-- Hanami / 23_banner.lua — Startup banner + return CFG
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================

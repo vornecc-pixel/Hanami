@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 23_ui_misc.lua — Misc tab, quick actions, UI init
+-- Hanami / 22_ui_misc.lua — Misc tab, quick actions, UI init
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
@@ -18,8 +18,6 @@ infoSec:label({ name = "Gun Mods: GC scan (getgc + rawset)" })
 -- ── MISC : Quick Actions ───────────────────────────────────────────
 local actCol = MiscTab:column()
 local actSec = actCol:section({ name = "Quick Actions" })
-
-bindToggle(actSec, "Hit Sound", "hitSoundEnabled")
 
 addButton(actSec, "Scan All Entities", function()
     SA.PrintScan()
@@ -49,7 +47,6 @@ addButton(actSec, "Unload Everything", function()
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
     disableESP(); disableNpcESP(); disableCrateESP()
-    if HitLogGui then HitLogGui:Destroy() end
     RunService:UnbindFromRenderStep(snapName)
     RunService:UnbindFromRenderStep(restoreName)
     pcall(function() window.set_menu_visibility(false) end)

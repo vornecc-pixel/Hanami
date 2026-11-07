@@ -13,7 +13,6 @@
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local UserInputService  = game:GetService("UserInputService")
-local SoundService      = game:GetService("SoundService")
 local Workspace         = game:GetService("Workspace")
 local lp                = Players.LocalPlayer
 local ws                = workspace
@@ -119,9 +118,6 @@ local CFG = _G.__saCFG or {
     gmNoRecoil     = false,
     gmNoSway       = false,
     gmNoKick       = false,
-
-    -- hit sound
-    hitSoundEnabled = false,
 }
 _G.__saCFG = CFG
 
@@ -140,7 +136,7 @@ for k, v in pairs({
     crateShowOpened = true, crateMaxDist = 3000,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
-    gmNoSway = false, gmNoKick = false, hitSoundEnabled = false,
+    gmNoSway = false, gmNoKick = false,
 }) do if CFG[k] == nil then CFG[k] = v end end
 
 local GUN_SPEEDS = {

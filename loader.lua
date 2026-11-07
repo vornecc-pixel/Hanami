@@ -27,13 +27,12 @@ local PARTS = {
     "15_esp_crates_refresh.lua",
     "16_render_loop.lua",
     "17_gun_mods.lua",
-    "18_hitlog.lua",
-    "19_ui_aiming.lua",
-    "20_ui_esp.lua",
-    "21_ui_gunmods.lua",
-    "22_ui_visual.lua",
-    "23_ui_misc.lua",
-    "24_banner.lua",
+    "18_ui_aiming.lua",
+    "19_ui_esp.lua",
+    "20_ui_gunmods.lua",
+    "21_ui_visual.lua",
+    "22_ui_misc.lua",
+    "23_banner.lua",
 }
 
 -- GitHub's own "Raw" links use refs/heads/<branch>, which also avoids any

@@ -1,7 +1,7 @@
 # Hanami
 
-`@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, gun mods and hit log — with an **Atlanta** UI.
-The original 1,300-line script is split into **24 short files** (`src/`, largest is 153 lines) plus a short **loader**.
+`@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline and gun mods — with an **Atlanta** UI.
+The original 1,300-line script is split into **23 short files** (`src/`, largest is 150 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -62,7 +62,7 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 
 ## UI: Atlanta
 
-`src/19_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 20–23 build the tabs.
+`src/18_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 19–22 build the tabs.
 
 ```
 Aiming   → Silent Aim / Gun · Target / Wall Penetration
@@ -90,17 +90,17 @@ Because it is one chunk, every `local` (CFG, helpers, ESP tables, UI handles) is
 loader.lua  ──fetch──▶  01_config.lua
                        02_shared.lua
                        ...
-                       24_banner.lua
+                       23_banner.lua
              ──join──▶ one chunk ──loadstring──▶ runs, returns CFG
 ```
 
-Parts 01–02, 05–08, 14–18 are slices of the original script with a 5-line comment header. Parts 03–04 (NPC registry / entity scanner), 09 (snapline), 12–13 (NPC ESP) are new; 10–11 gained visibility colours and scanner labels; 19–24 are the Atlanta UI. Only `24_banner.lua` has a top-level `return`.
+Parts 01–02, 05–08 and 14–17 are slices of the original script with a 5-line comment header. Parts 03–04 (NPC registry / entity scanner), 09 (snapline), 12–13 (NPC ESP) are new; 10–11 gained visibility colours and scanner labels; 18–23 are the Atlanta UI. The former hit-log / hit-sound part and its config key were removed. Only `23_banner.lua` has a top-level `return`.
 
 ## Files
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill, `SA` state, shared colours, bullet speeds | 153 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill, `SA` state, shared colours, bullet speeds | 149 |
 | `src/02_shared.lua` | velocity cache, team/NPC checks, target picking, debug | 147 |
 | `src/03_entity_scan.lua` | NPC registry (workspace scan) + LOS visibility cache | 113 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
@@ -117,22 +117,21 @@ Parts 01–02, 05–08, 14–18 are slices of the original script with a 5-line 
 | `src/15_esp_crates_refresh.lua` | crate refresh, scanners, events | 66 |
 | `src/16_render_loop.lua` | master player/NPC/crate ESP render loop | 29 |
 | `src/17_gun_mods.lua` | GC scan gun mods | 88 |
-| `src/18_hitlog.lua` | hit log GUI, hit sound, damage tracker | 125 |
-| `src/19_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab + wall pen recommendation | 150 |
-| `src/20_ui_esp.lua` | ESP tab (players, NPCs, crates) + colourpickers | 121 |
-| `src/21_ui_gunmods.lua` | Gun Mods tab | 22 |
-| `src/22_ui_visual.lua` | Visual tab (FOV, snapline, debug) | 62 |
-| `src/23_ui_misc.lua` | Misc tab, quick actions, UI init | 68 |
-| `src/24_banner.lua` | startup banner, `return CFG` | 29 |
+| `src/18_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab + wall pen recommendation | 150 |
+| `src/19_ui_esp.lua` | ESP tab (players, NPCs, crates) + colourpickers | 121 |
+| `src/20_ui_gunmods.lua` | Gun Mods tab | 22 |
+| `src/21_ui_visual.lua` | Visual tab (FOV, snapline, debug) | 62 |
+| `src/22_ui_misc.lua` | Misc tab, quick actions, UI init | 65 |
+| `src/23_banner.lua` | startup banner, `return CFG` | 29 |
 
 ## Editing
 
 * Parts share one scope: a `local` declared in an earlier part is visible in later ones.
 * **Order matters.** Adding/removing a part means updating `PARTS` in `loader.lua` too.
-* Never put a top-level `return` in any part except `24_banner.lua` — it would end the joined chunk early.
+* Never put a top-level `return` in any part except `23_banner.lua` — it would end the joined chunk early.
 * Keep a trailing newline on every part (they are concatenated directly).
 * Atlanta widgets need a `button_holder()` row before `button()`, and keybinds/colourpickers must be chained onto a toggle (a colourpicker can be chained onto another colourpicker).
-* All 58 `CFG` keys used by the logic must stay bound to a UI widget; `python3 tools/verify.py` checks the join.
+* All 57 `CFG` keys used by the logic must stay bound to a UI widget; `python3 tools/verify.py` checks the join.
 
 ```bash
 python3 tools/verify.py   # checks order, newlines, stray returns, build output
@@ -143,4 +142,4 @@ bash build.sh             # optional: make one self-contained dist/Hanami.lua
 
 ---
 
-Executor-only script (`Drawing`, `getgc`, `gethui`, `loadstring`, `getcustomasset`). Use in private/own places; running it in public experiences can violate Roblox's Terms of Use and get an account banned.
+Executor-only script (`Drawing`, `getgc`, `loadstring`, `getcustomasset`). Use in private/own places; running it in public experiences can violate Roblox's Terms of Use and get an account banned.
