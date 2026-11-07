@@ -1,45 +1,60 @@
 -- ==================================================================
--- Hanami / 18_ui_misc.lua — Misc tab + quick actions
+-- Hanami / 18_ui_misc.lua — Misc tab, quick actions, UI init
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk
 -- before running, so every `local` is shared just like the original.
 -- ==================================================================
 
--- ── MISC ──
-local InfoSec = MiscTab:Section({ Text = "Info" })
-InfoSec:Label({ Text = "@abusegpt — full suite",
-    Color = Color3.fromRGB(217, 97, 99),
-    Tooltip = "Silent Aim + Wall Pen + ESP + Crates + Gun Mods" })
-InfoSec:Label({ Text = "Toggle key: RightShift (silent aim)" })
-InfoSec:Label({ Text = "Gun Mods: GC scan (getgc + rawset)" })
+-- ── MISC : Info ────────────────────────────────────────────────────
+local infoCol = MiscTab:column()
+local infoSec = infoCol:section({ name = "Info" })
+infoSec:label({ name = "@abusegpt — full suite" })
+infoSec:label({ name = "Silent Aim + Wall Pen + ESP + Crates + Gun Mods" })
+infoSec:label({ name = "Toggle key: RightShift (silent aim)" })
+infoSec:label({ name = "Menu key: Insert | UI: Atlanta library" })
+infoSec:label({ name = "Gun Mods: GC scan (getgc + rawset)" })
 
-local ActSec = MiscTab:Section({ Text = "Quick Actions", Side = "Right" })
-ActSec:Toggle({ Text = "Hit Sound", Default = CFG.hitSoundEnabled,
-    Callback = function(v) CFG.hitSoundEnabled = v end })
-ActSec:Button({ Text = "Disable All",
-    Callback = function()
-        CFG.masterEnabled = false; masterToggle:Set(false)
-        CFG.gmEnabled = false; CFG.espEnabled = false; CFG.crateEnabled = false
-        disableESP(); disableCrateESP()
-    end })
-ActSec:Button({ Text = "Apply Blatant",
-    Callback = function()
-        CFG.masterEnabled = true; masterToggle:Set(true)
-        CFG.hitChance = 100; CFG.gunCooldown = 0
-    end })
-ActSec:Button({ Text = "Toggle Manip",
-    Callback = function()
-        CFG.manipulation = not CFG.manipulation
-        print("[sa] manip:", CFG.manipulation and "on" or "off")
-    end })
-ActSec:Button({ Text = "Unload Everything",
-    Callback = function()
-        CFG.masterEnabled = false; CFG.gmEnabled = false
-        disableESP(); disableCrateESP()
-        if HitLogGui then HitLogGui:Destroy() end
-        RunService:UnbindFromRenderStep(snapName)
-        RunService:UnbindFromRenderStep(restoreName)
-        print("[sa] unloaded")
-    end })
+-- ── MISC : Quick Actions ───────────────────────────────────────────
+local actCol = MiscTab:column()
+local actSec = actCol:section({ name = "Quick Actions" })
 
-AimTab:Select()
+bindToggle(actSec, "Hit Sound", "hitSoundEnabled")
 
+addButton(actSec, "Disable All", function()
+    setFlag("masterEnabled", false)
+    setFlag("gmEnabled", false)
+    setFlag("espEnabled", false)
+    setFlag("crateEnabled", false)
+    setFlag("showFov", false)
+end)
+
+addButton(actSec, "Apply Blatant", function()
+    setFlag("masterEnabled", true)
+    presetDropdown.set("Blatant")
+end)
+
+addButton(actSec, "Toggle Manip", function()
+    setFlag("manipulation", not CFG.manipulation)
+    print("[sa] manip:", CFG.manipulation and "on" or "off")
+end)
+
+addButton(actSec, "Unload Everything", function()
+    setFlag("masterEnabled", false)
+    setFlag("gmEnabled", false)
+    disableESP(); disableCrateESP()
+    if HitLogGui then HitLogGui:Destroy() end
+    RunService:UnbindFromRenderStep(snapName)
+    RunService:UnbindFromRenderStep(restoreName)
+    pcall(function() window.set_menu_visibility(false) end)
+    print("[sa] unloaded")
+end)
+
+-- ── Initialisation (from the Atlanta template) ─────────────────────
+Aiming.open_tab()
+
+pcall(function() library:config_list_update() end)
+for index, value in themes.preset do
+    pcall(function() library:update_theme(index, value) end)
+end
+
+task.wait()
+pcall(function() library.old_config = library:get_config() end)

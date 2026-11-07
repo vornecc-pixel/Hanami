@@ -8,12 +8,14 @@
 -- FOV CIRCLE
 -- ────────────────────────────────────────────────────────────────────
 
+-- shared with the Visual tab colourpicker (17_ui_visual.lua)
+local fovColor = Color3.fromRGB(255, 50, 50)
 local fovCircle = nil
 do
     local ok, c = pcall(function() return Drawing.new("Circle") end)
     if ok and c then
         c.Thickness = 1; c.Filled = false
-        c.Color = Color3.fromRGB(255, 50, 50); c.Visible = false
+        c.Color = fovColor; c.Visible = false
         fovCircle = c
     end
 end
@@ -26,7 +28,7 @@ if fovCircle then
             fovCircle.Thickness    = CFG.fovThickness
             fovCircle.Transparency = 1 - math.clamp(CFG.fovTransparency / 100, 0, 1)
             fovCircle.Color        = CFG.manipulation
-                and Color3.fromRGB(255, 160, 40) or Color3.fromRGB(255, 50, 50)
+                and Color3.fromRGB(255, 160, 40) or fovColor
             fovCircle.Visible = true
         else
             fovCircle.Visible = false

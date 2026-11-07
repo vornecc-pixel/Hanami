@@ -18,7 +18,8 @@ print("  manip :", CFG.manipulation and "on" or "off")
 print("  esp   :", CFG.espEnabled and "on" or "off")
 print("  crates:", CFG.crateEnabled and "on" or "off")
 print("  gunmod:", CFG.gmEnabled and "on" or "off")
-print("  toggle: RightShift")
+print("  ui    : Atlanta")
+print("  toggle: RightShift | menu: Insert")
 print("══════════════════════════════════════════════")
 
 return CFG
