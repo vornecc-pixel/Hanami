@@ -14,10 +14,10 @@
 local snapLine, snapDot, leadLine, leadDot = nil, nil, nil, nil
 do
     local ok = pcall(function()
-        snapLine = Drawing.new("Line")
-        snapDot  = Drawing.new("Circle")
-        leadLine = Drawing.new("Line")
-        leadDot  = Drawing.new("Circle")
+        snapLine = SA.NewDraw("Line")
+        snapDot  = SA.NewDraw("Circle")
+        leadLine = SA.NewDraw("Line")
+        leadDot  = SA.NewDraw("Circle")
     end)
     if ok and snapLine and snapDot and leadLine and leadDot then
         snapLine.Thickness = 1
@@ -116,5 +116,5 @@ local function updateSnapLine()
 end
 
 if snapLine then
-    RunService.RenderStepped:Connect(updateSnapLine)
+    bindRender(updateSnapLine)
 end

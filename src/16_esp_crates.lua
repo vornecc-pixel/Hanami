@@ -33,36 +33,60 @@ local function normKey(s)
     return (tostring(s or ""):lower():gsub("[^%a%d]", ""))
 end
 
+-- FIX for "highlight on other things": the old rule accepted ANY instance
+-- with an `Opened`/`Looted` attribute, so doors, scenery and whole folders
+-- got a Highlight. Now only container-like Models/BaseParts with a real
+-- crate signal qualify, and the Highlight is bound to one anchor part.
+local CRATE_WORDS = { "military", "elite", "crate", "loot", "supply",
+                      "airdrop", "cache", "chest", "stash" }
+local CRATE_LOOSE = { "box", "container", "parcel", "pile", "drop" }
+
 local function crateKind(d)
     if not d or not d.Parent then return nil end
+    local nm = d.Name
     -- never classify our own ESP instances (they get parented into crates,
     -- which would otherwise re-trigger DescendantAdded -> infinite rescan)
-    if string.sub(d.Name, 1, 6) == "Hanami" then return nil end
-    -- never mis-classify a player character or a known NPC as loot
+    if string.sub(nm, 1, 6) == "Hanami" then return nil end
+    -- Folders / Attachments / GUIs are not crates. A "Loot" folder holding
+    -- every spawn point was the main source of highlights on other items.
+    if not (d:IsA("Model") or d:IsA("BasePart")) then return nil end
     if d:IsA("Model") then
         if Players:GetPlayerFromCharacter(d) then return nil end
-        if isNpc(d) then return nil end
+        if isNpc(d) or d:FindFirstChildOfClass("Humanoid") then return nil end
     end
-    local n = normKey(d.Name)
+
+    local n = normKey(nm)
     if n:find("military") then return "Military" end
     if n:find("elite") then return "Elite" end
-    for _, a in ipairs({ "CrateType", "Tier", "Rarity", "LootTier", "Crate", "Type" }) do
-        local v = d:GetAttribute(a)
-        if type(v) == "string" then
-            local s = normKey(v)
-            if s:find("military") then return "Military" end
-            if s:find("elite") then return "Elite" end
-            if s:find("crate") or s:find("loot") then return "Loot" end
+
+    local named = false
+    for _, w in ipairs(CRATE_WORDS) do
+        if n:find(w) then named = true; break end
+    end
+    -- explicit crate metadata on otherwise generic / hashed names
+    if not named then
+        for _, a in ipairs({ "CrateType", "Tier", "Rarity", "LootTier" }) do
+            local v = d:GetAttribute(a)
+            if type(v) == "string" then
+                local s = normKey(v)
+                if s:find("military") then return "Military" end
+                if s:find("elite") then return "Elite" end
+                if s:find("crate") or s:find("loot") then return "Loot" end
+            end
         end
     end
+    if named then return "Loot" end
     if not CFG.crateLooseDetect then return nil end
-    for _, w in ipairs({ "crate", "loot", "supply", "airdrop", "cache", "chest", "stash" }) do
-        if n:find(w) then return "Loot" end
+
+    -- loose mode still needs BOTH a container-ish name and a loot state
+    local loose = false
+    for _, w in ipairs(CRATE_LOOSE) do
+        if n:find(w) then loose = true; break end
     end
-    -- containers tagged Opened / Looted are crates even when the model name
-    -- is a hash or something generic like "Box1".
-    for _, a in ipairs({ "Opened", "Looted", "IsOpen", "Used", "Empty", "LootTable" }) do
-        if d:GetAttribute(a) ~= nil then return "Loot" end
+    if loose then
+        for _, a in ipairs({ "Opened", "Looted", "IsOpen", "LootTable", "CrateType" }) do
+            if d:GetAttribute(a) ~= nil then return "Loot" end
+        end
     end
     return nil
 end
@@ -162,11 +186,14 @@ local function buildCrate(model)
 
     local hl = Instance.new("Highlight")
     hl.Name = "HanamiCrateHighlight"
-    hl.Adornee = model:IsA("Model") and model or anchor
+    -- bind to ONE part, never to a whole Model/Folder: a parent model can
+    -- contain scenery, and Highlight would have lit all of it up.
+    hl.Adornee = anchor
     hl.FillTransparency = 0.5
     hl.OutlineTransparency = 1
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent = model
+    hl.Enabled = false        -- refresh enables it only when the toggle is ON
+    hl.Parent = anchor
 
     crateObjects[model] = {
         bb = bb, nameLbl = nameLbl, stateLbl = stateLbl,

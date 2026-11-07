@@ -81,9 +81,9 @@ local function buildESP(plr)
     hl.Parent = char
 
     local lines = {
-        top = Drawing.new("Line"), bottom = Drawing.new("Line"),
-        left = Drawing.new("Line"), right = Drawing.new("Line"),
-        hpBg = Drawing.new("Line"), hpFill = Drawing.new("Line"),
+        top = SA.NewDraw("Line"), bottom = SA.NewDraw("Line"),
+        left = SA.NewDraw("Line"), right = SA.NewDraw("Line"),
+        hpBg = SA.NewDraw("Line"), hpFill = SA.NewDraw("Line"),
     }
     for _, l in pairs(lines) do l.Thickness = 1; l.Visible = false end
     lines.hpBg.Thickness = 2; lines.hpFill.Thickness = 2

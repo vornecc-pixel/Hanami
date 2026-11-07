@@ -130,7 +130,11 @@ bindToggle(ballSec, "Bullet Drop Compensation", "predictionGravity",
 bindToggle(ballSec, "Detect Alt Ammo", "predictionAmmo",
     "Reads hv_rifle_ammo (1.5x speed), buckshot_shell, slug_shell and hv_rocket from the tool")
 bindSlider(ballSec, "Solver Iterations", "predictionIterations", 1, 8, 1, "")
-bindSlider(ballSec, "Extra Lead (ping ms)", "predictionLatency", 0, 300, 5, "ms")
+bindToggle(ballSec, "Auto Ping Lead", "predictionAutoPing",
+    "Reads your live ping (GetNetworkPing / Data Ping), smooths it and feeds it into every prediction — no manual guessing")
+bindSlider(ballSec, "Ping Scale", "predictionPingScale", 0, 2, 0.1, "x")
+bindSlider(ballSec, "Extra Ping Offset (ms)", "predictionLatency", 0, 300, 5, "ms")
+ballSec:label({ name = "Auto Ping ON: scale x ping + offset = extra lead" })
 bindSlider(ballSec, "Bullet Speed Override (0 = auto)", "gunBulletSpeed", 0, 3000, 10, "")
 bindDropdown(ballSec, "Ammo Override", "gunAmmoOverride", {
     "Auto", "handmade_shell", "pistol_bullet", "rifle_ammo", "rocket",
@@ -144,6 +148,11 @@ bindToggle(ballSec, "Muzzle Boost Equipped", "muzzleBoost",
 ballSec:label({ name = "Speeds are the gun's `speed` field (GUNS overrides applied)" })
 ballSec:label({ name = "Damage = Defs[ammo].damage x damageMult (the damage field is 0)" })
 addButton(ballSec, "Print Gun Spec", function() SA.PrintGunSpec() end)
+addButton(ballSec, "Print Live Ping", function()
+    print(string.format("[sa] ping %.0f ms | auto %s | scale %.1f | offset %.0f ms | total %.0f ms",
+        SA.GetPing(), CFG.predictionAutoPing and "ON" or "OFF",
+        CFG.predictionPingScale or 1, CFG.predictionLatency or 0, SA.LeadLatencyMs()))
+end)
 
 bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
     "Best all-round: ON, Wall Check OFF, Range 75, Peek 4, Parts 3, Budget 64, Hysteresis 5, Max Delta 6, FOV ~150")

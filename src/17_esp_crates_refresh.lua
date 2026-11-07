@@ -21,8 +21,6 @@ local function refreshCrateESP()
                 local pos = cratePivotPos(model)
                 local dist = (myPos and pos) and (myPos - pos).Magnitude or 0
                 local opened = isCrateOpened(model)
-                -- explicit parentheses: `opened and showOpened or not opened`
-                -- silently hid every opened crate when the toggle was off
                 local stateOk = opened and CFG.crateShowOpened or (not opened)
                 local show = allowed and stateOk and pos ~= nil and dist <= CFG.crateMaxDist
 
@@ -33,7 +31,8 @@ local function refreshCrateESP()
                     local base = opened and ESP_COLORS.crateOpened
                         or (kind == "Military" and ESP_COLORS.crateMilitary
                         or (kind == "Elite" and ESP_COLORS.crateElite or ESP_COLORS.crateLoot))
-                    o.bb.Enabled = true; o.highlight.Enabled = true
+                    o.bb.Enabled = true
+                    o.highlight.Enabled = CFG.crateHighlight
                     o.highlight.FillColor = base
                     o.highlight.OutlineColor = base
                     o.nameLbl.TextColor3 = base
@@ -49,7 +48,7 @@ end
 
 local function enableCrateESP()
     CFG.crateEnabled = true
-    SA.RefreshCrates()   -- forces an immediate full Workspace classification
+    SA.RefreshCrates()   -- queues an early incremental walker pass
 end
 
 local function disableCrateESP()
@@ -59,23 +58,23 @@ local function disableCrateESP()
     for _, m in ipairs(snap) do clearCrate(m) end
 end
 
--- Debounced rescan for streamed-in containers. The render loop also reads
--- SA.GetCrates() every frame, so a model whose parts arrive late is retried
--- automatically instead of being dropped forever.
-local crateScanPending = false
-local function requestCrateScan()
-    if crateScanPending then return end
-    crateScanPending = true
-    task.spawn(function()
-        task.wait(0.25)
-        crateScanPending = false
-        if CFG.crateEnabled then pcall(SA.RefreshCrates) end
-    end)
+-- Streamed-in containers ask for one shared walker pass. The render loop
+-- reads SA.GetCrates() every frame, so a model whose parts arrive late is
+-- retried automatically instead of being dropped forever.
+-- Cheap pre-filter: only container-like instances can be crates, so the
+-- per-descendant event never calls the classifier on every leaf part.
+-- Re-executing the loader replaces these two connections instead of
+-- stacking another pair (they capture the current crateObjects table).
+if _G.__saCrateEvents then
+    for _, c in ipairs(_G.__saCrateEvents) do pcall(function() c:Disconnect() end) end
 end
-
-Workspace.DescendantAdded:Connect(function(d)
-    if crateKind(d) then requestCrateScan() end
-end)
-Workspace.DescendantRemoving:Connect(function(d)
-    if crateObjects[d] then clearCrate(d) end
-end)
+_G.__saCrateEvents = {
+    Workspace.DescendantAdded:Connect(function(d)
+        if CFG.crateEnabled and (d:IsA("Model") or d:IsA("BasePart")) then
+            if crateKind(d) then SA.RequestScan() end
+        end
+    end),
+    Workspace.DescendantRemoving:Connect(function(d)
+        if crateObjects[d] then clearCrate(d) end
+    end),
+}

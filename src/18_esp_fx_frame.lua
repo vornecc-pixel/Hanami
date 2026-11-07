@@ -14,6 +14,12 @@ function SA.ApplyEspFx(cam)
     local myPos = myRoot and myRoot.Position or cam.CFrame.Position
     local targetModel = SA.Target and SA.Target.model or nil
     local seed = 0
+    -- shared with the FOV circle (10_fov_circle.lua) so off-screen arrows
+    -- ride the exact same radius/centre the user sees
+    local fovC = SA.FovCenter and SA.FovCenter()
+        or Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local fovR = math.clamp(CFG.fov or 150, 20,
+        math.min(cam.ViewportSize.X, cam.ViewportSize.Y) / 2)
 
     if CFG.espEnabled then
         for plr, o in pairs(espObjects) do
@@ -43,6 +49,7 @@ function SA.ApplyEspFx(cam)
                     checkVisible = CFG.espVisibleCheck,
                     dist = dist, maxDist = CFG.espMaxDist, model = char,
                     target = (targetModel == char), origin = origin, opened = false,
+                    fovCenter = fovC, fovRadius = fovR,
                     ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1),
                     geom = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
                              raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
@@ -85,6 +92,7 @@ function SA.ApplyEspFx(cam)
                     checkVisible = CFG.npcVisibleCheck, typeColor = typeColor,
                     dist = dist, maxDist = CFG.npcMaxDist, model = model,
                     target = (targetModel == model), origin = origin, opened = false,
+                    fovCenter = fovC, fovRadius = fovR,
                     ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1),
                     geom = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
                              raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
@@ -111,6 +119,7 @@ function SA.ApplyEspFx(cam)
                     seed = seed, dist = o.dist or 0, maxDist = CFG.crateMaxDist,
                     model = nil, target = false, origin = origin,
                     opened = o.opened, ratio = 1, checkVisible = false,
+                    fovCenter = fovC, fovRadius = fovR,
                     typeColor = base, keepNameColor = true,
                     geom = { x = raw.X - w / 2, y = tv.Y, w = w, h = h,
                              raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },

@@ -47,6 +47,10 @@ local function refreshESP()
                 if CFG.espVisibleCheck then
                     table.insert(bits, visible and "VIS" or "WALL")
                 end
+                if CFG.espShowHealthText then
+                    table.insert(bits, string.format("HP: %d%%",
+                        math.floor(100 * math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1))))
+                end
                 o.infoLbl.Text = table.concat(bits, " | ")
                 o.infoLbl.TextColor3 = col
                 o.infoLbl.Visible = #bits > 0
@@ -85,7 +89,8 @@ end
 
 local function enableESP()
     CFG.espEnabled = true
-    for _, p in ipairs(Players:GetPlayers()) do buildESP(p) end
+    -- the render loop builds at most MAX_BUILDS objects per frame; building
+    -- every player in one callback used to freeze the frame on toggle
 end
 local function disableESP()
     CFG.espEnabled = false

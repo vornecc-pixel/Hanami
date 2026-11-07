@@ -31,6 +31,23 @@ SA.Alive  = true              -- set false by "Unload Everything" to stop scanne
 -- the new chunk starts exactly one replacement loop.
 SA.Generation = (SA.Generation or 0) + 1
 
+-- Every RenderStepped loop binds through this helper. Re-executing the
+-- loader bumps Generation, so loops from the previous run disconnect
+-- themselves instead of piling up duplicate work (a common cause of a
+-- stutter that gets worse the more times you run the script).
+local function bindRender(fn)
+    local gen = SA.Generation
+    local conn
+    conn = RunService.RenderStepped:Connect(function(...)
+        if (SA.Generation or 0) ~= gen then
+            pcall(function() conn:Disconnect() end)
+            return
+        end
+        fn(...)
+    end)
+    return conn
+end
+
 -- ────────────────────────────────────────────────────────────────────
 -- UNIFIED ESP PALETTE
 -- One table for EVERY drawn element. Each key has its own colourpicker in
@@ -130,14 +147,16 @@ local CFG = _G.__saCFG or {
     predictionGravity    = true,
     predictionAmmo       = true,
     predictionIterations = 4,
-    predictionLatency    = 0,
+    predictionAutoPing   = true,   -- read live ping, no manual guessing
+    predictionPingScale  = 1,      -- multiplier on the measured ping
+    predictionLatency    = 0,      -- extra manual offset on top of auto ping
     gunBulletSpeed       = 0,     -- 0 = exact speed from 07_gun_specs.lua
     gunAmmoOverride      = "Auto",
     saturday2Mode        = false,
     muzzleBoost          = false,
 
     -- fov visual
-    showFov         = false,
+    showFov         = true,
     fovFilled       = false,
     fovTransparency = 50,
     fovThickness    = 1,
@@ -184,6 +203,7 @@ local CFG = _G.__saCFG or {
     crateShowLoot      = true,
     crateShowOpened    = true,
     crateLooseDetect   = true,
+    crateHighlight     = false,    -- off by default: no stray chams on scenery
     crateMaxDist       = 3000,
 
     -- esp visual features (shared by players, NPCs and crates)
@@ -203,6 +223,10 @@ local CFG = _G.__saCFG or {
     espFadeStart        = 60,
     espBoxThickness     = 1,
     espTracerOrigin     = "Bottom",
+    espArrowFOV         = true,    -- arrows sit on the FOV circle edge
+    espTextSize         = 11,      -- one slider for ALL ESP text
+    espShowHealthText   = false,
+    espTextOutline      = true,
     npcUseTypeColors    = false,
 
     -- gun mods
@@ -230,17 +254,20 @@ for k, v in pairs({
     snapLineEnabled = true, snapLineOrigin = "Mouse", snapLineThickness = 1,
     snapShowLead = true,
     prediction = true, predictionGravity = true, predictionAmmo = true,
-    predictionIterations = 4, predictionLatency = 0, gunBulletSpeed = 0,
+    predictionIterations = 4, predictionAutoPing = true, predictionPingScale = 1,
+    predictionLatency = 0, gunBulletSpeed = 0,
     gunAmmoOverride = "Auto", saturday2Mode = false, muzzleBoost = false,
     crateEnabled = false, crateShowMilitary = true, crateShowElite = true,
     crateShowLoot = true, crateShowOpened = true, crateLooseDetect = true,
-    crateMaxDist = 3000,
+    crateHighlight = false, crateMaxDist = 3000,
     espPerElementColors = true, espShowBox = true, espCornerBox = false,
     espShowFill = true, espShowOutline = false, espShowSkeleton = false,
     espShowHeadDot = false, espShowTracer = false, espShowOffscreen = false,
     espHighlightTarget = true, espRainbow = false, espRainbowSpeed = 2,
     espFade = false, espFadeStart = 60, espBoxThickness = 1,
-    espTracerOrigin = "Bottom", npcUseTypeColors = false,
+    espTracerOrigin = "Bottom", espArrowFOV = true, espTextSize = 11,
+    espShowHealthText = false, espTextOutline = true,
+    npcUseTypeColors = false,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
     gmNoSway = false, gmNoKick = false,

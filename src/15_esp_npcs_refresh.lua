@@ -47,6 +47,10 @@ local function refreshNpcESP()
                 if CFG.npcVisibleCheck then
                     table.insert(bits, visible and "VIS" or "WALL")
                 end
+                if CFG.espShowHealthText then
+                    table.insert(bits, string.format("HP: %d%%",
+                        math.floor(100 * math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1))))
+                end
                 o.infoLbl.Text = table.concat(bits, " | ")
                 o.infoLbl.TextColor3 = col
                 o.infoLbl.Visible = #bits > 0

@@ -35,6 +35,51 @@ function SA.TargetVelocity(model)
 end
 
 -- ────────────────────────────────────────────────────────────────────
+-- LIVE PING (auto extra lead)
+-- Player:GetNetworkPing() returns round-trip seconds; the legacy
+-- Stats.Network "Data Ping" item is already milliseconds. Both are
+-- pcall-guarded, clamped and exponentially smoothed so the lead doesn't
+-- jitter when the reported ping fluctuates.
+-- ────────────────────────────────────────────────────────────────────
+
+local pingState = { t = 0, ms = 0 }
+
+function SA.GetPing()
+    local now = tick()
+    if now - pingState.t < 0.25 then return pingState.ms end
+    pingState.t = now
+    local ms = nil
+    pcall(function()
+        local v = lp:GetNetworkPing()
+        if type(v) == "number" and v > 0 then ms = v * 1000 end
+    end)
+    if not ms then
+        pcall(function()
+            local net = game:GetService("Stats"):FindFirstChild("Network")
+            local ssi = net and net:FindFirstChild("ServerStatsItem")
+            local item = ssi and ssi:FindFirstChild("Data Ping")
+            if not item then return end
+            if item.GetValue then ms = item:GetValue() end
+            if type(ms) ~= "number" and item.Value ~= nil then
+                local n = tonumber(tostring(item.Value):match("[%d%.]+"))
+                if n then ms = n end
+            end
+        end)
+    end
+    if type(ms) ~= "number" or ms < 0 then ms = 0 end
+    ms = math.clamp(ms, 0, 1000)
+    pingState.ms = (pingState.ms == 0) and ms or (pingState.ms * 0.7 + ms * 0.3)
+    return pingState.ms
+end
+
+-- Total one-way-ish compensation used by the solver, in milliseconds.
+function SA.LeadLatencyMs()
+    local auto = CFG.predictionAutoPing and SA.GetPing() or 0
+    local scale = CFG.predictionPingScale or 1
+    return math.clamp(auto * scale + (CFG.predictionLatency or 0), 0, 1000)
+end
+
+-- ────────────────────────────────────────────────────────────────────
 -- INTERCEPT SOLVER
 -- Exact quadratic solution for a constant-velocity target:
 --   |(p0 - o) + v*t|^2 = (s*t)^2
@@ -66,7 +111,7 @@ function SA.Predict(origin, targetPos, model, gun)
     local g     = (CFG.predictionGravity and gun.gravity) or 0
     local life  = gun.life or math.huge
     local range = gun.range or DEFAULT_RANGE
-    local latency = (CFG.predictionLatency or 0) / 1000
+    local latency = SA.LeadLatencyMs() / 1000
     local iters = math.clamp(CFG.predictionIterations or 4, 1, 8)
     local d = targetPos - origin
 
@@ -101,6 +146,10 @@ function SA.PrintPrediction(origin, targetPos, model)
         "[pred] %s | ammo %s | speed %.0f | t %.3fs | lead %.1f | drop %.2f | range %d %s",
         i.id, tostring(i.ammo), i.speed, i.t, i.lead, i.drop, i.range,
         i.inRange and "OK" or "OUT OF RANGE"))
+    print(string.format("[pred] ping %.0f ms | auto %s | scale %.1f | offset %.0f ms | total %.0f ms",
+        SA.GetPing(), CFG.predictionAutoPing and "ON" or "OFF",
+        CFG.predictionPingScale or 1, CFG.predictionLatency or 0,
+        i.latency * 1000))
     return aim, i
 end
 

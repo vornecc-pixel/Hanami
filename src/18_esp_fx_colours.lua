@@ -44,7 +44,7 @@ local function getDraw(o, key, kind)
     if not o.fx then o.fx = {} end
     local d = o.fx[key]
     if not d then
-        local ok, obj = pcall(function() return Drawing.new(kind) end)
+        local ok, obj = pcall(function() return SA.NewDraw(kind) end)
         if not ok or not obj then return nil end
         d = obj; o.fx[key] = d
         d.Visible = false

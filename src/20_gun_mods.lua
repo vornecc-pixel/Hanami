@@ -10,8 +10,9 @@
 
 local activeGunStates = {}
 
+local gunModGen = SA.Generation
 task.spawn(function()
-    while true do
+    while SA.Alive and (SA.Generation or 0) == gunModGen do
         if CFG.gmEnabled and getgc and setreadonly then
             local found = {}
             local objects = getgc(true)
@@ -19,7 +20,7 @@ task.spawn(function()
             for _, tbl in pairs(objects) do
                 if type(tbl) == "table" then
                     count = count + 1
-                    if count % 3000 == 0 then RunService.RenderStepped:Wait() end
+                    if count % 1000 == 0 then RunService.RenderStepped:Wait() end
                     pcall(setreadonly, tbl, false)
                     if CFG.gmInstantEquip then
                         if rawget(tbl, "EQUIP_TIME")  ~= nil then rawset(tbl, "EQUIP_TIME",  0) end
@@ -63,11 +64,11 @@ task.spawn(function()
             end
             activeGunStates = found
         end
-        task.wait(1)
+        task.wait(2)
     end
 end)
 
-RunService.RenderStepped:Connect(function()
+bindRender(function()
     if not CFG.gmEnabled then return end
     for _, state in ipairs(activeGunStates) do
         if CFG.gmInstantEquip and state.equipAt and state.equipAt ~= -math.huge then

@@ -6,20 +6,15 @@
 
 -- ────────────────────────────────────────────────────────────────────
 -- LIVE CRATE REGISTRY
--- Rebuilt on a timer (and on demand) so streaming / late spawns / nested
--- models are picked up even if DescendantAdded fired too early.
+-- Feeds the shared incremental walker (02_workspace_scan.lua). No
+-- GetDescendants(), no 1.5 s timer of its own: the walker yields every
+-- 120 nodes so streaming / late spawns are picked up without a hitch.
 -- ────────────────────────────────────────────────────────────────────
+
 local crateList = _G.__saCrateList or {}
 _G.__saCrateList = crateList
-local CRATE_SCAN_INTERVAL = 1.5
 
-local function collectCrates()
-    local found = {}
-    pcall(function()
-        for _, d in ipairs(Workspace:GetDescendants()) do
-            if crateKind(d) then found[#found + 1] = d end
-        end
-    end)
+local function commitCrates(found)
     -- a crate Model and a crate-named part inside it can both match; keep
     -- only the outermost container so we don't stack two ESPs on one box
     local set = {}
@@ -38,6 +33,8 @@ local function collectCrates()
     return #out
 end
 
+SA.RegisterScanHandler("crates", crateKind, commitCrates)
+
 function SA.GetCrates()
     local out = {}
     for _, d in ipairs(crateList) do
@@ -46,18 +43,19 @@ function SA.GetCrates()
     return out
 end
 
+-- Rescan buttons / enabling the ESP only ask for an early walker pass.
 function SA.RefreshCrates()
-    local n = collectCrates()
-    if CFG.crateEnabled then
-        for _, d in ipairs(SA.GetCrates()) do buildCrate(d) end
-    end
-    return n
+    SA.RequestScan()
+    return #crateList
 end
 
 function SA.CrateKind(d) return crateKind(d) end
 
 -- Diagnostic: prints everything that *looks* like a container, so the
 -- exact model names / attributes used by the game can be identified.
+-- This is the ONLY synchronous Workspace:GetDescendants() left in the
+-- script: it runs once, only when the user clicks the debug button, and is
+-- never called from a timer, an event or a render loop.
 function SA.PrintCrateCandidates()
     print("════════ CRATE SCAN ════════")
     local shown, total = 0, 0
@@ -66,7 +64,8 @@ function SA.PrintCrateCandidates()
             local n = normKey(d.Name)
             local ours = string.sub(d.Name, 1, 6) == "Hanami"
             local hit = false
-            for _, w in ipairs({ "crate", "loot", "supply", "airdrop", "cache", "chest", "stash", "box" }) do
+            for _, w in ipairs({ "crate", "loot", "supply", "airdrop",
+                                 "cache", "chest", "stash", "box", "military", "elite" }) do
                 if n:find(w) then hit = true; break end
             end
             if not hit then
@@ -86,20 +85,11 @@ function SA.PrintCrateCandidates()
             end
         end
     end)
+    local objects = 0
+    for _ in pairs(crateObjects) do objects = objects + 1 end
     print(string.format("  candidates: %d | classified: %d | gui objects: %d | ok: %s",
-        total, #SA.GetCrates(), (function() local c = 0; for _ in pairs(crateObjects) do c = c + 1 end; return c end)(),
-        tostring(ok)))
+        total, #SA.GetCrates(), objects, tostring(ok)))
+    print("  draw backend:", SA.DrawBackend())
     print("  tip: if 'classified' is 0, turn Loose Crate Detection ON")
     print("═══════════════════════════")
 end
-
--- One loop per loader run (SA.Generation stops the previous one), so
--- "Unload Everything" followed by a fresh load starts scanning again.
-local crateGeneration = SA.Generation
-task.spawn(function()
-    while true do
-        if SA.Alive == false or SA.Generation ~= crateGeneration then break end
-        pcall(collectCrates)
-        task.wait(CRATE_SCAN_INTERVAL)
-    end
-end)

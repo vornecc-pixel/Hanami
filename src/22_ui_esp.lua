@@ -49,10 +49,8 @@ addButton(npcSec, "Rescan NPCs", function()
     local snap = {}
     for m in pairs(npcObjects) do table.insert(snap, m) end
     for _, m in ipairs(snap) do clearNpc(m) end
-    local list = SA.RefreshNpcs()
-    if CFG.npcEspEnabled then
-        for _, m in ipairs(list) do buildNpc(m) end
-    end
+    SA.RequestScan()
+    print("[sa] NPC rescan queued — background walker, no frame freeze")
 end)
 addButton(npcSec, "Scan NPCs", function() SA.PrintScan("NPC") end)
 
@@ -72,6 +70,8 @@ bindToggle(crateSec, "Show Elite Crates", "crateShowElite")
 bindToggle(crateSec, "Show Other Loot", "crateShowLoot",
     "Supply drops, airdrops, caches, chests and any other container")
 bindToggle(crateSec, "Show Opened Crates", "crateShowOpened")
+bindToggle(crateSec, "Crate Chams Highlight", "crateHighlight",
+    "OFF by default. When ON, the highlight is bound to the crate's own anchor part only — never to scenery")
 bindToggle(crateSec, "Loose Crate Detection", "crateLooseDetect",
     "Fuzzy name + attribute matching. Fixes crates named MilitaryCrate, Crate_Military, hashes, Folders…")
 bindSlider(crateSec, "Crate Max Distance", "crateMaxDist", 200, 5000, 10, "")
@@ -80,8 +80,8 @@ addButton(crateSec, "Rescan Crates", function()
     local snap = {}
     for m in pairs(crateObjects) do table.insert(snap, m) end
     for _, m in ipairs(snap) do clearCrate(m) end
-    local n = SA.RefreshCrates()
-    print("[sa] crates found:", n)
+    SA.RequestScan()
+    print("[sa] crate rescan queued —", #SA.GetCrates(), "known so far")
 end)
 addButton(crateSec, "Print Crate Names (debug)", function()
     SA.PrintCrateCandidates()
@@ -106,6 +106,13 @@ bindToggle(featSec, "Distance Fade", "espFade")
 bindSlider(featSec, "Fade Start (%)", "espFadeStart", 0, 95, 5, "%")
 bindSlider(featSec, "Line Thickness", "espBoxThickness", 1, 5, 1, "")
 bindDropdown(featSec, "Tracer Origin", "espTracerOrigin", { "Mouse", "Center", "Bottom" })
+bindToggle(featSec, "Arrows Follow FOV", "espArrowFOV",
+    "Off-screen arrows sit on the FOV circle edge and scale with Aim / Circle Radius")
+featSec:label({ name = "── ALL ESP TEXT ──" })
+bindSlider(featSec, "Text Size", "espTextSize", 6, 30, 1, "px")
+bindToggle(featSec, "Show Health %", "espShowHealthText",
+    "Appends HP: NN% to the player/NPC info line (name, distance, tool and state are already there)")
+bindToggle(featSec, "Text Outline", "espTextOutline")
 
 -- ── ESP : column 3 — one colourpicker for EVERY drawn element ────────
 -- Atlanta labels expose a `right_holder`, so each labelled row can carry

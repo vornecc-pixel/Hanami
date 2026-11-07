@@ -19,7 +19,13 @@ local function drawEntity(cam, o, opt)
     local isTarget  = opt.target and CFG.espHighlightTarget
     local g         = opt.geom
 
-    local function col(suffix) return pick(p .. suffix, base, seed) end
+    -- crates only define a few palette keys; fall back to the shared
+    -- player<Element> picker so skeleton / head dot / health aren't white
+    local function col(suffix)
+        local key = p .. suffix
+        if ESP_COLORS[key] == nil then key = "player" .. suffix end
+        return pick(key, base, seed)
+    end
 
     local boxCol, fillCol, outlineCol = col("Box"), col("Fill"), col("Outline")
     if opt.typeColor and not CFG.espRainbow then
@@ -48,6 +54,29 @@ local function drawEntity(cam, o, opt)
         o.stateLbl.TextColor3 = opt.opened and espC("crateOpened") or col("State")
         o.stateLbl.TextTransparency = t
     end
+
+    -- ── ONE TEXT-SIZE SLIDER FOR EVERY ESP LABEL ──────────────────────
+    -- name, distance, tool / state, VIS tag and health % all scale
+    -- together; rows are re-stacked so nothing overlaps at large sizes.
+    local ts = math.clamp(CFG.espTextSize or 11, 6, 30)
+    local rowH = math.floor(ts + 2)
+    local order = o.stateLbl
+        and { o.nameLbl, o.stateLbl, o.distLbl }
+        or  { o.nameLbl, o.distLbl, o.infoLbl }
+    local rows = 0
+    for _, lbl in ipairs(order) do
+        if lbl then
+            lbl.TextSize = ts
+            lbl.Size = UDim2.new(1, 0, 0, rowH)
+            lbl.TextStrokeTransparency = CFG.espTextOutline and 0 or 1
+            if lbl.Visible then
+                lbl.Position = UDim2.new(0, 0, 0, rows * rowH)
+                rows = rows + 1
+            end
+        end
+    end
+    o.bb.Size = UDim2.fromOffset(220, math.max(rows, 1) * rowH)
+    o.bb.StudsOffset = Vector3.new(0, 2 + ts * 0.12, 0)
 
     -- chams
     if o.highlight then
@@ -118,17 +147,34 @@ local function drawEntity(cam, o, opt)
         end
     end
 
-    -- bones + head dot
-    if opt.model and (CFG.espShowSkeleton or CFG.espShowHeadDot) then
+    -- bones + head dot — now ALSO work on crates (a spine + a top marker
+    -- instead of limbs), so these features are visible with only Crate ESP on
+    if CFG.espShowSkeleton or CFG.espShowHeadDot then
         if CFG.espShowSkeleton then
-            for i, bone in ipairs(SKELETON) do
-                local a, b = findPart(opt.model, bone[1]), findPart(opt.model, bone[2])
-                local l = (a and b) and getDraw(o, "sk" .. i, "Line") or nil
-                if l then
-                    local va, oka = cam:WorldToViewportPoint(a.Position)
-                    local vb, okb = cam:WorldToViewportPoint(b.Position)
-                    if oka and okb and va.Z > 0 and vb.Z > 0 then
-                        l.From = Vector2.new(va.X, va.Y); l.To = Vector2.new(vb.X, vb.Y)
+            if opt.model then
+                for i, bone in ipairs(SKELETON) do
+                    local a, b = findPart(opt.model, bone[1]), findPart(opt.model, bone[2])
+                    local l = (a and b) and getDraw(o, "sk" .. i, "Line") or nil
+                    if l then
+                        local va, oka = cam:WorldToViewportPoint(a.Position)
+                        local vb, okb = cam:WorldToViewportPoint(b.Position)
+                        if oka and okb and va.Z > 0 and vb.Z > 0 then
+                            l.From = Vector2.new(va.X, va.Y); l.To = Vector2.new(vb.X, vb.Y)
+                            l.Color = col("Skeleton"); l.Transparency = t
+                            l.Thickness = thick; l.Visible = true
+                        end
+                    end
+                end
+            elseif g.onScreen then
+                local cx = g.x + g.w / 2
+                local segs = {
+                    { Vector2.new(cx, g.y), Vector2.new(cx, g.y + g.h) },
+                    { Vector2.new(g.x, g.y + g.h / 2), Vector2.new(g.x + g.w, g.y + g.h / 2) },
+                }
+                for i, s in ipairs(segs) do
+                    local l = getDraw(o, "csk" .. i, "Line")
+                    if l then
+                        l.From, l.To = s[1], s[2]
                         l.Color = col("Skeleton"); l.Transparency = t
                         l.Thickness = thick; l.Visible = true
                     end
@@ -136,12 +182,20 @@ local function drawEntity(cam, o, opt)
             end
         end
         if CFG.espShowHeadDot then
-            local h = findPart(opt.model, { "Head" })
-            if h then
-                local v, ok = cam:WorldToViewportPoint(h.Position)
-                local d = (ok and v.Z > 0) and getDraw(o, "headdot", "Circle") or nil
+            local hx, hy = nil, nil
+            if opt.model then
+                local h = findPart(opt.model, { "Head" })
+                if h then
+                    local v, ok = cam:WorldToViewportPoint(h.Position)
+                    if ok and v.Z > 0 then hx, hy = v.X, v.Y end
+                end
+            elseif g.onScreen then
+                hx, hy = g.x + g.w / 2, g.y
+            end
+            if hx then
+                local d = getDraw(o, "headdot", "Circle")
                 if d then
-                    d.Position = Vector2.new(v.X, v.Y); d.Radius = 4
+                    d.Position = Vector2.new(hx, hy); d.Radius = 4
                     d.Color = col("HeadDot"); d.Transparency = t; d.Visible = true
                 end
             end
@@ -149,26 +203,37 @@ local function drawEntity(cam, o, opt)
     end
 
     -- tracer + off-screen arrow
+    -- With "Arrows Follow FOV" the arrow sits ON the FOV circle perimeter
+    -- (radius = CFG.fov, centre = the same mouse point as the FOV circle),
+    -- and it is also shown for targets that are on-screen but outside the
+    -- aim cone. Change the FOV radius and the arrows move with it.
     local px, onScr = screenPoint(cam, g.raw, g.ok)
+    local fovC = opt.fovCenter or Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local fovR = math.max(opt.fovRadius or 150, 20)
+    local dir = px - fovC
+    if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
+    local outsideFov = dir.Magnitude > fovR
+
     if CFG.espShowTracer then
         local l = getDraw(o, "tracer", "Line")
         if l then
-            l.From = opt.origin; l.To = px
+            l.From = opt.origin
+            l.To = (CFG.espArrowFOV and not onScr) and (fovC + dir.Unit * fovR) or px
             l.Color = col("Tracer"); l.Transparency = t
             l.Thickness = thick; l.Visible = true
         end
     end
-    if CFG.espShowOffscreen and not onScr then
+
+    if CFG.espShowOffscreen and (not onScr or (CFG.espArrowFOV and outsideFov)) then
         local tri = getDraw(o, "arrow", "Triangle")
         if tri then
-            -- a few executors expose Triangle without PointA/B/C; fail soft
             pcall(function()
-                local vp = cam.ViewportSize
-                local a = math.atan2(px.Y - vp.Y / 2, px.X - vp.X / 2)
-                local r = 9
-                tri.PointA = px + Vector2.new(math.cos(a), math.sin(a)) * r
-                tri.PointB = px + Vector2.new(math.cos(a + 2.4), math.sin(a + 2.4)) * r
-                tri.PointC = px + Vector2.new(math.cos(a - 2.4), math.sin(a - 2.4)) * r
+                local anchorAt = CFG.espArrowFOV and (fovC + dir.Unit * fovR) or px
+                local a = math.atan2(dir.Y, dir.X)
+                local r = math.clamp(fovR * 0.035, 7, 16)  -- scales with the FOV
+                tri.PointA = anchorAt + Vector2.new(math.cos(a), math.sin(a)) * r
+                tri.PointB = anchorAt + Vector2.new(math.cos(a + 2.4), math.sin(a + 2.4)) * r
+                tri.PointC = anchorAt + Vector2.new(math.cos(a - 2.4), math.sin(a - 2.4)) * r
                 tri.Color = col("Offscreen"); tri.Transparency = t; tri.Visible = true
             end)
         end

@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **29 short files** (`src/`, largest is 251 lines) plus a short **loader**.
+The original 1,300-line script is split into **31 short files** (`src/`, largest is 278 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -22,21 +22,72 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
-| **Crate ESP fixed** | ESP → Crate ESP | Root cause: only two exact model names were matched, discovery ran once at enable, non-recursive part lookup found no anchor, and no `Adornee` was set. Now uses fuzzy name + attribute classification, a live 1.5 s registry, recursive anchors, explicit `Adornee`, and frame-by-frame rediscovery. See the ESP overhaul section. |
+| **No more ~3 s frame skip** | everywhere | See [Stability & fixes](#stability--fixes). One shared, yielding Workspace walker replaces both `GetDescendants()` scanners; GUI builds are capped; stale render loops disconnect on re-execute. |
+| **One text-size slider for ALL ESP text** | ESP → ESP Features → Text Size | Scales name, distance, tool / state, `VIS`/`WALL`, health % on players, NPCs **and** crates, and re-stacks the rows so they never overlap. Plus `Show Health %` and `Text Outline` toggles. |
+| **FOV circle actually shows** | Visual → FOV Circle / Snapline | `SA.NewDraw` falls back to real Roblox GUI Frames when the executor has no usable `Drawing` API; no longer gated on aim being ON; transparency slider now means what it says (0 % = solid). ON by default. |
+| **Auto Ping Lead** | Aiming → Ballistics | Reads live `lp:GetNetworkPing()` (or `Stats.Network.ServerStatsItem["Data Ping"]`), smooths it, and feeds it into the ballistic solver. `Ping Scale` × ping + `Extra Ping Offset (ms)` = total extra lead. Old manual-only `Extra Lead` is now an offset on top. |
+| **No stray crate Highlight** | ESP → Crate ESP | `Crate Chams Highlight` is **OFF** by default. Classification now requires a container-like Model/BasePart with a real crate signal, and the `Highlight` is bound to the crate's own anchor part only — never a whole folder of scenery. |
+| **Skeleton / Head Dot / Tracer / arrows work** | ESP → ESP Features | All `Drawing.new` calls now go through the compatibility layer, and skeleton + head dot also render on crate ESP (a spine and a top marker). |
+| **Off-screen arrows follow FOV** | ESP → ESP Features → Arrows Follow FOV | Arrows sit on the FOV circle perimeter using the **same centre and radius** as the drawn circle; change `Aim / Circle Radius` and the arrows move with it. Also points at on-screen targets *outside* the aim cone. |
 | **48 colourpickers** | ESP → Colours | One clearly-labelled picker for **every** drawn element (players, NPCs, crates, snapline, FOV, lead, target). All write into one shared `ESP_COLORS` table that survives re-execution. |
 | **Customizable visibility colours** | ESP → Colours · Player / NPC | Green (clear LOS) / red (blocked) are now obvious labelled pickers, not tiny swatches buried on unrelated toggles. They paint an outer frame, a visibility dot and the `VIS` / `WALL` tag even when per-element colours are on. |
-| **New ESP visuals** | ESP → ESP Features | Corner boxes, chams fill + outline, R6/R15 skeleton, head dot, tracer lines, off-screen arrows, visibility dot, distance fade, rainbow cycle, per-NPC-type colours and an aim-target highlight — every one has its own colourpicker. |
-| **Per-element colour mode** | ESP → ESP Features | `ON` (default): each element uses its own picker. `OFF`: the green/red visibility colour (or crate type colour) paints everything, like the classic ESP. |
 | **Crate diagnostics** | ESP → Crate ESP | **Print Crate Names (debug)** lists every container-ish instance with its class, classified kind and parent, so the exact names your game uses can be found. |
-| **Ballistic prediction** | Aiming → Ballistics | Replaced the old one-step `distance/speed` guess with an exact quadratic intercept solve using each gun's real `speed`, bullet drop, alt ammo, ping and range. See the next section. |
-| **Player visibility check** | ESP → Player ESP | Box, name, fill and info line turn **green when there is a clear line of sight** and **red when a wall blocks it**. Cached camera raycast (~120 ms) so it costs ~30 raycasts / 0.12 s on a 30-player server, not 30 per frame. |
-| **FOV snapline** | Visual → FOV Circle / Snapline | Line + dot to the target, **green = visible, red = blocked**, plus a gold **lead ring** at the exact point the solver aims at. Uses a `preview` lookup that skips hit-chance RNG so it doesn't flicker. |
-| **NPC silent aim** | Aiming → Silent Aim → Target NPCs | ON by default. `pickBestTarget` selects from players **and** the NPC registry. |
-| **NPC ESP** | ESP → NPC ESP | Separate section for `Guard`, `Scavenger`, `Soldier`. Name/distance/health box, visibility colours, and its own scanner options. |
-| **Entity scanner** | ESP tab + Misc | Reads an equipped `Tool`, `ItemId` / `Weapon` / `HeldItem` attributes and weapon containers, plus `Downed` / `Knocked` / `Dead` / `State` attributes with a `HumanoidStateType` fallback. `Show Weapon` and `Show State` are options on **both** player and NPC ESP; a third `VIS` / `WALL` tag appears when the visibility check is on. |
+| **Ballistic prediction** | Aiming → Ballistics | Replaced the old one-step `distance/speed` guess with an exact quadratic intercept solve using each gun's real `speed`, bullet drop, alt ammo, live ping and range. See the next section. |
+| **Player visibility check** | ESP → Player ESP | Box, name, fill and info line turn **green when there is a clear line of sight** and **red when a wall blocks it**. Cached camera raycast (~120 ms). |
+| **FOV snapline** | Visual → FOV Circle / Snapline | Line + dot to the target, **green = visible, red = blocked**, plus a gold **lead ring** at the exact point the solver aims at. |
+| **NPC silent aim / NPC ESP** | Aiming + ESP | `pickBestTarget` selects from players **and** the NPC registry. Separate section for `Guard`, `Scavenger`, `Soldier`, with name/distance/health box, visibility colours and scanner options. |
+| **Entity scanner** | ESP tab + Misc | Reads an equipped `Tool`, `ItemId` / `Weapon` / `HeldItem` attributes and weapon containers, plus `Downed` / `Knocked` / `Dead` / `State` attributes with a `HumanoidStateType` fallback. `Show Weapon` and `Show State` are options on **both** player and NPC ESP; `VIS` / `WALL` is a third tag. |
 | **Wall-pen description** | Aiming → Wall Penetration + below | Tooltips, three in-UI labels, and a one-click **Apply Recommended Wall Pen** button. |
 
-NPC detection accepts the literal model names `Guard` / `Scavenger` / `Soldier`, the common `Scavenger`/`IsNpc`/`NPC` attributes, and models inside `Npcs` / `Enemies` folders. The registry scans the **whole workspace** in a background task every 2 s (refreshed ~0.2 s after an NPC spawns), so it isn't limited to an `Npcs` folder and never hitches a render frame. Real player characters are explicitly excluded.
+NPC detection accepts the literal model names `Guard` / `Scavenger` / `Soldier`, the common `Scavenger`/`IsNpc`/`NPC` attributes, and models inside `Npcs` / `Enemies` folders. Real player characters are explicitly excluded.
+
+## Stability & fixes
+
+### 1. The periodic ~3 second freeze
+
+Five separate causes were stacking up:
+
+* The NPC scanner called `Workspace:GetDescendants()` every **2 s** and the crate scanner called it again every **1.5 s** — a single synchronous full-workspace snapshot on a big map freezes the render thread.
+* `SA.RefreshCrates()` / `SA.RefreshNpcs()` ran that same full scan **inline** when enabling an ESP, clicking a Rescan button, or on `DescendantAdded`.
+* Dozens of `BillboardGui` / `Highlight` / `Drawing` instances could be created in one frame.
+* Re-executing the loader left **duplicate `RenderStepped` loops** from the previous run still connected.
+* The gun-mods `getgc(true)` loop ran every 1 s with a 3 000-iteration yield budget.
+
+**Fix:** `src/02_workspace_scan.lua` is now the *only* workspace walker in the script. It does a breadth-first traversal via `GetChildren()`, inspects at most **120 nodes per frame** and then `task.wait()`s — no `GetDescendants()` anywhere in a loop. Both the NPC and crate registries register a `predicate` + `commit` callback with `SA.RegisterScanHandler`, and `SA.RequestScan()` only queues an early pass. `src/19_render_loop.lua` caps new GUI builds at **2 per ESP type per frame** and refreshes crates at ~20 Hz. `bindRender()` in `src/01_config.lua` binds every `RenderStepped` callback with a generation guard, so old loops disconnect themselves. The GC scan is generation-guarded, yields every 1 000 objects and runs every 2 s (and only when gun mods are ON).
+
+`SA.WorkspacePass()` reports the number of completed passes; **Visual → Debug → Print Draw Backend** reports which drawing backend is in use.
+
+### 2. FOV circle / skeleton / head dot / tracer / arrows not appearing
+
+Every one of those is a `Drawing` object. Executors that expose a partial (or no) `Drawing` API fail `Drawing.new(...)` inside a `pcall`, and the visual silently disappears — while the crate `BillboardGui` text still renders, which is exactly the symptom in the screenshot.
+
+**Fix:** `src/02_drawing.lua` probes native `Drawing.new("Line")` once, checking that `Visible`, `Color`, `Transparency`, `Thickness`, `From` and `To` are actually writable. If that fails (or `Triangle.PointA` isn't writable), `SA.NewDraw(kind)` returns a proxy backed by real Roblox `Frame`s inside a `HanamiOverlay` ScreenGui (CoreGui → PlayerGui → `gethui()`). The proxy implements the exact same `Line` / `Circle` / `Triangle` property interface plus `Remove()`. All five direct callers (`10_fov_circle.lua`, `11_snapline.lua`, `12_esp_players.lua`, `14_esp_npcs.lua`, `18_esp_fx_colours.lua`) now use `SA.NewDraw`.
+
+The FOV circle also had three logic bugs: it was gated on `CFG.masterEnabled`, `fovTransparency = 0` produced `Transparency = 1` (fully invisible), and a dead draw object was never recreated. All fixed; `showFov` now defaults to **true**.
+
+### 3. Extra Lead auto-adjusts to live ping
+
+`src/08_prediction.lua` adds `SA.GetPing()` (0.25 s cached, exponentially smoothed, clamped 0–1000 ms) and `SA.LeadLatencyMs()`:
+
+```
+total extra lead (ms) = (auto ping × Ping Scale) + Extra Ping Offset
+```
+
+`GetNetworkPing()` returns seconds so it is ×1000; the legacy `Data Ping` value is already milliseconds (both `GetValue()` and a numeric/string `Value` are handled). `Auto Ping Lead` is **ON** by default, `Ping Scale` defaults to **1.0** (full round-trip time — set it to **0.5** if you want one-way latency instead), and the old manual `Extra Lead (ping ms)` slider is now `Extra Ping Offset (ms)` added on top. **Aiming → Ballistics → Print Live Ping** shows the measured ping and resulting total. The solver adds this **once** as `tTotal = flightTime + latency`, never once per iteration.
+
+### 4. Highlight on unrelated objects when Crate ESP is ON
+
+The loose classifier accepted *any* instance with an `Opened` / `Looted` attribute (doors, scenery, whole `Loot` folders), and the `Highlight` was parented to the model with `Adornee` set to the whole model.
+
+**Fix:** `crateKind()` now requires `Model` or `BasePart`, excludes player characters / humanoids / our own `Hanami*` instances, and in loose mode requires **both** a container-ish name (`box`, `container`, `parcel`, `pile`, `drop`) **and** a loot-state attribute. `buildCrate()` sets `hl.Enabled = false`, `hl.Adornee = anchor` (one BasePart, not the model), and parents the highlight to that anchor. `refreshCrateESP()` only enables it when the new `Crate Chams Highlight` toggle is ON (default **OFF**). Nested container duplicates are still de-duplicated by `commitCrates()`.
+
+### 5. Off-screen arrows follow the FOV
+
+`src/10_fov_circle.lua` exposes `SA.FovCenter()` (mouse location, with a screen-centre fallback). `src/18_esp_fx_frame.lua` computes `fovR = clamp(CFG.fov, 20, half the smaller viewport side)` once per frame and passes `fovCenter` / `fovRadius` into every `drawEntity` call. `src/18_esp_fx_draw.lua` places the arrow at `centre + dir.Unit × fovR`, scales the triangle with `fovR`, clamps the tracer there too, and also shows the arrow for on-screen targets that are outside the aim cone. Turn `Arrows Follow FOV` OFF to get the old screen-edge behaviour.
+
+### 6. All ESP text scales from one slider
+
+`CFG.espTextSize` (6–30 px, default **11**) is applied in the unified `drawEntity()` styling pass to **every** `TextLabel` the three ESP types create — player name / distance / info, NPC name / distance / info, crate name / state / distance. Rows are re-stacked and the `BillboardGui` is resized to fit. `Show Health %` appends `HP: NN%` to the player / NPC info line; `Text Outline` toggles the stroke.
 
 ## ESP overhaul: crate fix, colours and new features
 
@@ -44,14 +95,12 @@ NPC detection accepts the literal model names `Guard` / `Scavenger` / `Soldier`,
 
 Four separate bugs in the old parts (now `src/16_esp_crates*.lua`, `src/17_esp_crates_refresh.lua`, `src/19_render_loop.lua`):
 
-1. **Exact-name only.** `CRATE_NAMES` contained just `"Military Crate"` and `"Elite Crate"`. Real revisions use `MilitaryCrate`, `Crate_Military`, `Elite_Crate`, `LootCrate`, hashed ids, or a `Folder` with a `CrateType` attribute — so nothing was ever classified and nothing was ever drawn.
-2. **One-shot discovery.** `enableCrateESP()` scanned `Workspace` once. The only follow-up was `DescendantAdded`, which fires for a Model **before** its parts are parented; `buildCrate()` found no anchor and gave up permanently. Unlike NPCs, the render loop never retried containers.
+1. **Exact-name only.** The old `CRATE_NAMES` table contained just `"Military Crate"` and `"Elite Crate"`. Real revisions use `MilitaryCrate`, `Crate_Military`, `Elite_Crate`, `LootCrate`, hashed ids, or a `Folder` with a `CrateType` attribute — so nothing was ever classified and nothing was ever drawn.
+2. **One-shot discovery.** `enableCrateESP()` scanned `Workspace` once. The only follow-up was `DescendantAdded`, which fires for a Model **before** its parts are parented; `buildCrate()` found no anchor and gave up permanently.
 3. **Non-recursive anchor.** `FindFirstChildWhichIsA("BasePart")` checks direct children only, so crates whose parts live in nested sub-models had no anchor.
 4. **No explicit `Adornee`.** A `BillboardGui` / `Highlight` parented to a `Folder` or a nested model renders nothing without one.
 
-Also `stateOk = opened and crateShowOpened or not opened` silently hid every opened crate when the toggle was off; it is now explicit.
-
-**Fix:** `crateKind()` normalises names (lowercase, punctuation stripped), checks `military` / `elite` / `crate` / `loot` / `supply` / `airdrop` / `cache` / `chest` / `stash`, reads `CrateType` / `Tier` / `Rarity` / `Opened` / `Looted` attributes, and excludes player characters and NPCs. A `_G`-guarded background scanner rebuilds the crate list every 1.5 s; `SA.GetCrates()` is read every frame by the render loop, `SA.RefreshCrates()` forces an immediate rescan, and `buildCrate()` uses `FindFirstChildWhichIsA("BasePart", true)` plus explicit `Adornee`. New `Loot` kind covers supply drops and other containers. **Print Crate Names (debug)** and **Rescan Crates** are buttons in the Crate ESP mini-tab.
+**Fix:** `crateKind()` normalises names (lowercase, punctuation stripped), checks `military` / `elite` / `crate` / `loot` / `supply` / `airdrop` / `cache` / `chest` / `stash`, reads `CrateType` / `Tier` / `Rarity` / `LootTier` / `Opened` / `Looted` attributes, and excludes player characters and NPCs (see [fix #4](#4-highlight-on-unrelated-objects-when-crate-esp-is-on) for the tightened rules). `SA.GetCrates()` is read every frame by the render loop, `SA.RefreshCrates()` queues an early incremental pass, and `buildCrate()` uses `FindFirstChildWhichIsA("BasePart", true)` plus explicit `Adornee`. New `Loot` kind covers supply drops and other containers. **Print Crate Names (debug)** and **Rescan Crates** are buttons in the Crate ESP mini-tab.
 
 ### Unified colour system
 
@@ -66,6 +115,8 @@ Also `stateOk = opened and crateShowOpened or not opened` silently hid every ope
 | Crate | Military, Elite, Other loot, Opened, state text, distance text, tracer, off-screen arrow (type colour also paints box / fill / name) |
 | Global | snapline visible / blocked, lead marker, FOV circle, FOV while wall-pen is on, aim target |
 
+Crates only define a few palette keys; missing ones fall back to the shared `player<Element>` picker, so skeleton / head dot / health bars aren't plain white.
+
 The dynamic **visible / hidden** colour always paints an outer frame around the box, the visibility dot and the `VIS` / `WALL` info tag, so it stays meaningful even with per-element colours enabled. `NPC Type Colours` overrides box/fill/outline for Guard/Scavenger/Soldier; `Highlight Aim Target` paints the entity silent aim is choosing with the `target` colour.
 
 ### New ESP visuals (all in `ESP → ESP Features`)
@@ -75,17 +126,20 @@ The dynamic **visible / hidden** colour always paints an outer frame around the 
 | Per-Element Colours | each element uses its own picker instead of the dynamic base | ON |
 | Box Outline / Corner Boxes | 4 full edges or 8 corner segments | ON / OFF |
 | Chams Fill / Outline | `Highlight` fill and outline | ON / OFF |
-| Skeleton (bones) | 6 R6/R15-friendly segments (head→torso→root, arms, legs) | OFF |
-| Head Dot | filled circle on `Head` | OFF |
+| Skeleton (bones) | 6 R6/R15-friendly segments; crates get a spine + crossbar | OFF |
+| Head Dot | filled circle on `Head` (or the top-centre of a crate) | OFF |
 | Tracer Lines | line from Mouse / Center / Bottom to each target | OFF |
-| Off-screen Arrows | clamped triangle pointing at targets outside the view | OFF |
+| Off-screen Arrows | triangle on the FOV circle perimeter pointing at off-targets | OFF |
+| Arrows Follow FOV | arrows share the FOV circle centre / radius | ON |
+| **Text Size** | one slider for **all** ESP text (name, distance, tool, state, health) | 11 px |
+| Show Health % / Text Outline | `HP: NN%` tag / label stroke | OFF / ON |
 | Highlight Aim Target | target box / fill / outline uses the `target` colour | ON |
 | Rainbow Mode + Speed | all colours cycle through HSV (speed slider) | OFF |
 | Distance Fade + Fade Start (%) | transparency ramps in over the last N% of `Max Distance` | OFF |
 | Line Thickness / Tracer Origin | 1–5 px, Mouse / Center / Bottom | 1 / Bottom |
 | NPC Type Colours | Guard / Scavenger / Soldier get distinct colours | OFF |
 
-All extra `Drawing` objects are created **lazily** per entity and destroyed by `SA.DisposeEspFx(o)` when the object is cleared, so a feature that is off costs zero drawings. `SA.ApplyEspFx(cam)` runs once per frame after the player/NPC/crate refreshes. The FX pipeline is split across `18_esp_fx_colours.lua` / `18_esp_fx_draw.lua` / `18_esp_fx_frame.lua`.
+All extra drawing objects are created **lazily** per entity and destroyed by `SA.DisposeEspFx(o)` when the object is cleared, so a feature that is off costs zero drawings. `SA.ApplyEspFx(cam)` runs once per frame after the player/NPC/crate refreshes. The FX pipeline is split across `18_esp_fx_colours.lua` / `18_esp_fx_draw.lua` / `18_esp_fx_frame.lua`.
 
 ## Ballistic prediction
 
@@ -101,7 +155,7 @@ if vel.Magnitude > 0.5 then targetPos = targetPos + vel * travel end
 `GUN_SPEEDS`, `GUN_DEFAULT_SPEED`, `getGunSpeed()`, `getEquippedGunId()` and the single-frame `velCache` are **gone**. In their place:
 
 * `src/07_gun_specs.lua` — exact game definitions for all 19 guns, ammo damage, alt-ammo modifiers, falloff profiles, `GUN_RANGE`, `gravity`/`life`, and the `u3492.GunDamage` formula.
-* `src/08_prediction.lua` — smoothed target velocity, an exact intercept solver and the debug helpers.
+* `src/08_prediction.lua` — smoothed target velocity, live ping, an exact intercept solver and the debug helpers.
 
 ### Gun data
 
@@ -150,11 +204,11 @@ Alt ammo modifiers applied by the resolver:
 
 ### The solver
 
-1. **Velocity** — `SA.TargetVelocity(model)` samples `HumanoidRootPart.Position` into a weak-keyed, exponentially smoothed estimate (`alpha = clamp(dt*12, 0.15, 0.6)`, teleports >120 studs/s dropped). No more single-frame spikes.
+1. **Velocity** — `SA.TargetVelocity(model)` samples `HumanoidRootPart.Position` into a weak-keyed, exponentially smoothed estimate (`alpha = clamp(dt*12, 0.15, 0.6)`, teleports >120 studs/s dropped).
 2. **Exact intercept** — solve `|(p₀ − o) + v·t|² = (s·t)²` for the smallest positive root, where `s` is the equipped gun's real speed. For a stationary target this is exactly `distance/speed`; for a moving target it accounts for the target closing/retreating during flight.
 3. **Bullet drop** — for guns with `gravity`, aim above by `½·g·t²` and re-derive the flight time from the new aim point (`Solver Iterations`, 1–8, default 4). Guns without gravity converge in one pass.
-4. **Latency** — `Extra Lead (ping ms)` is added **once** as `tTotal = flightTime + latency`, never once per iteration.
-5. **Bounds** — flight time is clamped to the gun's `life` (projectile despawn), and the result reports `inRange` against `GUN_RANGE` (default 550). Out-of-range/expires are exposed to the snapline so the lead ring is hidden when the shot can't reach.
+4. **Latency** — `SA.LeadLatencyMs()` (auto ping × scale + manual offset) is added **once** as `tTotal = flightTime + latency`, never once per iteration.
+5. **Bounds** — flight time is clamped to the gun's `life` (projectile despawn), and the result reports `inRange` against `GUN_RANGE` (default 550).
 
 `SA.Predict(origin, targetPos, model)` returns `aimPoint, info`. `info` carries `t`, `total`, `speed`, `velocity`, `lead`, `drop`, `latency`, `range`, `inRange`, `expired`, `id`, `ammo`, `gravity`. Silent aim uses it on every snap; the snapline uses it to draw the gold lead ring.
 
@@ -166,14 +220,16 @@ Alt ammo modifiers applied by the resolver:
 | Bullet Drop Compensation | ON | `½gt²` vertical aim offset |
 | Detect Alt Ammo | ON | Reads `Ammo`/`AmmoType`/`LoadedAmmo` attributes off the tool |
 | Solver Iterations | 4 | Fixed-point refinement passes |
-| Extra Lead (ping ms) | 0 | Extra lead if shots land behind moving targets |
+| **Auto Ping Lead** | **ON** | Live `GetNetworkPing()` / `Data Ping`, smoothed and fed into the solver |
+| **Ping Scale** | **1.0×** | Multiplier on the measured ping (0–2) |
+| Extra Ping Offset (ms) | 0 | Manual offset added on top of auto ping (0–300) |
 | Bullet Speed Override | 0 (auto) | Manual speed, 0–3000; overrides the gun table |
 | Ammo Override | Auto | Force any of the 4 base + 6 alt ammo types |
 | Saturday2 Damage | OFF | Use the `s2Damage` branch of `GunDamage` |
 | Muzzle Boost Equipped | OFF | Apply +15% rate / −10% damage |
 | Show Lead Marker | ON | Gold ring at the predicted aim point (Visual tab, with colourpicker) |
 
-Debug buttons (Visual → Debug): **Print Gun Spec** (id, ammo, speed, drop, range, damage formula, `GUN_BALANCE` note, DPS), **Print Prediction** (flight time, lead, drop, range check), **Sync Gun Defs (GC)** and **Print Current Target**.
+Debug buttons (Visual → Debug): **Print Gun Spec**, **Print Prediction** (now also prints measured ping / scale / offset / total), **Print Live Ping** (Aiming → Ballistics), **Print Draw Backend**, **Sync Gun Defs (GC)** and **Print Current Target**.
 
 ### Live game hooks
 
@@ -198,7 +254,7 @@ Wall penetration = the **FOV-aware wall peek** (`Aiming → Wall Penetration`). 
 | Ray Budget / Frame | **64** | Good balance between finding a clear peek and staying smooth. Use **32** on low-end devices / big servers. |
 | Cache Hysteresis | **5 frames** | Keeps the same peek active instead of re-scanning every frame when you strafe. |
 | Max Peek Delta | **6** | Caps how far a cached peek may drift before it is recomputed. |
-| Aim / Circle Radius (FOV) | **~150 px** | A narrower cone means fewer candidate peeks per frame — the single biggest CPU saving. |
+| Aim / Circle Radius (FOV) | **~150 px** | A narrower cone means fewer candidate peeks per frame — the single biggest CPU saving. Also moves the off-screen arrows. |
 | Hit Chance | **100 %** | No random skipped shots while you're testing penetration. |
 | Cooldown | **0 s** | Fire as fast as the weapon allows. |
 | Prediction | **ON** | The ballistic solver compensates moving targets; penetration doesn't help if the shot lands behind them. |
@@ -209,11 +265,11 @@ Two useful variants:
 * **Strict / legit** — Manipulation `OFF`, Wall Check `ON`, FOV `~120`, Hit Chance `60–80`. Only shoots what you can genuinely see.
 * **Heavy cover / static targets** — keep the recommended values but raise `Max CanQuery Parts` to `5` and `Ray Budget` to `96`; keep FOV at `150` so the extra rays stay bounded.
 
-The snapline and the red ESP colour are your penetration indicator: **green = you already have line of sight, no penetration needed; red = a wall is in the way**. Note that with `Hit Chance < 100` the snapline still shows the target it *would* pick — the shot itself may be skipped by the RNG.
+The snapline and the red ESP colour are your penetration indicator: **green = you already have line of sight, no penetration needed; red = a wall is in the way**.
 
 ## UI: Atlanta
 
-`src/21_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 22–27 build the tabs.
+`src/21_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 22–26 build the tabs.
 
 ```
 Aiming   → Silent Aim / Gun · Target / Ballistics / Wall Penetration
@@ -228,7 +284,7 @@ Misc     → Info · Quick Actions
 * **Keys:** `RightShift` toggles silent aim (chained keybind on the master toggle), `Insert` shows/hides the menu (Atlanta default).
 * **48 colourpickers** live in `ESP → Colours` and write straight into `ESP_COLORS`. Chained onto `label` rows (labels expose `right_holder`), each has a unique `hn_col_<key>` flag. FOV / snapline / lead / target colours moved here from the Visual tab so there is exactly one picker per colour. `Reset ESP Colours` restores defaults and syncs the swatches.
 * The old Shaman `RadioButton` preset is now a `Custom / Legit / Blatant` dropdown ("Custom" is the default so opening the menu doesn't apply a preset). The `Bullet Speed Override` slider (0–3000) now lives in the Ballistics section.
-* Quick actions: Disable All (also clears NPC ESP + snapline), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (also hides the window and stops the NPC/crate scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
+* Quick actions: Disable All (also clears NPC ESP + snapline), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle and stops the scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
 
 Two things from the Atlanta template that were intentionally **not** copied: the duplicated `vis, other` multi-section block, and `window.esp_section:esp_preview({})` (it clones your character and assumes an `Animate` script, so it errors on spawn/respawn). Everything else from the template's init block is kept: `open_tab()`, `config_list_update()`, the theme pass, and `old_config = get_config()` — each guarded with `pcall` where it touches filesystem/config APIs.
 
@@ -239,46 +295,50 @@ Because it is one chunk, every `local` (CFG, `ESP_COLORS`, gun specs, helpers, E
 
 ```
 loader.lua  ──fetch──▶  01_config.lua
+                       02_drawing.lua
                        02_shared.lua
+                       02_workspace_scan.lua
                        ...
                        26_banner.lua
              ──join──▶ one chunk ──loadstring──▶ runs, returns CFG
 ```
 
-Parts 01–02, 05–06, 10 are slices of the original script with a 5-line comment header. Parts 03–04 (NPC registry / entity scanner), 07–08 (gun specs / prediction), 14–15 (NPC ESP), 16–17 (crate detection / registry / refresh) and 18 (ESP FX, three parts) are new or rewritten; 09 was rewritten to use `SA.Predict`; 11–13 gained the lead marker, visibility colours and scanner labels; 21–27 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
+Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
 
 ## Files
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill, `SA` state, **48-colour `ESP_COLORS` palette** | 251 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill, `SA` state, `bindRender`, **48-colour palette** | 278 |
+| `src/02_drawing.lua` | **`SA.NewDraw` compatibility layer** (native Drawing or ScreenGui proxy) | 203 |
 | `src/02_shared.lua` | team/NPC checks, LOS raycast, target picking, debug | 116 |
-| `src/03_entity_scan.lua` | NPC registry (workspace scan) + LOS visibility cache | 116 |
+| `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
+| `src/03_entity_scan.lua` | NPC registry handler + LOS visibility cache | 90 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
 | `src/05_manipulation.lua` | wall peek + `CanQuery` manipulation | 148 |
 | `src/06_firing_and_guns.lua` | firing state + snap cooldown | 50 |
 | `src/07_gun_specs.lua` | exact gun DB: speeds, ammo, damage, alt ammo, falloff, ranges | 208 |
-| `src/08_prediction.lua` | smoothed velocity, quadratic intercept, drop, latency, debug | 172 |
+| `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, latency, debug | 221 |
 | `src/09_silent_aim.lua` | camera sandwich RenderStep binds using `SA.Predict` | 74 |
-| `src/10_fov_circle.lua` | FOV circle drawing | 37 |
+| `src/10_fov_circle.lua` | FOV circle + `SA.FovCenter` (shared with arrows) | 68 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 120 |
 | `src/12_esp_players.lua` | player ESP objects, box, health bar, info label | 95 |
-| `src/13_esp_players_refresh.lua` | player ESP refresh (visibility + scanner) + enable/disable | 103 |
+| `src/13_esp_players_refresh.lua` | player ESP refresh (visibility + scanner + HP) + enable/disable | 108 |
 | `src/14_esp_npcs.lua` | NPC ESP objects + enable/disable + events | 110 |
-| `src/15_esp_npcs_refresh.lua` | NPC ESP refresh (visibility + scanner) | 84 |
-| `src/16_esp_crates.lua` | **crate classification**, opened detection, recursive anchors, GUI objects | 175 |
-| `src/16_esp_crates_registry.lua` | **live crate registry**, `SA.GetCrates` / `RefreshCrates` / `PrintCrateCandidates` | 105 |
-| `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, colour) + enable/disable + events | 81 |
-| `src/18_esp_fx_colours.lua` | palette helpers, lazy `Drawing` factory, skeleton / screen / box geometry | 128 |
-| `src/18_esp_fx_draw.lua` | **unified per-entity styling**: boxes, chams, skeleton, tracers, arrows, fade, rainbow | 176 |
-| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` for players / NPCs / crates | 121 |
-| `src/19_render_loop.lua` | master render loop: ESP refresh + crate rediscovery + FX pass | 38 |
-| `src/20_gun_mods.lua` | GC scan gun mods | 88 |
-| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / Wall Pen) | 173 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** | 195 |
+| `src/15_esp_npcs_refresh.lua` | NPC ESP refresh (visibility + scanner + HP) | 88 |
+| `src/16_esp_crates.lua` | **tight crate classification**, opened detection, recursive anchors, GUI objects | 202 |
+| `src/16_esp_crates_registry.lua` | **live crate registry** via the shared walker + diagnostics | 95 |
+| `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, highlight gate) + enable/disable + events | 80 |
+| `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry | 128 |
+| `src/18_esp_fx_draw.lua` | **unified styling**: text size, boxes, chams, skeleton, tracers, FOV arrows, fade | 241 |
+| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` for players / NPCs / crates | 130 |
+| `src/19_render_loop.lua` | master render loop: ESP refresh + build caps + FX pass | 56 |
+| `src/20_gun_mods.lua` | generation-guarded GC scan gun mods | 89 |
+| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / Wall Pen) | 182 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** | 202 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab | 22 |
-| `src/24_ui_visual.lua` | Visual tab (FOV, snapline, lead marker, gun/prediction debug) | 64 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init | 77 |
+| `src/24_ui_visual.lua` | Visual tab (FOV, snapline, lead marker, backend/prediction debug) | 69 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init | 78 |
 | `src/26_banner.lua` | startup banner, `return CFG` | 36 |
 
 ## Editing
@@ -287,8 +347,9 @@ Parts 01–02, 05–06, 10 are slices of the original script with a 5-line comme
 * **Order matters.** Adding/removing a part means updating `PARTS` in `loader.lua` too.
 * Never put a top-level `return` in any part except `26_banner.lua` — it would end the joined chunk early.
 * Keep a trailing newline on every part (they are concatenated directly).
+* All new drawing must go through `SA.NewDraw(kind)`; all new workspace discovery must go through `SA.RegisterScanHandler(key, predicate, commit)`. Never call `Workspace:GetDescendants()` in a loop.
 * Atlanta widgets need a `button_holder()` row before `button()`, and keybinds/colourpickers can be chained onto a toggle or a `label` (both expose `right_holder`; a colourpicker can also be chained onto another colourpicker). `multi_section({ names = {...} })` accepts any number of mini-tabs.
-* All 84 `CFG` keys used by the logic must stay bound to a UI widget; `python3 tools/verify.py` checks the join.
+* All `CFG` keys used by the logic must stay bound to a UI widget; `python3 tools/verify.py` checks the join.
 
 ```bash
 python3 tools/verify.py   # checks order, newlines, stray returns, build output

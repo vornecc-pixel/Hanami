@@ -56,6 +56,7 @@ end)
 
 addButton(actSec, "Unload Everything", function()
     SA.Alive = false
+    setFlag("showFov", false)
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
     disableESP(); disableNpcESP(); disableCrateESP()

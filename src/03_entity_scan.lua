@@ -6,36 +6,30 @@
 
 -- ────────────────────────────────────────────────────────────────────
 -- NPC REGISTRY
--- Scans the WHOLE workspace (not just an "Npcs" folder). The expensive
--- GetDescendants() scan runs in a background task every 2 s, never on a
--- render frame; SA.GetNpcs() only walks the cached list on demand.
+-- Feeds the shared incremental walker in 02_workspace_scan.lua. No
+-- GetDescendants() and no per-frame work: the walker yields every 120
+-- nodes, so a big map never freezes a frame.
 -- ────────────────────────────────────────────────────────────────────
 
 local npcList = _G.__saNpcList or {}
 _G.__saNpcList = npcList
-local NPC_SCAN_INTERVAL = 2
 
 local function validNpc(d)
-    return d and d:IsA("Model") and isNpc(d)
-        and d:FindFirstChildOfClass("Humanoid") ~= nil
-        and (d:FindFirstChild("Head") or d:FindFirstChild("HumanoidRootPart")) ~= nil
-        and Players:GetPlayerFromCharacter(d) == nil  -- never tag a real player as an NPC
+    if not d or not d:IsA("Model") then return false end
+    if not isNpc(d) then return false end
+    if not d:FindFirstChildOfClass("Humanoid") then return false end
+    if not (d:FindFirstChild("Head") or d:FindFirstChild("HumanoidRootPart")) then
+        return false
+    end
+    return Players:GetPlayerFromCharacter(d) == nil  -- never tag a real player
 end
 
-local function collectNpcs()
-    local found = {}
-    local ok, err = pcall(function()
-        for _, d in ipairs(ws:GetDescendants()) do
-            if validNpc(d) then found[#found + 1] = d end
-        end
-    end)
-    if ok then
-        table.clear(npcList)
-        for _, m in ipairs(found) do table.insert(npcList, m) end
-    else
-        dbg("npc scan failed:", err)
-    end
+local function commitNpcs(found)
+    for i = #npcList, 1, -1 do npcList[i] = nil end
+    for _, m in ipairs(found) do npcList[#npcList + 1] = m end
 end
+
+SA.RegisterScanHandler("npcs", validNpc, commitNpcs)
 
 function SA.GetNpcs()
     local out = {}
@@ -47,42 +41,22 @@ function SA.GetNpcs()
     return out
 end
 
--- force an immediate scan (used by the "Rescan NPCs" button)
+-- Rescan buttons just ask the shared walker for an early pass; no
+-- synchronous full-workspace scan can stall the client here.
 function SA.RefreshNpcs()
-    pcall(collectNpcs)
+    SA.RequestScan()
     return SA.GetNpcs()
 end
 
--- One event pair per game session, but one scanner loop per loader run:
--- SA.Generation bumps on re-execute so the previous loop exits instead of
--- doubling up. The list itself is shared through _G.__saNpcList.
-local npcGeneration = SA.Generation
-if not _G.__saNpcScanner then
-    _G.__saNpcScanner = true
-    local scanPending = false
-    local function requestScan()
-        if scanPending then return end
-        scanPending = true
-        task.spawn(function()
-            task.wait(0.2)
-            scanPending = false
-            pcall(collectNpcs)
-        end)
-    end
+if not _G.__saNpcEvents then
+    _G.__saNpcEvents = true
     ws.DescendantAdded:Connect(function(d)
-        if NPC_NAMES[d.Name] then requestScan() end
+        if NPC_NAMES[d.Name] then SA.RequestScan() end
     end)
     ws.DescendantRemoving:Connect(function(d)
-        if NPC_NAMES[d.Name] then requestScan() end
+        if NPC_NAMES[d.Name] then SA.RequestScan() end
     end)
 end
-task.spawn(function()
-    while true do
-        if SA.Alive == false or SA.Generation ~= npcGeneration then break end
-        pcall(collectNpcs)
-        task.wait(NPC_SCAN_INTERVAL)
-    end
-end)
 
 -- ────────────────────────────────────────────────────────────────────
 -- VISIBILITY (LOS)

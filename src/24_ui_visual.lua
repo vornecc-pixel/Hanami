@@ -8,12 +8,14 @@
 local fovCol = VisualTab:column()
 local fovSec = fovCol:section({ name = "FOV Circle / Snapline" })
 
-bindToggle(fovSec, "Show FOV Circle", "showFov")
+bindToggle(fovSec, "Show FOV Circle", "showFov",
+    "Works with aim OFF and on executors without a full Drawing API (ScreenGui fallback)")
 bindToggle(fovSec, "Filled", "fovFilled")
 fovSec:label({ name = "FOV / snapline / lead colours: ESP -> Colours -> Global" })
 -- CFG.fov is used by both the target picker and the drawn circle
 bindSlider(fovSec, "Aim / Circle Radius (px)", "fov", 30, 500, 1, "px")
 bindSlider(fovSec, "Transparency (%)", "fovTransparency", 0, 100, 1, "%")
+fovSec:label({ name = "Transparency 0% = solid, 100% = nearly invisible" })
 bindSlider(fovSec, "Thickness", "fovThickness", 1, 5, 1, "")
 
 bindToggle(fovSec, "Snapline (aim preview)", "snapLineEnabled",
@@ -34,6 +36,9 @@ addButton(dbgSec, "Print Sandwich", function()
         prio + 2, prio + 3, prio + 4))
     print(string.format("[sa] actual binds: %s @ %d / %s @ %d",
         snapName, snapPrio, restoreName, restorePrio))
+end)
+addButton(dbgSec, "Print Draw Backend", function()
+    print("[sa] drawing backend:", SA.DrawBackend())
 end)
 addButton(dbgSec, "Print Gun Spec", function()
     SA.PrintGunSpec()

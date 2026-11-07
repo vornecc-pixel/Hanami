@@ -11,7 +11,9 @@ local BUST = "?t=" .. tostring(os.time()) -- bypass CDN cache after updates
 
 local PARTS = {
     "01_config.lua",
+    "02_drawing.lua",
     "02_shared.lua",
+    "02_workspace_scan.lua",
     "03_entity_scan.lua",
     "04_entity_info.lua",
     "05_manipulation.lua",
