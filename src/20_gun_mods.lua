@@ -1,7 +1,7 @@
 -- ==================================================================
 -- Hanami / 20_gun_mods.lua — GC scan gun mods + per-frame state writes
--- Loaded in order by loader.lua. Parts are joined into ONE chunk
--- before running, so every `local` is shared just like the original.
+-- Loaded in order by loader.lua. Parts are joined into ONE chunk;
+-- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
 
 -- ────────────────────────────────────────────────────────────────────

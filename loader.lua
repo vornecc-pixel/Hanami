@@ -1,7 +1,23 @@
 -- ==================================================================
 -- Hanami — short loader. This is the ONLY file you paste/load.
--- It downloads every src/*.lua part, joins them in order, then runs
--- them as ONE chunk so all the `local`s stay shared (no refactoring).
+-- It downloads every src/*.lua part and runs them as ONE script.
+--
+-- Luau has a hard limit of 200 live local registers per compiled
+-- function. Joining all 31 parts into one giant chunk used to trip it:
+--   [string "Hanami"]:3904: Out of local registers when trying to
+--   allocate playerSec: exceeded limit 200
+-- ...because every part added its own top-level `local`s to the SAME
+-- main chunk (225 of them). The script never even started.
+--
+-- Fix: before compiling, hoist each column-1 `local X = ...` into the
+-- chunk environment (`X = ...`). Indented `local`s (inside functions)
+-- are untouched, so each function keeps its own small set of upvalues.
+-- The main chunk then needs ZERO local registers, while every part
+-- still sees the same shared names (CFG, SA, library, ...).
+--
+-- With setfenv those shared names live in an isolated table, so no
+-- global spam. Executors without setfenv fall back to normal globals;
+-- the script behaves the same either way.
 -- ==================================================================
 
 local REPO = "vornecc-pixel/Hanami"
@@ -70,15 +86,65 @@ local function fetch(path)
     error("[Hanami] could not load " .. path .. " — " .. err, 0)
 end
 
-local chunks = {}
+-- Only column-1 declarations are hoisted. The leading "\n" makes the
+-- pattern also match a `local` on the very first line of a part.
+-- A bare `local x, y` (no initializer) would become a bare expression
+-- after stripping `local`, so give that one an explicit `= nil`.
+local function hoist(src)
+    local s = ("\n" .. src):gsub("\nlocal[ \t]+([^\n]*)", function(rest)
+        local commentAt = rest:find("--", 1, true)
+        local code = commentAt and rest:sub(1, commentAt - 1) or rest
+        if not rest:match("^function") and not code:find("=", 1, true) then
+            return "\n" .. code .. "= nil " .. (commentAt and rest:sub(commentAt) or "")
+        end
+        return "\n" .. rest
+    end)
+    return s:sub(2)
+end
+
+-- Isolated table for the hoisted names. Copying the real globals in keeps
+-- hot loops (game / math / task / Vector2 / Color3 / tick ...) as plain
+-- table hits instead of a metatable lookup every frame. __index covers
+-- anything an executor exposes lazily and pairs() may not enumerate.
+local function makeEnv()
+    if type(setfenv) ~= "function" then return nil end
+    local ok, base = pcall(function()
+        if type(getfenv) == "function" then return getfenv(1) end
+        return _G
+    end)
+    if not ok or type(base) ~= "table" then return nil end
+    local env = setmetatable({}, { __index = base })
+    pcall(function()
+        for k, v in pairs(base) do env[k] = v end
+    end)
+    return env
+end
+
+local chunks, offsets, line = {}, {}, 1
 for i, name in ipairs(PARTS) do
-    chunks[i] = fetch(name)
+    local src = hoist(fetch(name))
+    chunks[i] = src
+    offsets[i] = { from = line, name = name }
+    line = line + select(2, src:gsub("\n", "")) + 2 -- +2 for the join separator
+end
+
+local function partAt(n)
+    local found = PARTS[1]
+    for i = 1, #offsets do
+        if offsets[i].from <= n then found = offsets[i].name else break end
+    end
+    return found
 end
 
 local source = table.concat(chunks, "\n\n")
 local chunk, compileErr = loadstring(source, "Hanami")
 if not chunk then
-    error("[Hanami] compile error: " .. tostring(compileErr), 0)
+    local ln = tonumber(tostring(compileErr):match(":(%d+):"))
+    error("[Hanami] compile error" .. (ln and (" in " .. partAt(ln)) or "")
+        .. ": " .. tostring(compileErr), 0)
 end
+
+local env = makeEnv()
+if env then pcall(setfenv, chunk, env) end
 
 return chunk()

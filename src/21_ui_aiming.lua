@@ -1,7 +1,7 @@
 -- ==================================================================
 -- Hanami / 21_ui_aiming.lua — Atlanta UI setup + Aiming tab
--- Loaded in order by loader.lua. Parts are joined into ONE chunk
--- before running, so every `local` is shared just like the original.
+-- Loaded in order by loader.lua. Parts are joined into ONE chunk;
+-- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
 
 -- ==================================================================
@@ -87,7 +87,7 @@ masterToggle:keybind({
     callback = function(active) setToggle(masterToggle, active) end,
 })
 
-local hitChanceSlider, cooldownSlider  -- assigned in column 2
+local hitChanceSlider, cooldownSlider = nil, nil  -- assigned in column 2
 local presetDropdown = masterSec:dropdown({
     name = "Preset", flag = "hn_preset",
     items = { "Custom", "Legit", "Blatant" }, default = "Custom",
