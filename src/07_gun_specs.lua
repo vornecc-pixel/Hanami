@@ -1,27 +1,38 @@
 -- ==================================================================
--- Hanami / 07_gun_specs.lua — Exact gun definitions, ammo, damage
+-- Hanami / 07_gun_specs.lua — Guns, attributes, ammo, damage
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk;
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
 
 -- ────────────────────────────────────────────────────────────────────
--- GAME DATA (from u3492 / u3338)
--- NOTE: the `damage` field on every gun definition is 0 and is NOT the
--- damage. Real damage = Defs[ammo].damage * damageMult, or s2Damage when
--- Saturday2() is on. `balance` below is GUN_BALANCE.damage (UI/legacy
--- number) and is only printed for reference — never used to compute hits.
+-- GAME DATA (pasted `Guns` / `Falloff` tables + u3492 / u3338)
+--
+-- Every field from the pasted gun table is kept verbatim: name, ammo,
+-- mag, pellets, rate, auto, damageMult, s2Damage, spread, adsSpread,
+-- moveSpread, speed, reload, recoil, range, plus the optional gravity,
+-- life, scope, headGuard, shellReload, rocket, huntOnly and duelOnly.
+-- `balance` is derived from s2Damage (the legacy GUN_BALANCE.damage
+-- readout) and is NEVER used to compute hits.
 --
 -- `speed` is the projectile speed (the field is called `speed`, not
--- bulletSpeed). Values below already include the u3338.GUNS overrides
--- for bolt_action_rifle (2600 -> 2200) and lr_sniper (3000 -> 2600).
+-- bulletSpeed). The sniper values already include the u3338.GUNS
+-- overrides (bolt_action_rifle 2600 -> 2200, lr_sniper 3000 -> 2600).
+--
+-- SMGs keep gravity=8 / life=1 from the previously validated u3338
+-- ballistic overrides. The pasted `Guns` table is an ITEM table and
+-- omits gravity for them; only the two scoped rifles list it. Live
+-- values always win when "Sync Gun Defs (GC)" is pressed.
 -- ────────────────────────────────────────────────────────────────────
 
--- Ammo base damage (u3492 Defs[ammo].damage)
+-- Ammo base damage (u3492 Defs[ammo].damage). `duel_ammo` is an
+-- ESTIMATE: the Arena Rifle is a semi_auto_rifle clone (same speed,
+-- damageMult and s2Damage=39), so it inherits the rifle_ammo base.
 local AMMO_DAMAGE = {
     handmade_shell = 13,   -- stack 64
     pistol_bullet  = 32,   -- stack 128
     rifle_ammo     = 40,   -- stack 128
-    rocket         = 1,    -- stack 3
+    duel_ammo      = 40,   -- ESTIMATE (see README)
+    rocket         = 1,    -- stack 3 (explosive damage is not modelled)
 }
 
 -- Alternate ammo. `speed`/`damage`/`pellets` are multipliers; `speedAbs`
@@ -35,11 +46,18 @@ local AMMO_ALTS = {
     incendiary_rocket   = { base = "rocket" },
 }
 
--- GUN_BALANCE falloff profiles (used for the spec readout, not for aim)
-local F_V20 = { full = 60,  min = 200,  mult = 0.6  }  -- revolver, semi_auto_pistol, service_pistol, hunt_smg
-local F_V21 = { full = 25,  min = 100,  mult = 0.8  }  -- custom_smg, tactical_smg, drum_smg
-local F_V22 = { full = 150, min = 500,  mult = 0.75 }  -- scar, assault_rifle, m249
-local F_PEL = { full = 25,  min = 60              }  -- pellet falloff (all 3 shotguns)
+-- FALLOFF tables (pasted `Falloff`, per gun family). Stored on each spec
+-- for the Print Gun Spec / Print Gun Table readouts; not used by the aim.
+local FALLOFF = {
+    pistol_family     = { full = 60,  min = 200,  mult = 0.6  },
+    smg_family        = { full = 25,  min = 100,  mult = 0.8  },
+    rifle_family      = { full = 150, min = 500,  mult = 0.75 },
+    semi_auto_rifle   = { full = 250, min = 550,  mult = 0.75 },
+    lever_carbine     = { full = 200, min = 550,  mult = 0.75 },
+    high_cal_revolver = { full = 150, min = 450,  mult = 0.7  },
+    lr_sniper         = { full = 300, min = 1600, mult = 0.7  },
+    shotgun_pellet    = { full = 25,  min = 60              },
+}
 
 local DEFAULT_RANGE = 550  -- u3492.GUN_RANGE fallback
 
@@ -47,40 +65,53 @@ local DEFAULT_RANGE = 550  -- u3492.GUN_RANGE fallback
 -- aim / manipulation use SA.IsEquippedBow() below ONLY as a negative gate;
 -- no bow ever resolves to a ballistic spec.
 
-local function S(name, speed, ammo, mult, pellets, rate, auto, gravity, life, range, balance, falloff)
-    return {
-        name = name, speed = speed, ammo = ammo, damageMult = mult,
-        pellets = pellets, rate = rate, auto = auto,
-        gravity = gravity or 0, life = life, range = range or DEFAULT_RANGE,
-        balance = balance, falloff = falloff,
-    }
+local function gunDef(d)
+    d.mag        = d.mag or 1
+    d.pellets    = d.pellets or 1
+    d.rate       = d.rate or 0.2
+    d.auto       = d.auto == true
+    d.spread     = d.spread or 0
+    d.adsSpread  = d.adsSpread or d.spread
+    d.moveSpread = d.moveSpread or 0
+    d.speed      = d.speed or 1000
+    d.recoil     = d.recoil or {}
+    d.gravity    = d.gravity or 0
+    d.range      = d.range or DEFAULT_RANGE
+    d.balance    = d.s2Damage
+    return d
 end
 
--- id = name, speed, ammo, damageMult, pellets, rate, auto, gravity, life, GUN_RANGE, GUN_BALANCE.damage, falloff
+-- ── id = every attribute from the pasted Guns table ──────────────────
 local GUN_SPECS = {
-    pipe_shotgun          = S("Pipe Shotgun",           560, "handmade_shell", 1,    8,  0.9,   false, 0,  nil,  200, 11,   F_PEL),
-    revolver              = S("Revolver",               950, "pistol_bullet",  1,    1,  0.22,  false, 0,  nil,  400, 27,   F_V20),
-    custom_smg            = S("Custom SMG",             900, "pistol_bullet",  0.8,  1,  0.1,   true,  8,  1,    450, 22,   F_V21),
-    hunt_smg              = S("Dino Hunt SMG",          900, "pistol_bullet",  0.8,  1,  0.1,   true,  8,  1,    450, 20,   F_V20),
-    semi_auto_rifle       = S("Semi-Automatic Rifle", 1425, "rifle_ammo",     1,    1,  0.175, false, 0,  nil,  900, 39,   { full=250, min=550,  mult=0.75 }),
-    assault_rifle         = S("Assault Rifle",        1350, "rifle_ammo",     0.9,  1,  0.133, true,  0,  nil,  900, 39,   F_V22),
-    m249                  = S("M249",                 1400, "rifle_ammo",     1.1,  1,  0.12,  true,  0,  nil,  900, 40,   F_V22),
-    semi_auto_pistol      = S("Semi-Auto Pistol",      900, "pistol_bullet",  0.85, 1,  0.13,  false, 0,  nil,  400, 24,   F_V20),
-    bolt_action_rifle     = S("Bolt Action Rifle",    2200, "rifle_ammo",     1.9,  1,  1.5,   false, 30, 1.9, 1400, 78,   nil),
-    lr_sniper             = S("LR Sniper Rifle",      2600, "rifle_ammo",     2.1,  1,  1.8,   false, 24, 1.8, 1600, 82,   { full=300, min=1600, mult=0.7 }),
-    scar                  = S("SCAR",                 1450, "rifle_ammo",     1.15, 1,  0.16,  true,  0,  nil,  900, 42,   F_V22),
-    double_barrel         = S("Double Barrel Shotgun", 520, "handmade_shell", 1,    10, 0.25,  false, 0,  nil,  200, 8,    F_PEL),
-    rocket_launcher       = S("Rocket Launcher",        80, "rocket",         1,    1,  1.5,   false, 0,  nil,  550, nil,  nil),
-    pump_shotgun          = S("Pump Shotgun",          560, "handmade_shell", 1,    9,  0.9,   false, 0,  nil,  200, 9,    F_PEL),
-    service_pistol        = S("Service Pistol",        950, "pistol_bullet",  0.9,  1,  0.15,  false, 0,  nil,  400, 28,   F_V20),
-    tactical_smg          = S("Tactical SMG",          950, "pistol_bullet",  0.75, 1,  0.085, true,  8,  1,    450, 21,   F_V21),
-    drum_smg              = S("Drum SMG",              880, "pistol_bullet",  0.85, 1,  0.095, true,  8,  1,    450, 24,   F_V21),
-    lever_carbine         = S("Lever Carbine",        1250, "pistol_bullet",  1.4,  1,  0.6,   false, 0,  nil,  700, 45,   { full=200, min=550,  mult=0.75 }),
-    high_caliber_revolver = S("High Caliber Revolver",1100, "pistol_bullet", 1.72, 1, 0.35,  false, 0,  nil,  700, 51.5, { full=150, min=450,  mult=0.7 }),
+    pipe_shotgun = gunDef{name="Pipe Shotgun", ammo="handmade_shell", mag=1, pellets=8, rate=0.9, auto=false, damageMult=1, s2Damage=11, spread=5, adsSpread=3.25, moveSpread=1, speed=560, reload=2.2, recoil={pitch=5.75,yaw=1.45,recover=6}, range=200, falloff=FALLOFF.shotgun_pellet},
+    revolver = gunDef{name="Revolver", ammo="pistol_bullet", mag=8, pellets=1, rate=0.22, auto=false, damageMult=1, s2Damage=27, spread=1.2, adsSpread=0.1, moveSpread=1.8, speed=950, reload=3, recoil={pitch=1.7,yaw=0.45,recover=9}, range=400, falloff=FALLOFF.pistol_family},
+    semi_auto_pistol = gunDef{name="Semi-Auto Pistol", ammo="pistol_bullet", mag=10, pellets=1, rate=0.13, auto=false, damageMult=0.85, s2Damage=24, spread=1.5, adsSpread=0.18, moveSpread=1.6, speed=900, reload=2.2, recoil={pitch=1.3,yaw=0.4,recover=10}, range=400, falloff=FALLOFF.pistol_family},
+    service_pistol = gunDef{name="Service Pistol", ammo="pistol_bullet", mag=12, pellets=1, rate=0.15, auto=false, damageMult=0.9, s2Damage=28, spread=1.5, adsSpread=0.16, moveSpread=1.6, speed=950, reload=2.3, recoil={pitch=1.5,yaw=0.42,recover=9.5}, range=400, falloff=FALLOFF.pistol_family},
+    high_caliber_revolver = gunDef{name="High Caliber Revolver", ammo="pistol_bullet", mag=6, pellets=1, rate=0.35, auto=false, damageMult=1.72, s2Damage=51.5, spread=1.4, adsSpread=0.05, moveSpread=2, speed=1100, reload=4, recoil={pitch=4.5,yaw=0.8,recover=7}, range=700, falloff=FALLOFF.high_cal_revolver},
+    custom_smg = gunDef{name="Custom SMG", ammo="pistol_bullet", mag=24, pellets=1, rate=0.1, auto=true, damageMult=0.8, s2Damage=22, spread=2.2, adsSpread=0.45, moveSpread=1.2, speed=900, reload=2.8, recoil={pitch=1.15,yaw=0.6,recover=6,rise=0.3,sway=0.4}, range=450, gravity=8, life=1, falloff=FALLOFF.smg_family},
+    hunt_smg = gunDef{name="Dino Hunt SMG", ammo="pistol_bullet", mag=24, pellets=1, rate=0.1, auto=true, damageMult=0.8, s2Damage=20, spread=2.2, adsSpread=0.45, moveSpread=1.2, speed=900, reload=2.8, recoil={pitch=1.15,yaw=0.6,recover=6,rise=0.3,sway=0.4}, range=450, gravity=8, life=1, huntOnly=true, falloff=FALLOFF.pistol_family},
+    tactical_smg = gunDef{name="Tactical SMG", ammo="pistol_bullet", mag=30, pellets=1, rate=0.085, auto=true, damageMult=0.75, s2Damage=21, spread=1.8, adsSpread=0.3, moveSpread=1.1, speed=950, reload=2.6, recoil={pitch=0.95,yaw=0.45,recover=6.5,rise=0.25,sway=0.3}, range=450, gravity=8, life=1, falloff=FALLOFF.smg_family},
+    drum_smg = gunDef{name="Drum SMG", ammo="pistol_bullet", mag=50, pellets=1, rate=0.095, auto=true, damageMult=0.85, s2Damage=24, spread=2.6, adsSpread=0.55, moveSpread=1.4, speed=880, reload=4.2, recoil={pitch=1.25,yaw=0.65,recover=5.5,rise=0.3,sway=0.45}, range=450, gravity=8, life=1, falloff=FALLOFF.smg_family},
+    lever_carbine = gunDef{name="Lever Carbine", ammo="pistol_bullet", mag=10, pellets=1, rate=0.6, auto=false, damageMult=1.4, s2Damage=45, spread=2.5, adsSpread=0.08, moveSpread=2.4, speed=1250, reload=4.85, recoil={pitch=3.8,yaw=0.5,recover=5}, range=700, shellReload={lead=0.5,per=0.4,tail=0.35}, falloff=FALLOFF.lever_carbine},
+    semi_auto_rifle = gunDef{name="Semi-Automatic Rifle", ammo="rifle_ammo", mag=16, pellets=1, rate=0.175, auto=false, damageMult=1, s2Damage=39, spread=2, adsSpread=0.06, moveSpread=2, speed=1425, reload=4.4, recoil={pitch=1.2,yaw=0.35,recover=9}, range=900, falloff=FALLOFF.semi_auto_rifle},
+    assault_rifle = gunDef{name="Assault Rifle", ammo="rifle_ammo", mag=30, pellets=1, rate=0.133, auto=true, damageMult=0.9, s2Damage=39, spread=2.8, adsSpread=0.25, moveSpread=2, speed=1350, reload=4, recoil={pitch=1.1,yaw=0.5,recover=6,rise=0.25,sway=0.25}, range=900, falloff=FALLOFF.rifle_family},
+    m249 = gunDef{name="M249", ammo="rifle_ammo", mag=100, pellets=1, rate=0.12, auto=true, damageMult=1.1, s2Damage=40, spread=3.6, adsSpread=0.4, moveSpread=3, speed=1400, reload=6, recoil={pitch=1.4,yaw=0.6,recover=5,rise=0.25,sway=0.4}, range=900, falloff=FALLOFF.rifle_family},
+    scar = gunDef{name="SCAR", ammo="rifle_ammo", mag=20, pellets=1, rate=0.16, auto=true, damageMult=1.15, s2Damage=42, spread=3, adsSpread=0.22, moveSpread=2.2, speed=1450, reload=4.2, recoil={pitch=1.6,yaw=0.62,recover=5.5,rise=0.3,sway=0.3}, range=900, falloff=FALLOFF.rifle_family},
+    bolt_action_rifle = gunDef{name="Bolt Action Rifle", ammo="rifle_ammo", mag=5, pellets=1, rate=1.5, auto=false, damageMult=1.9, s2Damage=78, spread=5, adsSpread=0.05, moveSpread=3.5, speed=2200, reload=4.5, recoil={pitch=5.2,yaw=0.7,recover=4}, gravity=30, life=1.9, scope=8, headGuard={item="coffee_can_helmet",keep=0.25}, range=1400},
+    lr_sniper = gunDef{name="LR Sniper Rifle", ammo="rifle_ammo", mag=5, pellets=1, rate=1.8, auto=false, damageMult=2.1, s2Damage=82, spread=6, adsSpread=0.03, moveSpread=4, speed=2600, reload=5, recoil={pitch=6.3,yaw=0.8,recover=3.5}, gravity=24, life=1.8, scope=8, headGuard={item="coffee_can_helmet",keep=0.1}, range=1600, falloff=FALLOFF.lr_sniper},
+    double_barrel = gunDef{name="Double Barrel Shotgun", ammo="handmade_shell", mag=2, pellets=10, rate=0.25, auto=false, damageMult=1, s2Damage=8, spread=5.5, adsSpread=3.75, moveSpread=1.2, speed=520, reload=3.4, recoil={pitch=7,yaw=1.6,recover=6}, range=200, falloff=FALLOFF.shotgun_pellet},
+    pump_shotgun = gunDef{name="Pump Shotgun", ammo="handmade_shell", mag=6, pellets=9, rate=0.9, auto=false, damageMult=1, s2Damage=9, spread=5, adsSpread=3.4, moveSpread=1.2, speed=560, reload=3.55, recoil={pitch=6.6,yaw=1.5,recover=6}, range=200, shellReload={lead=0.55,per=0.45,tail=0.3}, falloff=FALLOFF.shotgun_pellet},
+    rocket_launcher = gunDef{name="Rocket Launcher", ammo="rocket", mag=1, pellets=1, rate=1.5, auto=false, damageMult=nil, s2Damage=nil, spread=1.6, adsSpread=0.45, moveSpread=3, speed=80, reload=6, recoil={pitch=7.5,yaw=1.6,recover=3.5}, rocket=true, range=550},
+    duel_rifle = gunDef{name="Arena Rifle", ammo="duel_ammo", mag=16, pellets=1, rate=0.175, auto=false, damageMult=1, s2Damage=39, spread=2, adsSpread=0.06, moveSpread=2, speed=1425, reload=4.4, recoil={pitch=1.2,yaw=0.35,recover=9}, range=900, huntOnly=true, duelOnly=true, falloff=FALLOFF.semi_auto_rifle},
 }
 
 -- Used when the equipped tool isn't one of the known guns.
-local UNKNOWN_SPEC = S("Unknown / fallback", 1000, nil, 1, 1, 0.2, false, 0, nil, DEFAULT_RANGE, nil, nil)
+local UNKNOWN_SPEC = gunDef{
+    name="Unknown / fallback", speed=1000, ammo=nil, damageMult=1,
+    pellets=1, rate=0.2, auto=false, gravity=0, life=nil,
+    range=DEFAULT_RANGE, balance=nil, falloff=nil, mag=1,
+    spread=2, adsSpread=0.5, moveSpread=1, reload=3, recoil={},
+}
 
 -- Tool `model` values and display names -> spec ids. Normalised to
 -- lowercase alphanumeric so "SemiAutoPistol", "semi_auto_pistol" and
@@ -94,6 +125,8 @@ local MODEL_TO_ID = {
     ServicePistol="service_pistol", TacticalSmg="tactical_smg",
     DrumSmg="drum_smg", LeverCarbine="lever_carbine",
     HighCaliberRevolver="high_caliber_revolver",
+    DinoHuntSMG="hunt_smg", HuntSMG="hunt_smg", ArenaSMG="hunt_smg",
+    ArenaRifle="duel_rifle", DuelRifle="duel_rifle",
 }
 local GUN_ALIASES = {}
 local function norm(s) return (tostring(s):lower():gsub("[^%w]", "")) end
@@ -144,16 +177,20 @@ SA.Saturday2 = SA.Saturday2 or rawget(_G, "Saturday2") or nil
 SA.S2Damage  = SA.S2Damage  or rawget(_G, "s2Damage")  or nil
 
 -- u3492.GunDamage: s2Damage if Saturday2() is on,
--- otherwise Defs[ammo].damage * damageMult.
+-- otherwise Defs[ammo].damage * damageMult. The real s2Damage numbers
+-- are now in the spec table, so no external hook is required.
 function SA.GunDamage(id, ammoId, spec)
     spec = spec or GUN_SPECS[id] or UNKNOWN_SPEC
     local s2on = CFG.saturday2Mode
     if not s2on and type(SA.Saturday2) == "function" then
         local ok, v = pcall(SA.Saturday2); s2on = ok and v == true
     end
-    if s2on and type(SA.S2Damage) == "function" then
-        local ok, v = pcall(SA.S2Damage, id, spec)
-        if ok and tonumber(v) then return tonumber(v) end
+    if s2on then
+        if type(SA.S2Damage) == "function" then
+            local ok, v = pcall(SA.S2Damage, id, spec)
+            if ok and tonumber(v) then return tonumber(v) end
+        end
+        if tonumber(spec.s2Damage) then return tonumber(spec.s2Damage) end
     end
     local alt  = AMMO_ALTS[ammoId]
     local base = alt and alt.base or ammoId or spec.ammo
@@ -162,22 +199,29 @@ function SA.GunDamage(id, ammoId, spec)
         if alt.whole then dmg = dmg * spec.pellets * alt.whole
         else dmg = dmg * (alt.damage or 1) end
     end
-    if CFG.muzzleBoost then dmg = dmg * 0.9 end  -- muzzle_boost: -10% damage
     return dmg
 end
 
 SA.GUN_SPECS   = GUN_SPECS
+SA.FALLOFF     = FALLOFF
 SA.AMMO_DAMAGE = AMMO_DAMAGE
 SA.AMMO_ALTS   = AMMO_ALTS
 
--- Resolved, cached description of the currently equipped gun.
-local gunCache = { t = 0, val = nil }
+-- Resolved, cached description of the currently equipped gun. The cache
+-- is keyed by the Tool instance as well as time, so switching weapons
+-- changes the prediction on the very next frame (important now that
+-- attachments are part of the ballistic profile).
+local gunCache = { t = 0, val = nil, tool = nil }
+function SA.InvalidateGunCache() gunCache.val = nil end
+
 function SA.GetEquippedGun(force)
-    if not force and gunCache.val and (tick() - gunCache.t) < 0.15 then
+    local char = lp.Character
+    local tool = nil
+    if char then pcall(function() tool = char:FindFirstChildOfClass("Tool") end) end
+    if not force and gunCache.val and gunCache.tool == tool
+        and (tick() - gunCache.t) < 0.15 then
         return gunCache.val
     end
-    local char = lp.Character
-    local tool = char and char:FindFirstChildOfClass("Tool") or nil
     local id   = readToolId(tool)
     local spec = GUN_SPECS[id] or UNKNOWN_SPEC
     local ammoId = readAmmo(tool, spec)
@@ -196,17 +240,45 @@ function SA.GetEquippedGun(force)
     if alt and alt.pellets then
         pellets = alt.pellets == 1 and 1 or math.max(1, math.floor(spec.pellets * alt.pellets))
     end
-    local rate = spec.rate
-    if CFG.muzzleBoost then rate = rate / 1.15 end  -- +15% fire rate
 
+    -- Copy recoil rather than pointing at the shared spec table: the
+    -- attachment pass multiplies its fields in place on this gun only.
+    local recoil = {}
+    for k, v in pairs(spec.recoil or {}) do recoil[k] = v end
+
+    local damage = SA.GunDamage(id, ammoId, spec)
     local out = {
         id = id or "unknown", known = id ~= nil, spec = spec, tool = tool,
         ammo = ammoId, alt = alt ~= nil, speed = math.max(speed, 1),
         gravity = gravity, life = spec.life, range = spec.range,
-        pellets = pellets, rate = rate,
-        damage = SA.GunDamage(id, ammoId, spec),
+        pellets = pellets, rate = spec.rate, damage = damage,
+        -- every new attribute from the pasted Guns table
+        mag = spec.mag, spread = spec.spread, adsSpread = spec.adsSpread,
+        moveSpread = spec.moveSpread, reload = spec.reload, recoil = recoil,
+        zoom = spec.scope or 1, scope = spec.scope, headGuard = spec.headGuard,
+        rocket = spec.rocket == true, huntOnly = spec.huntOnly == true,
+        duelOnly = spec.duelOnly == true, shellReload = spec.shellReload,
+        falloff = spec.falloff,
+        -- base values (before attachments) for the diagnostics readout
+        baseSpeed = math.max(speed, 1), baseDamage = damage,
+        baseRate = spec.rate, baseMag = spec.mag,
+        baseSpread = spec.spread, baseAdsSpread = spec.adsSpread,
+        baseMoveSpread = spec.moveSpread, baseRecoil = spec.recoil,
+        manualSpeed = CFG.gunBulletSpeed > 0,
+        -- filled in by 08_attachments.lua (auto tune)
+        attachments = {}, att = nil, attSpeedMult = 1, attAimMs = 0,
+        ads = false, effSpread = spec.spread or 0,
     }
-    gunCache.t, gunCache.val = tick(), out
+    if CFG.attachmentAutoTune ~= false then
+        if type(SA.ApplyAttachments) == "function" then
+            pcall(SA.ApplyAttachments, out, tool)
+        end
+    elseif CFG.muzzleBoost then
+        -- Manual fallback when auto tuning is disabled.
+        out.damage = out.damage * 0.9
+        out.rate   = out.rate / 1.15
+    end
+    gunCache.t, gunCache.val, gunCache.tool = tick(), out, tool
     return out
 end
 
@@ -252,4 +324,3 @@ function SA.IsEquippedBow()
     if not ok or not tool then return false end
     return SA.IsBowTool(tool) == true
 end
-

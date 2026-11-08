@@ -33,8 +33,13 @@ print("  gunmod:", CFG.gmEnabled and "on" or "off")
 print("  snapln:", CFG.snapLineEnabled and "on" or "off")
 print("  pred  :", CFG.prediction and "ballistic" or "off")
 local equippedGun = SA.GetEquippedGun()
-print(string.format("  gun   : %s | %s | %.0f studs/s",
-    equippedGun.id, tostring(equippedGun.ammo), equippedGun.speed))
+print(string.format("  gun   : %s | %s | %.0f studs/s | mag %d | spread %.2f/%.2f",
+    equippedGun.id, tostring(equippedGun.ammo), equippedGun.speed,
+    equippedGun.mag or 0, equippedGun.spread or 0, equippedGun.adsSpread or 0))
+local attInfo = SA.AttachmentState()
+print(string.format("  att   : %d detected [%s] | speed x%.3f | +%.0f ms aim | %s",
+    attInfo.count, table.concat(attInfo.ids, ","), attInfo.speedMult,
+    attInfo.aimMs, attInfo.auto and "auto tune ON" or "auto tune OFF"))
 print("  npcaim:", CFG.targetNpcs and "on" or "off")
 print("  npcs  :", #SA.GetNpcs())
 print("  crates:", #SA.GetCrates(), "(live registry)")

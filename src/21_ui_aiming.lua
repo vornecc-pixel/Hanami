@@ -146,12 +146,12 @@ bindSlider(ballSec, "Bullet Speed Override (0 = auto)", "gunBulletSpeed", 0, 300
 bindDropdown(ballSec, "Ammo Override", "gunAmmoOverride", {
     "Auto", "handmade_shell", "pistol_bullet", "rifle_ammo", "rocket",
     "hv_rifle_ammo", "explosive_rifle_ammo", "buckshot_shell", "slug_shell",
-    "hv_rocket", "incendiary_rocket",
+    "hv_rocket", "incendiary_rocket", "duel_ammo",
 })
 bindToggle(ballSec, "Saturday2 Damage", "saturday2Mode",
-    "Uses the s2Damage branch of u3492.GunDamage if the game exposes it; otherwise Defs[ammo].damage x damageMult")
+    "Uses the real s2Damage numbers from the gun table (or the SA.S2Damage hook); otherwise Defs[ammo].damage x damageMult")
 bindToggle(ballSec, "Muzzle Boost Equipped", "muzzleBoost",
-    "muzzle_boost: +15% fire rate, -10% damage (affects the spec readout, not projectile speed)")
+    "Manual fallback for muzzle_boost (+15% rate / -10% damage). Auto Attachment Tuning normally detects it for you")
 ballSec:label({ name = "Speeds are the gun's `speed` field (GUNS overrides applied)" })
 ballSec:label({ name = "Damage = Defs[ammo].damage x damageMult (the damage field is 0)" })
 addButton(ballSec, "Print Gun Spec", function() SA.PrintGunSpec() end)
@@ -189,4 +189,49 @@ addButton(manipSec, "Apply Recommended Wall Pen", function()
     setFlag("hitChance", 100)
     setFlag("gunCooldown", 0)
     print("[sa] v7.7 recommended wall pen applied")
+end)
+
+-- ── AIMING : column 3 (Attachment auto tune) ───────────────────────
+-- The moment any of the 12 attachments is detected on the equipped Tool,
+-- 08_attachments.lua folds its effects into SA.GetEquippedGun(); the
+-- solver in 08_prediction.lua then uses the tuned speed / aim-time lead
+-- with no manual toggle. The four dropdowns are a manual fallback for
+-- games that store attachments somewhere the detector can't see.
+local aimCol3 = Aiming:column()
+local attSec, attOvrSec = aimCol3:multi_section({
+    names = { "Attachments (Auto)", "Overrides & Diagnostics" },
+})
+attSec:label({ name = "Auto-detects 12 attachments from the equipped tool" })
+bindToggle(attSec, "Auto Attachment Tuning", "attachmentAutoTune",
+    "Detects sight / muzzle / underbarrel / mag attachments and re-tunes prediction automatically")
+bindToggle(attSec, "Force ADS Spread", "attachmentAds",
+    "Assume aiming down sights. OFF = read right mouse button; affects the spread readout only")
+bindToggle(attSec, "Aim-Time Lead Tune", "attachmentAimTune",
+    "Scopes / ACOG / vertical grip add a small time-to-aim lead; reflex sight removes some")
+bindSlider(attSec, "Aim-Time Scale", "attachmentAimScale", 0, 2, 0.1, "x")
+bindSlider(attSec, "Silencer Speed Mult", "attachmentSilencerSpeed", 0.5, 1, 0.01, "x")
+attSec:label({ name = "ESTIMATE: the script says 'slower bullets' but gives no number" })
+attSec:label({ name = "Fitted mods: Sight / Muzzle / Under / Mag" })
+bindDropdown(attOvrSec, "Sight Override", "attOverrideSight", {
+    "Auto", "None", "red_dot_sight", "holo_sight", "scope_4x", "acog_sight", "reflex_sight",
+})
+bindDropdown(attOvrSec, "Muzzle Override", "attOverrideMuzzle", {
+    "Auto", "None", "muzzle_brake", "silencer", "muzzle_boost",
+})
+bindDropdown(attOvrSec, "Under Override", "attOverrideUnder", {
+    "Auto", "None", "vertical_grip", "laser_sight", "flashlight",
+})
+bindDropdown(attOvrSec, "Mag Override", "attOverrideMag", {
+    "Auto", "None", "mag_extender",
+})
+addButton(attOvrSec, "Print Attachments", function() SA.PrintAttachments() end)
+addButton(attOvrSec, "Rescan Attachments", function()
+    local s = SA.RescanAttachments()
+    print(string.format("[att] %s | %d detected | speed %.0f -> %.0f",
+        tostring(s.gunId), s.count, s.baseSpeed, s.speed))
+end)
+addButton(attOvrSec, "Print Gun Table", function() SA.PrintGunTable() end)
+addButton(attOvrSec, "Sync Gun Defs (GC)", function()
+    local n = SA.SyncGunDefs()
+    print("[att] live gun fields merged:", n)
 end)

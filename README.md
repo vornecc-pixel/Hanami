@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **34 short files** (`src/`, largest is 376 lines) plus a short **loader**.
+The original 1,300-line script is split into **35 short files** (`src/`, largest is 417 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -22,6 +22,8 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **Every gun's attributes updated (20 guns)** | Aiming → Ballistics | See [Ballistic prediction](#ballistic-prediction). All 20 guns now carry `mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `recoil`, `rate`, `auto`, `s2Damage`, `scope`, `headGuard`, `shellReload`, `rocket`, `huntOnly` / `duelOnly` plus the new **Arena Rifle** (`duel_rifle` / `duel_ammo`) and the named `Falloff` table. **Print Gun Table** dumps all of them; **Sync Gun Defs (GC)** now refreshes every numeric field from the live game. |
+| **Prediction auto-tunes for attachments** | Aiming → Attachments (Auto) | See [Attachments & auto prediction tuning](#attachments--auto-prediction-tuning). All 12 attachments are auto-detected off the equipped tool; a silencer re-tunes bullet speed (and therefore lead + drop), sights/grips fold aim-time into the one latency term, and the solver adds a refinement pass and stops on convergence. No manual toggle needed — slot overrides are provided as a fallback. |
 | **Silent aim / manipulation are guns only** | Aiming → Gun | See [Bow mods](#bow-mods-instant-charge--no-cooldown). The bow Shoot remote hook, bow gun specs, arrow prediction and draw/hold state are gone; `saLockActive()` bails out while any bow is equipped. |
 | **Two bow mods: instant charge + no cooldown** | Gun Mods → Bow Mods | Only those two features from the pasted bow-mods script were ported — instant full draw and `SHOT_GAP`/`REDRAW_GAP`/`MIN_DRAW` + `lastShot` clearing. NoDrop, instant reload, no recoil, infinite ammo, no air block and everything else were **excluded**. See [Bow mods](#bow-mods-instant-charge--no-cooldown). |
 | **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Survives spawn, respawn, re-execute and unload. |
@@ -313,12 +315,15 @@ if vel.Magnitude > 0.5 then targetPos = targetPos + vel * travel end
 
 `GUN_SPEEDS`, `GUN_DEFAULT_SPEED`, `getGunSpeed()`, `getEquippedGunId()` and the single-frame `velCache` are **gone**. In their place:
 
-* `src/07_gun_specs.lua` — exact game definitions for all 19 guns, ammo damage, alt-ammo modifiers, falloff profiles, `GUN_RANGE`, `gravity`/`life`, and the `u3492.GunDamage` formula. Bows are absent on purpose; `SA.IsEquippedBow()` / `SA.IsBowTool()` are name-only gates that *disable* aim for bows.
-* `src/08_prediction.lua` — smoothed target velocity, live ping, an exact intercept solver and the debug helpers.
+* `src/07_gun_specs.lua` — **every attribute** of all **20** guns (`mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `recoil`, `rate`, `auto`, `s2Damage`, optional `scope` / `headGuard` / `shellReload` / `rocket` / `huntOnly` / `duelOnly`), ammo damage, alt ammo, the 8 named `Falloff` profiles, `GUN_RANGE`, `gravity`/`life` and the `u3492.GunDamage` formula. Bows are absent on purpose; `SA.IsEquippedBow()` / `SA.IsBowTool()` are name-only gates that *disable* aim for bows.
+* `src/08_attachments.lua` — all 12 attachment defs, `AttFit`, slots/tags, tool scanner and the auto-tune pass. See [Attachments](#attachments--auto-prediction-tuning).
+* `src/08_prediction.lua` — smoothed target velocity, live ping, an exact intercept solver, adaptive refinement and the debug helpers.
 
 ### Gun data
 
-`speed` is the projectile speed — it is **not** called `bulletSpeed`. Values already include the `u3338.GUNS` overrides (`bolt_action_rifle` 2600 → **2200**, `lr_sniper` 3000 → **2600**). `hunt_smg` shares the `custom_smg` override.
+`speed` is the projectile speed — it is **not** called `bulletSpeed`. Values already include the `u3338.GUNS` overrides (`bolt_action_rifle` 2600 → **2200**, `lr_sniper` 3000 → **2600**). `hunt_smg` shares the `custom_smg` override. The pasted item table omits `gravity` for the four SMGs, so their previously validated `u3338` drop (`8` / `1 s`) is retained; only the two scoped rifles list gravity in the paste. **Sync Gun Defs (GC)** overwrites any of these with the live game values.
+
+The solver's per-gun inputs are `speed`, `gravity`, `life` and `range`. The remaining attributes are carried on the resolved gun object, folded into the attachment auto-tune, and printed by **Print Gun Spec** / **Print Gun Table** / **Print Attachments**. `duel_rifle` (**Arena Rifle**, `duel_ammo`) is new; it is a `semi_auto_rifle` clone, so its `duel_ammo` base damage is assumed equal to `rifle_ammo` (40) and it inherits the `semi_auto_rifle` falloff and attachment fit.
 
 | Gun id | Speed | Ammo | dmgMult | Effective dmg / pellet | Pellets | gravity / life | GUN_RANGE |
 |---|---|---|---|---|---|---|---|
@@ -341,12 +346,38 @@ if vel.Magnitude > 0.5 then targetPos = targetPos + vel * travel end
 | `bolt_action_rifle` | 2200 | rifle_ammo | 1.9 | 76 | 1 | 30 / 1.9 | 1400 |
 | `lr_sniper` | 2600 | rifle_ammo | 2.1 | 84 | 1 | 24 / 1.8 | 1600 |
 | `rocket_launcher` | 80 | rocket | 1 | 1 | 1 | — | 550 (default) |
+| `duel_rifle` | 1425 | duel_ammo | 1 | 40 (est.) | 1 | — | 900 |
 
-`GUN_BALANCE.damage` (11, 27, 22, 20, 39, 39, 40, 24, 78, 82, 42, 8, 9, 28, 21, 24, 45, 51.5) is stored as `balance` for reference only — **it is not the damage**. `GUN_BALANCE` falloff profiles: `v20` {60,200,0.6}, `v21` {25,100,0.8}, `v22` {150,500,0.75}, pellet {25,60}; customs for `semi_auto_rifle` {250,550,0.75}, `lever_carbine` {200,550,0.75}, `high_caliber_revolver` {150,450,0.7}, `lr_sniper` {300,1600,0.7}.
+**All the new attributes, per gun** (identical to the pasted `Guns` table; **Print Gun Table** prints the same values at runtime):
+
+| Gun id | mag | rate | auto | spread | adsSpread | moveSpread | reload | recoil pitch | scope | s2Damage |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `assault_rifle` | 30 | 0.133 | yes | 2.8 | 0.25 | 2 | 4 | 1.1 | — | 39 |
+| `bolt_action_rifle` | 5 | 1.5 | no | 5 | 0.05 | 3.5 | 4.5 | 5.2 | 8 | 78 |
+| `custom_smg` | 24 | 0.1 | yes | 2.2 | 0.45 | 1.2 | 2.8 | 1.15 | — | 22 |
+| `double_barrel` | 2 | 0.25 | no | 5.5 | 3.75 | 1.2 | 3.4 | 7 | — | 8 |
+| `drum_smg` | 50 | 0.095 | yes | 2.6 | 0.55 | 1.4 | 4.2 | 1.25 | — | 24 |
+| `duel_rifle` | 16 | 0.175 | no | 2 | 0.06 | 2 | 4.4 | 1.2 | — | 39 |
+| `high_caliber_revolver` | 6 | 0.35 | no | 1.4 | 0.05 | 2 | 4 | 4.5 | — | 51.5 |
+| `hunt_smg` | 24 | 0.1 | yes | 2.2 | 0.45 | 1.2 | 2.8 | 1.15 | — | 20 |
+| `lever_carbine` | 10 | 0.6 | no | 2.5 | 0.08 | 2.4 | 4.85 | 3.8 | — | 45 |
+| `lr_sniper` | 5 | 1.8 | no | 6 | 0.03 | 4 | 5 | 6.3 | 8 | 82 |
+| `m249` | 100 | 0.12 | yes | 3.6 | 0.4 | 3 | 6 | 1.4 | — | 40 |
+| `pipe_shotgun` | 1 | 0.9 | no | 5 | 3.25 | 1 | 2.2 | 5.75 | — | 11 |
+| `pump_shotgun` | 6 | 0.9 | no | 5 | 3.4 | 1.2 | 3.55 | 6.6 | — | 9 |
+| `revolver` | 8 | 0.22 | no | 1.2 | 0.1 | 1.8 | 3 | 1.7 | — | 27 |
+| `rocket_launcher` | 1 | 1.5 | no | 1.6 | 0.45 | 3 | 6 | 7.5 | — | — |
+| `scar` | 20 | 0.16 | yes | 3 | 0.22 | 2.2 | 4.2 | 1.6 | — | 42 |
+| `semi_auto_pistol` | 10 | 0.13 | no | 1.5 | 0.18 | 1.6 | 2.2 | 1.3 | — | 24 |
+| `semi_auto_rifle` | 16 | 0.175 | no | 2 | 0.06 | 2 | 4.4 | 1.2 | — | 39 |
+| `service_pistol` | 12 | 0.15 | no | 1.5 | 0.16 | 1.6 | 2.3 | 1.5 | — | 28 |
+| `tactical_smg` | 30 | 0.085 | yes | 1.8 | 0.3 | 1.1 | 2.6 | 0.95 | — | 21 |
+
+The pasted `s2Damage` numbers (11, 27, 22, 20, 39, 39, 40, 24, 78, 82, 42, 8, 9, 28, 21, 24, 45, 51.5, 39) are stored as `balance` for the legacy readout **and** used directly when Saturday2 damage is enabled — they are **not** the normal per-pellet damage. The named `Falloff` table from the paste is kept verbatim: `pistol_family` {60,200,0.6}, `smg_family` {25,100,0.8}, `rifle_family` {150,500,0.75}, `semi_auto_rifle` {250,550,0.75}, `lever_carbine` {200,550,0.75}, `high_cal_revolver` {150,450,0.7}, `lr_sniper` {300,1600,0.7}, `shotgun_pellet` {25,60}. `bolt_action_rifle`, `rocket_launcher` and `duel_rifle` have no custom profile of their own (duel_rifle inherits `semi_auto_rifle`).
 
 ### Damage formula
 
-`u3492.GunDamage` = `s2Damage` when `Saturday2()` is on, otherwise `Defs[ammo].damage * damageMult`. The `damage` field on every gun definition is **0** and is ignored. Ammo base damage: `handmade_shell` 13, `pistol_bullet` 32, `rifle_ammo` 40, `rocket` 1.
+`u3492.GunDamage` = the gun's real `s2Damage` when Saturday2 is on (or the `SA.S2Damage` hook if assigned), otherwise `Defs[ammo].damage * damageMult`. The `damage` field on every gun definition is **0** and is ignored. Ammo base damage: `handmade_shell` 13, `pistol_bullet` 32, `rifle_ammo` 40, `duel_ammo` **40 (estimate)**, `rocket` 1. `rocket_launcher` has `damageMult=nil` / `s2Damage=nil` in the paste; the resolver normalises that to 1 because explosive damage is not modelled.
 
 Alt ammo modifiers applied by the resolver:
 
@@ -359,17 +390,17 @@ Alt ammo modifiers applied by the resolver:
 | `hv_rocket` | speed **140** (absolute), drop 2 |
 | `incendiary_rocket` | no speed/damage change recorded |
 
-`muzzle_boost` = +15% fire rate / −10% damage (toggle in Ballistics). `mag_extender` ×1.3333 mag, `silencer` 300 shots — neither changes projectile speed. `Saturday2 Damage` forces the `s2Damage` branch; the game normally exposes `Saturday2()` / `s2Damage` through `SA.Saturday2` / `SA.S2Damage` hooks (see below).
+Attachment effects are applied on top of this by `08_attachments.lua`: `muzzle_boost` = +15% fire rate / −10% damage, `mag_extender` = `max(floor(mag), floor(mag × 1.333… + 0.5))`, `silencer` = −10% recoil + slower bullets (the one effect that changes the intercept). The legacy **Muzzle Boost Equipped** toggle in Ballistics remains as a manual fallback. `Saturday2 Damage` forces the `s2Damage` branch; the game can also expose `Saturday2()` / `s2Damage` through `SA.Saturday2` / `SA.S2Damage` hooks (see below).
 
 ### The solver
 
 1. **Velocity** — `SA.TargetVelocity(model)` samples `HumanoidRootPart.Position` into a weak-keyed, exponentially smoothed estimate (`alpha = clamp(dt*12, 0.15, 0.6)`, teleports >120 studs/s dropped).
 2. **Exact intercept** — solve `|(p₀ − o) + v·t|² = (s·t)²` for the smallest positive root, where `s` is the equipped gun's real speed. For a stationary target this is exactly `distance/speed`; for a moving target it accounts for the target closing/retreating during flight.
-3. **Bullet drop** — for guns with `gravity`, aim above by `½·g·t²` and re-derive the flight time from the new aim point (`Solver Iterations`, 1–8, default 4). Guns without gravity converge in one pass.
-4. **Latency** — `SA.LeadLatencyMs()` (auto ping × scale + manual offset) is added **once** as `tTotal = flightTime + latency`, never once per iteration.
+3. **Bullet drop** — for guns with `gravity`, aim above by `½·g·t²` and re-derive the flight time from the new aim point (`Solver Iterations`, 1–8, default 4). **Auto tune**: when bullet drop is present or an attachment changed the projectile speed, one extra pass is added (capped at 8), and every pass exits early once the aim point moves less than 0.0001 studs. Guns without gravity and no speed mod converge immediately.
+4. **Latency** — `SA.LeadLatencyMs()` (auto ping × scale + manual offset) **plus** the attachment aim-time lead is added **once** as `tTotal = flightTime + latency`, never once per iteration.
 5. **Bounds** — flight time is clamped to the gun's `life` (projectile despawn), and the result reports `inRange` against `GUN_RANGE` (default 550).
 
-`SA.Predict(origin, targetPos, model)` returns `aimPoint, info`. `info` carries `t`, `total`, `speed`, `velocity`, `lead`, `drop`, `latency`, `range`, `inRange`, `expired`, `id`, `ammo`, `gravity`. Silent aim uses it on every snap; the snapline uses it to draw the gold lead ring.
+`SA.Predict(origin, targetPos, model)` returns `aimPoint, info`. `info` carries `t`, `total`, `speed`, `velocity`, `lead`, `drop`, `latency`, `range`, `inRange`, `expired`, `id`, `ammo`, `gravity`, plus the new `iterations`, `aimMs`, `attachments`, `attIds`, `speedMult`, `ads`, `effSpread` and `zoom`. Silent aim uses it on every snap; the snapline uses it to draw the gold lead ring.
 
 ### Controls (Aiming → Ballistics / Visual)
 
@@ -384,19 +415,94 @@ Alt ammo modifiers applied by the resolver:
 | Extra Ping Offset (ms) | 0 | Manual offset added on top of auto ping (0–300) |
 | Bullet Speed Override | 0 (auto) | Manual speed, 0–3000; overrides the gun table |
 | Ammo Override | Auto | Force any of the 4 base + 6 alt ammo types |
-| Saturday2 Damage | OFF | Use the `s2Damage` branch of `GunDamage` |
-| Muzzle Boost Equipped | OFF | Apply +15% rate / −10% damage |
+| Saturday2 Damage | OFF | Use the real `s2Damage` numbers from the gun table |
+| Muzzle Boost Equipped | OFF | Manual fallback for +15% rate / −10% damage (auto-detected normally) |
+| **Auto Attachment Tuning** | **ON** | Detect all 12 attachments and fold them into the prediction |
+| Force ADS Spread | OFF | Assume ADS. OFF = read right mouse button; spread readout only |
+| Aim-Time Lead Tune | ON | Scopes / ACOG / grip add a small time-to-aim lead; reflex removes some |
+| Aim-Time Scale | 1.0× | 0 disables the aim-time lead, 2 doubles it |
+| Silencer Speed Mult | 0.85× | **Estimate** for "slower bullets"; directly changes lead + drop |
+| Sight / Muzzle / Under / Mag Override | Auto | `Auto`, `None`, or an explicit attachment id — fallback when detection can't see the game's storage |
 | Show Lead Marker | ON | Gold ring at the predicted aim point (Visual tab, with colourpicker) |
 
-Debug buttons (Visual → Debug): **Print Silent Aim (v7.7)**, **Retry Tap Hooks**, **Print Manip State (v4)**, **Print Bow Mods State**, **Print Gun Spec**, **Print Prediction** (now also prints measured ping / scale / offset / total), **Print Live Ping** (Aiming → Ballistics), **Print Draw Backend**, **Sync Gun Defs (GC)** and **Print Current Target**.
+Debug buttons: **Print Gun Spec** (Aiming → Ballistics), **Print Gun Table**, **Print Attachments**, **Rescan Attachments**, **Sync Gun Defs (GC)** and **Print Live Ping** (Aiming → Attachments / Visual → Debug), plus **Print Silent Aim (v7.7)**, **Retry Tap Hooks**, **Print Manip State (v4)**, **Print Bow Mods State**, **Print Prediction** (now also prints ping / scale / offset / aim-time / attachments / iterations), **Print Draw Backend** and **Print Current Target** in Visual → Debug.
 
 ### Live game hooks
 
-* `SA.SyncGunDefs()` scans `getgc(true)` for tables containing `GUN_RANGE` / `GUNS` and merges live `speed`, `gravity`, `life` and `range` into the static DB. It is opt-in (button), `pcall`-guarded and does nothing if `getgc` is unavailable.
+* `SA.SyncGunDefs()` scans `getgc(true)` for tables containing `GUN_RANGE` / `GUNS` and merges live `speed`, `gravity`, `life`, `range`, `mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `rate`, `pellets`, `s2Damage` and `damageMult` into the static DB (and refreshes `balance`). It is opt-in (button), `pcall`-guarded, invalidates the gun cache and does nothing if `getgc` is unavailable.
 * The equipped tool is resolved via `ItemId` / `WeaponId` / `ToolId` / `Item` / `Weapon` / `Gun` attributes or the tool name, normalised against the `model` names (`SemiAutoPistol`, `LRSniper`, `ScarRifle`, …) and display names. Unknown tools fall back to 1000 studs/s / 550 range and are flagged `[UNKNOWN]`.
 * `SA.Saturday2 = fn` and `SA.S2Damage = function(id, spec) ... end` can be assigned at runtime if the game exposes them; `GunDamage` then uses the `s2Damage` branch automatically. Otherwise it uses `Defs[ammo].damage × damageMult`.
 * `SA.Predict` assumes the game applies `gravity` as constant downward acceleration on the projectile. If a given gun has no visible drop in-game, turn **Bullet Drop Compensation** off.
 * Bows are deliberately excluded: there is no `Fust.Remotes.Shoot` hook and no bow ballistic spec. `saLockActive()` returns false while a bow is equipped, so `SA.ResolveShot()`, `SA.TapSnap()`, the render-step snap and manipulation all stay idle. The two bow mods in `20_bow_mods.lua` only change charge / cooldown timing. An older run's stale `Shoot` wrapper is neutralised on load (`SA.BowShot` becomes a pass-through).
+
+## Attachments & auto prediction tuning
+
+`src/08_attachments.lua` keeps the pasted `Attachments`, `AttFit`, `ATT_SLOTS`, `ATT_SLOT_NAME`, `ATT_TAG` and `MAG_EXT` tables verbatim (12 defs, 7 fit lists). The moment **any** attachment is found on the equipped tool, its effects are folded into `SA.GetEquippedGun()` — and `SA.Predict()` therefore re-tunes itself with no manual toggle.
+
+| Attachment | Slot | Tag | Exact effect from the description |
+|---|---|---|---|
+| `red_dot_sight` | sight | RED DOT | clear red dot, neutral zoom |
+| `holo_sight` | sight | HOLO | wide window, slight zoom, steadier aim (`removed=true` in the paste) |
+| `scope_4x` | sight | 4X | 4× zoom |
+| `acog_sight` | sight | ACOG | 3× zoom, "a bit slower to aim" |
+| `reflex_sight` | sight | REFLEX | Red Dot zoom, "faster to aim, a bit less steady" |
+| `muzzle_brake` | muzzle | BRAKE | **−30% recoil**, **+15% spread** |
+| `silencer` | muzzle | SUPP | **−10% recoil**, no tracers, **slower bullets**, 300-shot durability |
+| `muzzle_boost` | muzzle | BOOST | **+15% fire rate**, **−10% damage**, more recoil |
+| `vertical_grip` | under | GRIP | **−25% vertical recoil**, "a bit slower to aim" |
+| `laser_sight` | under | LASER | **−40% hip-fire spread** |
+| `flashlight` | under | LIGHT | light only; no ballistic effect |
+| `mag_extender` | mag | EXT MAG | `max(floor(mag), floor(mag × 1.333… + 0.5))` |
+
+`AttFit` lists which guns accept each muzzle / under / mag attachment; sights fit any non-scoped gun (`bolt_action_rifle` and `lr_sniper` have `scope=8` and are blocked). `SA.AttachmentFits()` is **informational** — a mismatch is printed as a warning rather than silently disabling tuning, because the game may allow a combination the paste omits. `duel_rifle` is treated as a `semi_auto_rifle` clone for fit checks.
+
+### Detection
+
+All reads are `pcall`-guarded and the descendant walk is capped at 400, so a strange tool can never break silent aim. The gun cache is keyed by the **Tool instance** as well as time, so switching weapons (or attaching a mod) changes the prediction on the next frame.
+
+1. Every attribute on the tool — both **keys** (`Silencer = true`, `HasSuppressor = 300`) and **values** (`Muzzle = "silencer"`, `Attachments = "SUPP,GRIP"`), including comma / space-separated lists.
+2. Common slot attributes (`Sight`, `Muzzle`, `Under`, `Mag`, `Attachments`, `Mods`, …) as a fallback for executors without `GetAttributes()`.
+3. Descendants: attachment model names (`RedDotSight`, `Scope4x`, `Silencer`, …), `ValueBase` values, and `ItemId` / `Attachment` attributes on Models / Folders / ObjectValues. Descendant names use **only strong aliases** (id / display name / model), so a generic gun child called `Grip`, `Light` or `Muzzle` is *not* mistaken for an attachment.
+4. Four per-slot overrides (`Auto` / `None` / explicit id) for games that store attachments somewhere else.
+5. The legacy **Muzzle Boost Equipped** toggle still works as a manual fallback, but a detected or overridden muzzle always wins.
+
+### What gets tuned
+
+| Effect | Where it lands | Changes the aim point? |
+|---|---|---|
+| Silencer speed multiplier | `gun.speed` → intercept time `t`, lead, `½gt²` drop, `life` expiry | **Yes** |
+| Sight / grip aim-time | one extra latency term (`aimMs`) → target moves further before the shot | **Yes** (moving targets only) |
+| Adaptive iterations | +1 pass when speed changed or drop is present; early exit on convergence | **Yes** (refinement) |
+| `muzzle_boost` / brake / grip / laser / ext mag | damage, rate, recoil, spread, magazine | No — readouts only |
+| ADS / movement | `gun.effSpread`, `gun.ads`, `gun.zoom` | No — diagnostics only |
+
+A manual **Bullet Speed Override** always wins over the silencer multiplier. Turning **Auto Attachment Tuning** off leaves the base gun profile untouched (the old manual muzzle-boost behaviour still applies). `SA.ATT_EFFECTS` is exposed so every estimate can be edited at runtime.
+
+### Estimates (tunable, not in the paste)
+
+The paste gives percentages but **no numbers** for "slower bullets", zoom steadiness or aim speed. These are exposed as CFG controls and marked as estimates:
+
+| Estimate | Default | Control |
+|---|---|---|
+| Silencer bullet speed | `0.85×` | **Silencer Speed Mult** (0.5–1.0) |
+| Sight zoom | 1 / 1.25 / 4 / 3 / 1 | `SA.ATT_EFFECTS[id].zoom` |
+| ADS spread factor | 0.9–1.1 | `SA.ATT_EFFECTS[id].adsSpread` |
+| Aim-time lead | 0 / +20 / +60 / +80 / −30 / +50 ms | **Aim-Time Scale** (0–2×), **Aim-Time Lead Tune** |
+| `muzzle_boost` recoil | `1.15×` | `SA.ATT_EFFECTS.muzzle_boost.recoil` |
+| `duel_ammo` base damage | 40 | `src/07_gun_specs.lua` |
+| SMG `gravity`/`life` | 8 / 1 s | retained from `u3338`; GC sync overrides |
+
+`spread` / `adsSpread` / `moveSpread` are reported but **never** converted into an aim offset — the game's spread units are not documented, and guessing would make the solver worse. `effSpread` is a diagnostic estimate (`ADS ? adsSpread : spread`, plus `moveSpread × movement`).
+
+### Diagnostics
+
+* **Print Attachments** — detected id, slot, tag, `AttFit` warning and the exact source (`attr:Muzzle`, `child:Silencer`, `override:attOverrideSight`, …), plus base → effective speed / aim-time / mag / damage / rate.
+* **Rescan Attachments** — clears the gun cache and re-detects.
+* **Print Gun Spec** — every new attribute, the effective spread / recoil, and the attachment list.
+* **Print Gun Table** — one row per gun with all 20 speeds, ammo, mag, pellets, rate, range, s2Damage and spread values.
+* **Print Prediction** — now also prints aim-time, attachment ids, speed multiplier, iterations, ADS and effective spread.
+
+If nothing is detected, set the four slot overrides manually (or check the tool's attributes/children with `Print Attachments`). Detection requires a real `Tool` under `lp.Character`; it does not scan the Backpack, so owned-but-not-attached mods are ignored.
 
 ## Best settings for wall penetration
 
@@ -433,7 +539,7 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 `src/21_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 22–26 build the tabs.
 
 ```
-Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (v4)
+Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (v4) · Attachments (Auto) · Overrides & Diagnostics
 ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
 Gun Mods → Gun Mods · State Overrides · Bow Mods (Enable / Instant Charge / No Cooldown)
 Visual   → FOV Circle / Snapline · Debug
@@ -496,13 +602,13 @@ loader.lua  ──fetch──▶  01_config.lua
 
 `setfenv` (when the executor offers it) keeps those shared names in an isolated table so they don't pollute globals; without it the same names simply go into normal globals. Compile errors now also report **which part** the failing line came from.
 
-Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; `20_bow_mods.lua` is the two-feature bow-mods GC scan; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
+Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / **attachments** / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; `08_attachments.lua` is the 12-attachment auto-tune scanner; `20_bow_mods.lua` is the two-feature bow-mods GC scan; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
 
 ## Files
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap keys, bow-mods keys**), `SA` state, `bindRender`, **48-colour palette** | 339 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap, bow-mods, attachment keys**), `SA` state, `bindRender`, **48-colour palette** | 354 |
 | `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, no-op fallback, draw diagnostics | 306 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
@@ -510,8 +616,9 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
 | `src/05_manipulation.lua` | **Manipulation v4 (guns only)**: shared RaycastParams, 8-direction peek, adaptive peek, target-aware filter, reused CanQuery entries, bow bail-out | 220 |
 | `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp; no bow state) + snap cooldown | 56 |
-| `src/07_gun_specs.lua` | exact 19-gun DB: speeds, ammo, damage, alt ammo, falloff, ranges + **name-only `SA.IsEquippedBow()` / `SA.IsBowTool()` gate** | 255 |
-| `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, latency, debug | 221 |
+| `src/07_gun_specs.lua` | **all 20 guns + every attribute** (mag / spread / ads / move / reload / recoil / s2 / scope / tags), ammo, damage, alt ammo, 8 named falloffs, ranges + **name-only bow gate** | 326 |
+| `src/08_attachments.lua` | **12 attachment defs**, `AttFit` / slots / tags, tolerant tool scanner, **auto-tune effects** + `SA.*Attachments*` diagnostics | 417 |
+| `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, adaptive iterations, attachment aim-time lead, debug / gun table | 297 |
 | `src/09_silent_aim.lua` | **Silent Aim v7.7 (guns only)**: Fix A/B connection reorder, idempotent tap snap, `saLockActive()` bow gate, stale-hook purge, shared `SA.ResolveShot`, render-step camera binds | 375 |
 | `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
@@ -528,14 +635,14 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
-| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls / guns-only note**) | 192 |
+| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls / guns-only note / attachment auto-tune column**) | 237 |
 | `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, live `CFG`/`ESP_COLORS` styling | 376 |
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, camera/render bind, respawn hook, controls, `SA.EspPreview*` API | 223 |
 | `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** / **player ESP + preview diagnostics buttons** | 224 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + **Bow Mods section (2 toggles + diagnostics)** | 45 |
-| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only silent-aim / manip debug, bow-mods state**) | 105 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose + bow timing restore** | 90 |
-| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods status**), `return CFG` | 48 |
+| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only debug, bow-mods state, attachment / gun-table prints**) | 107 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose + bow timing restore** | 91 |
+| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 53 |
 ## Editing
 
 * Parts share one scope: a column-1 `local` in an earlier part is hoisted and visible in later ones. **Indented** `local`s stay private to their function.

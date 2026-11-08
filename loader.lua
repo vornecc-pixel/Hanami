@@ -35,6 +35,7 @@ local PARTS = {
     "05_manipulation.lua",
     "06_firing_and_guns.lua",
     "07_gun_specs.lua",
+    "08_attachments.lua",
     "08_prediction.lua",
     "09_silent_aim.lua",
     "10_fov_circle.lua",

@@ -153,7 +153,18 @@ local CFG = _G.__saCFG or {
     gunBulletSpeed       = 0,     -- 0 = exact speed from 07_gun_specs.lua
     gunAmmoOverride      = "Auto",
     saturday2Mode        = false,
-    muzzleBoost          = false,
+    muzzleBoost          = false,   -- manual fallback for muzzle_boost
+
+    -- attachment auto tune (08_attachments.lua)
+    attachmentAutoTune      = true,   -- detect + fold attachments into prediction
+    attachmentAds           = false,  -- force ADS spread (else RMB is read)
+    attachmentAimTune       = true,   -- sights/grip add aim-time lead
+    attachmentAimScale      = 1,      -- 0 disables the aim-time lead
+    attachmentSilencerSpeed = 0.85,   -- ESTIMATE: "slower bullets"
+    attOverrideSight        = "Auto", -- Auto / None / <attachment id>
+    attOverrideMuzzle       = "Auto",
+    attOverrideUnder        = "Auto",
+    attOverrideMag          = "Auto",
 
     -- fov visual (the FOV circle is THE reference point for aiming)
     showFov         = true,
@@ -278,6 +289,10 @@ for k, v in pairs({
     predictionIterations = 4, predictionAutoPing = true, predictionPingScale = 1,
     predictionLatency = 0, gunBulletSpeed = 0,
     gunAmmoOverride = "Auto", saturday2Mode = false, muzzleBoost = false,
+    attachmentAutoTune = true, attachmentAds = false, attachmentAimTune = true,
+    attachmentAimScale = 1, attachmentSilencerSpeed = 0.85,
+    attOverrideSight = "Auto", attOverrideMuzzle = "Auto",
+    attOverrideUnder = "Auto", attOverrideMag = "Auto",
     crateEnabled = false, crateShowMilitary = true, crateShowElite = true,
     crateShowLoot = true, crateShowOpened = true, crateLooseDetect = true,
     crateHighlight = false, crateInvertState = false, crateLidDetect = false,
