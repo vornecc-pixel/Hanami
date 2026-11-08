@@ -10,8 +10,8 @@
 --   * one shared RaycastParams instead of a new one per ray (the old
 --     module rebuilt it inside every peek / clearance raycast)
 --   * filter includes BOTH the local character and the target model, so
---     the target's own body never counts as "cover" (the bow path used
---     to pass nil for the model)
+--     the target's own body never counts as "cover"
+--   * GUNS ONLY: bows bail out before any ray is cast
 --   * 8 peek directions: 4 cardinals + 4 diagonals
 --   * adaptive maxPeek = clamp(base + distance * 0.06, base, cap) so
 --     long shots still clear cover, with a hard manipMaxPeek ceiling
@@ -162,6 +162,11 @@ end
 -- strict Wall Check shot can be aborted instead of snapping at a wall.
 local function saManipResolve(origin, targetPos, targetModel)
     if not (CFG.manipulation and targetModel) then return origin, true end
+    -- Silent aim / manipulation are guns only. SA.IsEquippedBow() lives in
+    -- 07_gun_specs.lua and is a plain name classifier, not an aim path.
+    if type(SA.IsEquippedBow) == "function" and SA.IsEquippedBow() then
+        return origin, true
+    end
     local dist = (targetPos - origin).Magnitude
     if dist > (CFG.manipDist or 1000) then return origin, false end
     saInitParams(targetModel)

@@ -19,9 +19,9 @@
 --   Fix B  Tool.Activated connection reorder for games that fire from the
 --          tool's Activated handler instead of InputBegan.
 --   Tap window widened 0.2 -> 0.35 (and InputEnded now stamps `last`).
---   Bow path: Shoot remote hook rewrites data.dir / data.origin, with the
---          target MODEL passed to manipulation (the old extract passed
---          nil). Bow draw/release keeps the snap alive a few frames.
+--   GUNS ONLY: whenever a bow is equipped, saLockActive() is false, so no
+--          camera snap, no shot resolver and no manipulation runs. The old
+--          bow Shoot remote hook / draw-hold state is gone entirely.
 --   Manipulation v4: see 05_manipulation.lua (8 peek directions,
 --          adaptive peek, filter includes the target model, higher caps).
 --
@@ -37,8 +37,8 @@
 --   * The FOV circle stays in 10_fov_circle.lua (no duplicate Drawing).
 --
 -- Everything that has to survive a re-execute is dispatched through SA or
--- _G, so the InputBegan/Tool/remote hooks installed once by an older run
--- always call into the CURRENT chunk instead of stale closures.
+-- _G, so the InputBegan/Tool hooks installed once by an older run always
+-- call into the CURRENT chunk instead of stale closures.
 -- ────────────────────────────────────────────────────────────────────
 
 -- Executor-only helpers. Look in _G and getgenv(); the isolated chunk env
@@ -61,6 +61,22 @@ local function connFn(c)
 end
 
 local getconnectionsFn = executorFn("getconnections")
+
+-- ────────────────────────────────────────────────────────────────────
+-- RE-EXECUTION PURGE — bow aim is gone
+-- SA persists in _G (01_config.lua), so an older Hanami run can leave a
+-- Shoot remote hook alive whose wrapper calls SA.BowShot(data). Explicitly
+-- neutralise every retired entry point instead of inheriting the old bow
+-- aim closure. BowShot becomes a pass-through: the stale wrapper forwards
+-- the untouched data and never rewrites an arrow's direction.
+-- ────────────────────────────────────────────────────────────────────
+function SA.BowShot(data) return data end
+function SA.InstallBowHook() return false end
+SA.BowGravity = nil
+SA.BOW_MUZZLE = nil
+SA.BowDrawing, SA.BowDrawingAt, SA.BowSnapHold = nil, nil, nil
+_G.__saBowRemoteHooked = nil
+
 local tapInfo = _G.__saTapReorderInfo or {
     active = false, connections = 0, reason = "not attempted",
 }
@@ -78,16 +94,21 @@ local restorePrio = Enum.RenderPriority.Camera.Value + 4
 
 local realCFrame, snapped = nil, false
 local saSnappedThisFrame = false
-local saBowWasDrawing = false
 
 -- The extract used `flags["sa_lock"]`; Hanami's master switch is CFG.
--- SA.Alive also stops the tap/bow hooks after "Unload Everything".
+-- SA.Alive also stops the tap hooks after "Unload Everything".
+-- saLockActive() is the SINGLE guns-only gate: ResolveShot, TapSnap and the
+-- render-step snap all go through it, so a bow can never be aimed.
 local function saLockActive()
-    return SA.Alive == true and CFG.masterEnabled == true and CFG.gunEnabled == true
+    if SA.Alive ~= true or CFG.masterEnabled ~= true or CFG.gunEnabled ~= true then
+        return false
+    end
+    if type(SA.IsEquippedBow) ~= "function" then return true end
+    return SA.IsEquippedBow() ~= true
 end
 
 -- ────────────────────────────────────────────────────────────────────
--- TARGET RESOLUTION — one path for tap snap, render step and bow hook
+-- TARGET RESOLUTION — one path for tap snap and render step (guns only)
 -- The FOV centre/radius come from 02_shared.lua, and the exact ballistic
 -- solver lives in 08_prediction.lua. Returns (aimPos, model, bone).
 -- ────────────────────────────────────────────────────────────────────
@@ -158,31 +179,6 @@ function SA.TapRestore(cf, camera)
     if cf and _G.__saTapCF == cf then
         _G.__saTapCF, _G.__saTapCam, _G.__saTapAt = nil, nil, nil
     end
-end
-
--- Called from the hooked Fust.Remotes.Shoot. `data.draw` packets mark the
--- bow as being drawn; shoot packets get the exact predicted direction.
-function SA.BowShot(data)
-    if type(data) ~= "table" then return data end
-    -- A cancelled draw may never send a shoot packet; the 5 s TTL in
-    -- isFiring() keeps SA.BowDrawing from pinning the snap forever.
-    if data.draw then
-        SA.BowDrawing = true
-        SA.BowDrawingAt = tick()
-        return data
-    end
-    SA.BowDrawing = false
-    if not (CFG.saBowHook and saLockActive() and SA.IsEquippedBow()) then return data end
-    if not data.dir then return data end
-    local shot = SA.ResolveShot()
-    if not shot then return data end
-    local dir = (shot.aim - shot.origin).Unit
-    data.dir = dir
-    data.origin = shot.origin + dir * (SA.BOW_MUZZLE or 0.5)
-    SA.Target.lastShot = shot.model
-    SA.Target.lastShotAt = tick()
-    dbg("bow shot ->", shot.model and shot.model.Name or "?")
-    return data
 end
 
 -- ══════════════════════════════════════════════════════════════════
@@ -258,6 +254,8 @@ saInstallInputReorder()
 local function saHookToolTap(tool)
     if not tool or not tool:IsA("Tool") then return end
     if not getconnectionsFn then return end
+    -- Bows are never hooked: silent aim is guns only.
+    if type(SA.IsBowTool) == "function" and SA.IsBowTool(tool) then return end
     local hooked = false
     pcall(function() hooked = tool:GetAttribute("__saTapHooked") == true end)
     if hooked then return end
@@ -304,45 +302,6 @@ end
 if lp.Character then saScanTools() end
 
 -- ══════════════════════════════════════════════════════════════════
--- BOW SA REMOTE HOOK (patched: passes the target model to manipulation)
--- Installed ONCE; the wrapper dispatches through SA.BowShot so a
--- re-execute never stacks hooks or keeps a stale closure alive.
--- ══════════════════════════════════════════════════════════════════
-local function saInstallBowHook()
-    if _G.__saBowRemoteHooked then return true end
-    task.spawn(function()
-        if _G.__saBowRemoteHooked then return end
-        local ok, err = pcall(function()
-            local rs = game:GetService("ReplicatedStorage")
-            local fust = rs:WaitForChild("Fust", 10)
-            local remotes = fust and fust:WaitForChild("Remotes", 10)
-            local shoot = remotes and remotes:WaitForChild("Shoot", 10)
-            if not shoot then error("Shoot remote not found") end
-            local hookFn = executorFn("hookfunction")
-            if not hookFn then error("hookfunction unavailable") end
-            local ncFn = executorFn("newcclosure")
-            local wrap = ncFn or function(f) return f end
-            local original = shoot.FireServer
-            local origFS
-            origFS = hookFn(original, wrap(function(self, data, ...)
-                if self == shoot then
-                    pcall(function() SA.BowShot(data) end)
-                end
-                return (origFS or original)(self, data, ...)
-            end))
-            _G.__saBowRemoteHooked = true
-            print("[sa] bow Shoot remote hook active")
-        end)
-        if not ok then
-            warn("[sa] bow remote hook unavailable: " .. tostring(err))
-        end
-    end)
-    return false
-end
-SA.InstallBowHook = saInstallBowHook
-saInstallBowHook()
-
--- ══════════════════════════════════════════════════════════════════
 -- CAMERA-SNAP RENDER BINDS
 -- These still handle held fire / automatic weapons and keep CanQuery
 -- restoration tied to the frame. Tap-fire is covered by fixes A + B.
@@ -351,20 +310,12 @@ saInstallBowHook()
 -- camera CFrame captured before the first snap of a hold sequence. The
 -- restore bind (priority +4) owns restoration, so the snap bind must NOT
 -- clear `snapped` / `realCFrame` at the top of every frame: doing that
--- (as the extract did) orphans a bow-hold snap and leaves the camera
--- permanently pointed at the target once the hold expires.
+-- (as the extract did) orphans a snap and leaves the camera permanently
+-- pointed at the target once the hold expires.
 RunService:BindToRenderStep(snapName, snapPrio, function()
     saSnappedThisFrame = false
     if not SA.Alive then saManipRestore(); return end
     saManipBeginFrame()
-
-    local isBow = SA.IsEquippedBow()
-    if isBow then
-        if saBowWasDrawing and not SA.BowDrawing then SA.BowSnapHold = 5 end
-        saBowWasDrawing = SA.BowDrawing or false
-    else
-        saBowWasDrawing = false
-    end
 
     if not saLockActive() then return end
     -- PATCH: a tap that landed inside this frame must still snap even if
@@ -400,14 +351,6 @@ RunService:BindToRenderStep(restoreName, restorePrio, function()
         saManipRestore()
         return
     end
-    -- Hold the bow snap while drawing and for a few frames after release,
-    -- otherwise the arrow inherits the restored (unsnapped) camera.
-    if snapped and SA.IsEquippedBow()
-        and (SA.BowDrawing or (SA.BowSnapHold or 0) > 0) then
-        if (SA.BowSnapHold or 0) > 0 then SA.BowSnapHold = SA.BowSnapHold - 1 end
-        saManipRestore()
-        return
-    end
     if snapped and realCFrame then
         local camera = ws.CurrentCamera
         if camera then pcall(function() camera.CFrame = realCFrame end) end
@@ -422,8 +365,8 @@ function SA.SilentAimState()
         reorder = tapInfo.active, reorderReason = tapInfo.reason,
         reorderedConnections = tapInfo.connections,
         hookedTools = _G.__saTapTools or 0,
-        bowRemoteHooked = _G.__saBowRemoteHooked == true,
-        bowDrawing = SA.BowDrawing, bowHold = SA.BowSnapHold or 0,
+        gunsOnly = true,
+        bowEquipped = SA.IsEquippedBow() == true,
         tapWindow = CFG.saTapWindow or 0.35,
         snapped = snapped, snappedThisFrame = saSnappedThisFrame,
         snapBind = snapName, restoreBind = restoreName,

@@ -29,21 +29,12 @@ if not _G.__saInputBound then
     end)
 end
 
--- Shared with the bow remote hook (09_silent_aim.lua). Drawing a bow is
--- "firing" for the whole draw, and the camera snap is held for a few
--- frames after release so the released arrow still goes to the target.
-SA.BowDrawing = false
-SA.BowDrawingAt = 0
-SA.BowSnapHold = 0
-
+-- GUNS ONLY: no bow draw/hold state. Silent aim bails out entirely while
+-- a bow is equipped (see SA.IsEquippedBow() in 07_gun_specs.lua), so the
+-- tap window only has to describe mouse presses/releases.
 local function isFiring()
     if not CFG.gunShotOnly then return true end
     if firing.held then return true end
-    if SA.BowDrawing then
-        if tick() - (SA.BowDrawingAt or 0) < 5 then return true end
-        SA.BowDrawing = false   -- stale draw packet; do not pin the snap
-    end
-    if (SA.BowSnapHold or 0) > 0 then return true end
     return (tick() - firing.last) < (CFG.saTapWindow or 0.35)
 end
 

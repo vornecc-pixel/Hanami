@@ -43,12 +43,9 @@ local F_PEL = { full = 25,  min = 60              }  -- pellet falloff (all 3 sh
 
 local DEFAULT_RANGE = 550  -- u3492.GUN_RANGE fallback
 
--- Bows are NOT in u3492.GUNS. These projectile speeds come from the
--- v7.7 vault extract; silent aim uses them for the bow camera snap and
--- the Shoot remote hook. Gravity comes from Workspace.Gravity at runtime.
-local BOW_IDS = { hunting_bow = true, crossbow = true, compound_bow = true }
-local BOW_GRAVITY = 196.2   -- fallback when Workspace.Gravity is unavailable
-SA.BOW_MUZZLE = 0.5         -- origin offset along the arrow direction
+-- Bows are NOT guns and are deliberately absent from this table. Silent
+-- aim / manipulation use SA.IsEquippedBow() below ONLY as a negative gate;
+-- no bow ever resolves to a ballistic spec.
 
 local function S(name, speed, ammo, mult, pellets, rate, auto, gravity, life, range, balance, falloff)
     return {
@@ -79,17 +76,8 @@ local GUN_SPECS = {
     tactical_smg          = S("Tactical SMG",          950, "pistol_bullet",  0.75, 1,  0.085, true,  8,  1,    450, 21,   F_V21),
     drum_smg              = S("Drum SMG",              880, "pistol_bullet",  0.85, 1,  0.095, true,  8,  1,    450, 24,   F_V21),
     lever_carbine         = S("Lever Carbine",        1250, "pistol_bullet",  1.4,  1,  0.6,   false, 0,  nil,  700, 45,   { full=200, min=550,  mult=0.75 }),
-    high_caliber_revolver = S("High Caliber Revolver",1100, "pistol_bullet",  1.72, 1,  0.35,  false, 0,  nil,  700, 51.5, { full=150, min=450,  mult=0.7 }),
-
-    -- bows (v7.7 extract). `gravity` is the arrow drop used by SA.Predict
-    -- and the bow remote hook; `ammo` is nil so GunDamage reports 0.
-    hunting_bow           = S("Hunting Bow",           350, nil, 1, 1, 1.0, false, BOW_GRAVITY, 4, 350, nil, nil),
-    crossbow              = S("Crossbow",              500, nil, 1, 1, 1.2, false, BOW_GRAVITY, 4, 450, nil, nil),
-    compound_bow          = S("Compound Bow",          400, nil, 1, 1, 0.9, false, BOW_GRAVITY, 4, 400, nil, nil),
+    high_caliber_revolver = S("High Caliber Revolver",1100, "pistol_bullet", 1.72, 1, 0.35,  false, 0,  nil,  700, 51.5, { full=150, min=450,  mult=0.7 }),
 }
-for id in pairs(BOW_IDS) do
-    if GUN_SPECS[id] then GUN_SPECS[id].isBow = true end
-end
 
 -- Used when the equipped tool isn't one of the known guns.
 local UNKNOWN_SPEC = S("Unknown / fallback", 1000, nil, 1, 1, 0.2, false, 0, nil, DEFAULT_RANGE, nil, nil)
@@ -118,32 +106,16 @@ for model, id in pairs(MODEL_TO_ID) do GUN_ALIASES[norm(model)] = id end
 local TOOL_ID_ATTRS = { "ItemId", "WeaponId", "ToolId", "Item", "Weapon", "Gun" }
 local AMMO_ATTRS    = { "Ammo", "AmmoType", "LoadedAmmo", "CurrentAmmo", "AmmoId", "ItemAmmo" }
 
--- Bow tools are named inconsistently by the game ("Hunting Bow",
--- "HuntingBow", "bow_01", "Compound Bow Mk2"). The display-name aliases
--- already cover most of those; these keyword fallbacks cover the rest.
-local function bowIdFromName(s)
-    local n = norm(s)
-    -- Match bow word-stems only: a plain "bow" substring would also match
-    -- unrelated names such as "Elbow Pad"; "Compound Rifle" must stay nil.
-    if n:find("crossbow", 1, true) then return "crossbow" end
-    if n:find("compoundbow", 1, true) then return "compound_bow" end
-    if n:find("huntingbow", 1, true) or n == "bow"
-        or n:sub(1, 3) == "bow" or n:sub(-3) == "bow" then
-        return "hunting_bow"
-    end
-    return nil
-end
-
 local function readToolId(tool)
     if not tool then return nil end
     for _, a in ipairs(TOOL_ID_ATTRS) do
         local v = tool:GetAttribute(a)
         if v ~= nil and v ~= "" then
-            local id = GUN_ALIASES[norm(v)] or bowIdFromName(v)
+            local id = GUN_ALIASES[norm(v)]
             if id then return id end
         end
     end
-    return GUN_ALIASES[norm(tool.Name)] or bowIdFromName(tool.Name)
+    return GUN_ALIASES[norm(tool.Name)]
 end
 
 local function readAmmo(tool, spec)
@@ -218,10 +190,6 @@ function SA.GetEquippedGun(force)
     if CFG.gunBulletSpeed > 0 then speed = CFG.gunBulletSpeed end
 
     local gravity = spec.gravity
-    -- Bows use the game's live gravity (the extract used Workspace.Gravity
-    -- with a 196 fallback); SA.Predict then applies 1/2 * g * t^2 to the
-    -- arrow instead of the static fallback in the spec table.
-    if spec.isBow then gravity = SA.BowGravity() end
     if alt and alt.gravity then gravity = alt.gravity end
 
     local pellets = spec.pellets
@@ -235,34 +203,53 @@ function SA.GetEquippedGun(force)
         id = id or "unknown", known = id ~= nil, spec = spec, tool = tool,
         ammo = ammoId, alt = alt ~= nil, speed = math.max(speed, 1),
         gravity = gravity, life = spec.life, range = spec.range,
-        pellets = pellets, rate = rate, isBow = spec.isBow == true,
+        pellets = pellets, rate = rate,
         damage = SA.GunDamage(id, ammoId, spec),
     }
     gunCache.t, gunCache.val = tick(), out
     return out
 end
 
--- The v7.7 silent aim keeps a bow snap alive across the draw/release cycle.
--- Scan every equipped tool (not just the first) so a bow in the backpack
--- slot still resolves. Names / ItemId / aliases all normalise to a bow id.
-function SA.IsEquippedBow()
-    local char = lp.Character
-    if not char then return false end
+-- ────────────────────────────────────────────────────────────────────
+-- BOW CLASSIFIER — GUNS-ONLY GATE (NOT an aim path)
+-- Bows are deliberately excluded from silent aim / manipulation. This is a
+-- plain name/attribute check with NO ballistic data: readToolId() cannot
+-- return a bow id because bows are absent from GUN_SPECS. Word stems only;
+-- "Elbow Pad" and "Compound Rifle" must not match.
+-- ────────────────────────────────────────────────────────────────────
+local function bowWord(s)
+    local n = norm(s)
+    if n == "" or n:find("elbow", 1, true) then return false end
+    if n:find("crossbow", 1, true) or n:find("compoundbow", 1, true)
+       or n:find("huntingbow", 1, true) or n:find("longbow", 1, true)
+       or n:find("shortbow", 1, true) then
+        return true
+    end
+    return n == "bow" or n:sub(1, 3) == "bow"
+end
+
+-- Single-Tool check; used to skip bow tools for tap-fire Fix B.
+function SA.IsBowTool(tool)
     local ok, found = pcall(function()
-        for _, child in ipairs(char:GetChildren()) do
-            if child:IsA("Tool") then
-                local id = readToolId(child)
-                if id and GUN_SPECS[id] and GUN_SPECS[id].isBow then return true end
-            end
+        if not tool or not tool:IsA("Tool") then return false end
+        if bowWord(tool.Name) then return true end
+        for _, a in ipairs(TOOL_ID_ATTRS) do
+            local v = tool:GetAttribute(a)
+            if v ~= nil and v ~= "" and bowWord(v) then return true end
         end
         return false
     end)
     return ok and found == true
 end
 
-function SA.BowGravity()
-    local ok, g = pcall(function() return ws.Gravity end)
-    if ok and type(g) == "number" and g > 0 then return g end
-    return BOW_GRAVITY
+-- The EQUIPPED bow disables silent aim / manipulation for the whole frame.
+-- Deliberately the same tool SA.GetEquippedGun() resolves, so carrying a
+-- bow in another slot never switches off aim for the gun in your hands.
+function SA.IsEquippedBow()
+    local char = lp.Character
+    if not char then return false end
+    local ok, tool = pcall(function() return char:FindFirstChildOfClass("Tool") end)
+    if not ok or not tool then return false end
+    return SA.IsBowTool(tool) == true
 end
 

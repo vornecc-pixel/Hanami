@@ -50,6 +50,7 @@ local PARTS = {
     "18_esp_fx_draw.lua",
     "18_esp_fx_frame.lua",
     "19_render_loop.lua",
+    "20_bow_mods.lua",
     "20_gun_mods.lua",
     "21_ui_aiming.lua",
     "22_esp_preview.lua",

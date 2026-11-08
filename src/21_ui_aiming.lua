@@ -116,8 +116,7 @@ bindToggle(gunSec, "Target NPCs", "targetNpcs",
 bindToggle(gunSec, "Tap-Fire Reorder (Fix A/B)", "saTapReorder",
     "Snap the camera BEFORE the game's fire handlers run; needs getconnections. Falls back to the render-step snap")
 bindSlider(gunSec, "Tap Window (s)", "saTapWindow", 0.1, 1, 0.05, "s")
-bindToggle(gunSec, "Bow Shoot Hook", "saBowHook",
-    "Rewrites data.dir / data.origin on Fust.Remotes.Shoot for bows; needs hookfunction")
+gunSec:label({ name = "Silent aim + manipulation: GUNS ONLY (bows skipped)" })
 
 -- ── AIMING : column 2 (Target / Ballistics / Wall Penetration) ──────
 local aimCol2 = Aiming:column()

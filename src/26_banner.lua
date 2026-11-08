@@ -14,9 +14,15 @@ print("@abusegpt — Silent Aim + Wall Pen + ESP + Crates + Gun Mods")
 print(string.format("  snap @ %d | restore @ %d", snapPrio, restorePrio))
 print("  binds :", snapName, "/", restoreName)
 local saInfo = SA.SilentAimState()
-print(string.format("  aim   : v7.7 camera snap | tap fix A %s (%d conns) | fix B %d tools | bow hook %s",
+print(string.format("  aim   : v7.7 camera snap | tap fix A %s (%d conns) | fix B %d tools | GUNS ONLY",
     saInfo.reorder and "ON" or "OFF", saInfo.reorderedConnections,
-    saInfo.hookedTools, saInfo.bowRemoteHooked and "ON" or "OFF"))
+    saInfo.hookedTools))
+local bowInfo = SA.BowModsState()
+print(string.format("  bowmod: %s | instant charge %s | no cooldown %s | u10=%d u14=%d",
+    CFG.bowModsEnabled and "on" or "off",
+    CFG.bowInstantCharge and "on" or "off",
+    CFG.bowNoCooldown and "on" or "off",
+    bowInfo.configTables, bowInfo.liveStates))
 print("  manip : v4 — 8 peek dirs, adaptive peek, target-aware filter")
 print("  aim   :", CFG.masterEnabled and "on" or "off")
 print("  manip :", CFG.manipulation and "on" or "off")

@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **33 short files** (`src/`, largest is 432 lines) plus a short **loader**.
+The original 1,300-line script is split into **34 short files** (`src/`, largest is 376 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -22,9 +22,11 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **Silent aim / manipulation are guns only** | Aiming → Gun | See [Bow mods](#bow-mods-instant-charge--no-cooldown). The bow Shoot remote hook, bow gun specs, arrow prediction and draw/hold state are gone; `saLockActive()` bails out while any bow is equipped. |
+| **Two bow mods: instant charge + no cooldown** | Gun Mods → Bow Mods | Only those two features from the pasted bow-mods script were ported — instant full draw and `SHOT_GAP`/`REDRAW_GAP`/`MIN_DRAW` + `lastShot` clearing. NoDrop, instant reload, no recoil, infinite ammo, no air block and everything else were **excluded**. See [Bow mods](#bow-mods-instant-charge--no-cooldown). |
 | **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Survives spawn, respawn, re-execute and unload. |
 | **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
-| **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, bow Shoot remote hook, and one shared shot resolver keeps the FOV circle as the reference point. |
+| **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, and one shared shot resolver keeps the FOV circle as the reference point. **Guns only** — bows are skipped. |
 | **Manipulation v4 (patched)** | Aiming → Wall Penetration | 8 peek directions (cardinals + diagonals), peek distance scales with range, target model included in the ray filter, and much higher caps (48 parts / 96 rays). See the same section. |
 | **Actually compiles in the executor** | loader | See [Luau 200-local-register fix](#7-the-luau-200-local-register-compile-error). The old join hit `Out of local registers ... exceeded limit 200` at `playerSec` and never ran. The loader now hoists column-1 `local`s into the chunk environment, so the main chunk needs zero local registers. |
 | **FOV circle fixed + made the aim reference** | Visual → FOV Circle / Snapline | See [FOV fixes](#fov-fixes--one-reference-point). Now defaults ON, draws through a reliable ScreenGui backend, and its centre + radius are the single reference used by silent aim, snapline, tracers and arrows. |
@@ -147,11 +149,18 @@ The old build only changed `camera.CFrame` inside a `BindToRenderStep` callback.
 * **Tap window 0.2 → 0.35 s**, and `InputEnded` now also stamps `last`, so a fast press+release is still inside the window.
 * **Idempotent tap snap.** Some games dispatch from both signals; only the first snap in an input event is allowed, otherwise the second would capture the already-snapped CFrame as "real" and leave the camera stuck on the target. A 1 s TTL clears stale state if a restore ever fails.
 
-All hooks are installed **once** and dispatch through `SA.TapSnap()` / `SA.TapRestore()` / `SA.BowShot()` / `SA.InstallTapReorder()` / `SA.InstallBowHook()`, so re-executing the loader never leaves stale closures or stacks hooks. `Visual → Debug → Retry Tap / Bow Hooks` retries if `getconnections` / `hookfunction` was unavailable at load, and **Print Silent Aim (v7.7)** reports the status.
+All hooks are installed **once** and dispatch through `SA.TapSnap()` / `SA.TapRestore()` / `SA.InstallTapReorder()`, so re-executing the loader never leaves stale closures or stacks hooks. `Visual → Debug → Retry Tap Hooks` retries if `getconnections` was unavailable at load, and **Print Silent Aim (v7.7)** reports the status.
 
-### Bow support
+### Bows removed from aim (guns only) & two bow mods
 
-`07_gun_specs.lua` gained the three bow ids from the extract (`hunting_bow` 350, `crossbow` 500, `compound_bow` 400 studs/s), with live `Workspace.Gravity` for arrow drop. `Fust.Remotes.Shoot` is hooked once to rewrite `data.dir` / `data.origin` from the resolved shot; `data.draw` packets track the draw state so the snap is held while drawing and for 5 frames after release. **The bow path now passes the target model to manipulation** (the extract passed `nil`, so the target's own body could be counted as cover).
+Silent aim and manipulation now work **only for guns**. The whole bow aim path was deleted:
+
+* The three bow ids (`hunting_bow` / `crossbow` / `compound_bow`), their projectile speeds, arrow `Workspace.Gravity` drop and `isBow` fields are gone from `07_gun_specs.lua`; bows resolve to no ballistic spec at all.
+* The `Fust.Remotes.Shoot` hook (`hookfunction` + `newcclosure`), `SA.BowShot()`, bow draw/hold state (`BowDrawing` / `BowSnapHold`) and the "Bow Shoot Hook" toggle are gone. A re-execution purge in `09_silent_aim.lua` neutralises any stale hook left by an older run: `SA.BowShot` becomes a pass-through returning the untouched packet, and the retired `SA.*` fields are cleared.
+* `saLockActive()` is the single gate — `SA.Alive` + `CFG.masterEnabled` + `CFG.gunEnabled` + **not** `SA.IsEquippedBow()`. `SA.ResolveShot()`, `SA.TapSnap()` and the render-step snap all go through it, and `saManipResolve()` has a second defensive bow check, so no ray is cast for a bow.
+* Bow tools are skipped by tap-fire Fix B. `SA.IsEquippedBow()` / `SA.IsBowTool()` are plain name/attribute classifiers (word stems, `elbow` excluded) with no ballistic data — they exist only to *disable* aim.
+
+Instead, bows get exactly two quality-of-life mods from the pasted script. See [Bow mods](#bow-mods-instant-charge--no-cooldown): **Instant Charge** and **No Shot Cooldown**. They change the bow's own timing only, never its aim.
 
 ### What was deliberately kept
 
@@ -160,7 +169,7 @@ The extract is a *debug extract* — its `flags["sa_lock"]` is empty, `bowCombat
 * **Prediction** stays `SA.Predict()` — exact quadratic intercept with per-gun `speed`, bullet drop, alt ammo, `life`/range bounds and live ping (`08_prediction.lua`).
 * **Gun data** stays the exact `u3492` / `u3338` definitions (`07_gun_specs.lua`), not the extract's speed table.
 * **FOV is still the one reference point**: `SA.AimPoint()` + `SA.FovRadius()` drive target picking, the circle, snapline, tracers and arrows. The extract measured from `GetMouseLocation()` directly and created its own `Drawing` circle — that duplicate was not ported.
-* The master switch is `CFG.masterEnabled` + `CFG.gunEnabled` + `SA.Alive` (not `flags["sa_lock"]`), so **Unload Everything** actually stops the tap and bow hooks too.
+* The master switch is `CFG.masterEnabled` + `CFG.gunEnabled` + `SA.Alive` + `not SA.IsEquippedBow()` (not `flags["sa_lock"]`), so **Unload Everything** stops the tap hooks and a bow never engages aim.
 
 ### New controls
 
@@ -168,12 +177,36 @@ The extract is a *debug extract* — its `flags["sa_lock"]` is empty, `bowCombat
 |---|---|---|
 | Tap-Fire Reorder (Fix A/B) | Aiming → Gun | ON |
 | Tap Window (s) | Aiming → Gun | 0.35 |
-| Bow Shoot Hook | Aiming → Gun | ON |
+| Enable Bow Mods | Gun Mods → Bow Mods | OFF |
+| Instant Charge (max draw) | Gun Mods → Bow Mods | OFF |
+| No Shot Cooldown | Gun Mods → Bow Mods | OFF |
 | Base Peek Offset / Adaptive Peek Cap | Aiming → Wall Penetration | 20 / 120 |
 | Range / Parts / Budget / Hysteresis / Max Delta | Aiming → Wall Penetration | 1000 / 48 / 96 / 3 / 40 |
-| Print Silent Aim (v7.7), Retry Tap / Bow Hooks, Print Manip State (v4) | Visual → Debug | — |
+| Print Silent Aim (v7.7), Retry Tap Hooks, Print Manip State (v4), Print Bow Mods State | Visual → Debug | — |
 
-A one-time migration in `01_config.lua` raises saved profiles that still used the old defaults; custom values are left alone.
+A one-time migration in `01_config.lua` raises saved profiles that still used the old defaults; custom values are left alone, and the retired `saBowHook` flag is dropped.
+
+## Bow mods (instant charge + no cooldown)
+
+Only the **Bow Mods** part of the pasted `anti-externa.wtf` script was ported, and only **two** of its features. Bows are no longer aimed (see above); these two toggles change the bow's own charge / cooldown timing and nothing else.
+
+| Requested | What it does | Tables touched |
+|---|---|---|
+| **Instant Charge (max draw)** | Every frame sets `drawStart = os.clock() - 10` on the live bow state, so the game always sees a fully drawn shot. Works whether the game's clock is `os.clock()` or `tick()`. | `u14` live draw state |
+| **No Shot Cooldown** | Zeros `SHOT_GAP` / `REDRAW_GAP` / `MIN_DRAW` on the bow config table and keeps `lastShot = -math.huge` on the live state, so the fire gate never blocks. Original constants are saved and restored when the toggle goes off. | `u10` config + `u14` live state |
+
+**Explicitly NOT ported:** `NoDrop` / the `Items.BowSpec` wrap, `Instant Reload` (crossbow `u17`), `NoRecoil` / tremble / sway (`u185`), `InfiniteAmmo`, `NoAirBlock` / the `u16.blocked` wrapper, the WindUI, hit log, hit sound, damage tracker, ESP, and the script's gun mods. None of those behaviours are implemented — they are only named in the "not copied" comment; the only live toggles are the two requested ones.
+
+`src/20_bow_mods.lua` follows the same pattern as `src/20_gun_mods.lua`:
+
+* A generation-guarded `getgc(true)` scan every 1.5 s (only while the master switch and at least one mod are on), yielding every 1000 tables. Tables are matched by shape with `rawget` — five numeric constants for `u10`, five typed fields for `u14` — rather than by name.
+* `setreadonly(tbl, false)` unfreezes only matched tables; `rawget` / `rawset` bypass `__index` / `__newindex` on plain Lua tables. No metatable is written.
+* A per-frame `bindRender` pass rewrites `drawStart` / `lastShot` and re-zeroes the config constants in case the game resets them. Switching a mod off, the master off, or **Unload Everything** calls `SA.BowModsRestore()` to put the saved `SHOT_GAP` / `REDRAW_GAP` / `MIN_DRAW` values back and reset `lastShot` to `0`. The saved originals live in `_G.__saBowSaved`, so re-executing the loader cannot mistake the already-zeroed values for the originals.
+* `SA.BowModsState()` reports whether `getgc` / `setreadonly` are available, how many config / live tables were found and how many are patched. **Print Bow Mods State** (Gun Mods → Bow Mods and Visual → Debug) prints it.
+
+**Controls** — Gun Mods → Bow Mods: `Enable Bow Mods` (master, OFF by default — turn it on first), `Instant Charge (max draw)`, `No Shot Cooldown`, `Print Bow Mods State`, `Restore Bow Timings`. New `CFG` keys `bowModsEnabled` / `bowInstantCharge` / `bowNoCooldown` are backfilled and bound through `hn_` flags; **Disable All** and **Unload Everything** turn them off and restore the timings.
+
+Requires an executor with `getgc` + `setreadonly`; without them the scan simply never runs (no errors, no changes). Table shapes come from the pasted script and are game-specific — if nothing is found, **Print Bow Mods State** reports `u10=0 u14=0`.
 
 ## FOV fixes & one reference point
 
@@ -280,7 +313,7 @@ if vel.Magnitude > 0.5 then targetPos = targetPos + vel * travel end
 
 `GUN_SPEEDS`, `GUN_DEFAULT_SPEED`, `getGunSpeed()`, `getEquippedGunId()` and the single-frame `velCache` are **gone**. In their place:
 
-* `src/07_gun_specs.lua` — exact game definitions for all 19 guns, ammo damage, alt-ammo modifiers, falloff profiles, `GUN_RANGE`, `gravity`/`life`, and the `u3492.GunDamage` formula. Also the 3 v7.7 bow ids (`hunting_bow` 350, `crossbow` 500, `compound_bow` 400 studs/s) with live `Workspace.Gravity` and `SA.IsEquippedBow()`.
+* `src/07_gun_specs.lua` — exact game definitions for all 19 guns, ammo damage, alt-ammo modifiers, falloff profiles, `GUN_RANGE`, `gravity`/`life`, and the `u3492.GunDamage` formula. Bows are absent on purpose; `SA.IsEquippedBow()` / `SA.IsBowTool()` are name-only gates that *disable* aim for bows.
 * `src/08_prediction.lua` — smoothed target velocity, live ping, an exact intercept solver and the debug helpers.
 
 ### Gun data
@@ -355,7 +388,7 @@ Alt ammo modifiers applied by the resolver:
 | Muzzle Boost Equipped | OFF | Apply +15% rate / −10% damage |
 | Show Lead Marker | ON | Gold ring at the predicted aim point (Visual tab, with colourpicker) |
 
-Debug buttons (Visual → Debug): **Print Silent Aim (v7.7)**, **Retry Tap / Bow Hooks**, **Print Manip State (v4)**, **Print Gun Spec**, **Print Prediction** (now also prints measured ping / scale / offset / total), **Print Live Ping** (Aiming → Ballistics), **Print Draw Backend**, **Sync Gun Defs (GC)** and **Print Current Target**.
+Debug buttons (Visual → Debug): **Print Silent Aim (v7.7)**, **Retry Tap Hooks**, **Print Manip State (v4)**, **Print Bow Mods State**, **Print Gun Spec**, **Print Prediction** (now also prints measured ping / scale / offset / total), **Print Live Ping** (Aiming → Ballistics), **Print Draw Backend**, **Sync Gun Defs (GC)** and **Print Current Target**.
 
 ### Live game hooks
 
@@ -363,7 +396,7 @@ Debug buttons (Visual → Debug): **Print Silent Aim (v7.7)**, **Retry Tap / Bow
 * The equipped tool is resolved via `ItemId` / `WeaponId` / `ToolId` / `Item` / `Weapon` / `Gun` attributes or the tool name, normalised against the `model` names (`SemiAutoPistol`, `LRSniper`, `ScarRifle`, …) and display names. Unknown tools fall back to 1000 studs/s / 550 range and are flagged `[UNKNOWN]`.
 * `SA.Saturday2 = fn` and `SA.S2Damage = function(id, spec) ... end` can be assigned at runtime if the game exposes them; `GunDamage` then uses the `s2Damage` branch automatically. Otherwise it uses `Defs[ammo].damage × damageMult`.
 * `SA.Predict` assumes the game applies `gravity` as constant downward acceleration on the projectile. If a given gun has no visible drop in-game, turn **Bullet Drop Compensation** off.
-* `Fust.Remotes.Shoot` is hooked once (opt-in via **Bow Shoot Hook**) so the bow's `data.dir` / `data.origin` come from `SA.ResolveShot()`. It also tracks the bow draw state from `data.draw` packets. The hook is `pcall`-guarded and simply never installs if `hookfunction` / the remote is unavailable; guns are unaffected.
+* Bows are deliberately excluded: there is no `Fust.Remotes.Shoot` hook and no bow ballistic spec. `saLockActive()` returns false while a bow is equipped, so `SA.ResolveShot()`, `SA.TapSnap()`, the render-step snap and manipulation all stay idle. The two bow mods in `20_bow_mods.lua` only change charge / cooldown timing. An older run's stale `Shoot` wrapper is neutralised on load (`SA.BowShot` becomes a pass-through).
 
 ## Best settings for wall penetration
 
@@ -400,9 +433,9 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 `src/21_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 22–26 build the tabs.
 
 ```
-Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window, Bow Shoot Hook) · Target / Ballistics / Wall Penetration (v4)
+Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (v4)
 ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
-Gun Mods → Gun Mods · State Overrides
+Gun Mods → Gun Mods · State Overrides · Bow Mods (Enable / Instant Charge / No Cooldown)
 Visual   → FOV Circle / Snapline · Debug
 Misc     → Info · Quick Actions
 
@@ -418,7 +451,7 @@ floating "ESP Preview" panel (Atlanta window.esp_section)
 * The old Shaman `RadioButton` preset is now a `Custom / Legit / Blatant` dropdown ("Custom" is the default so opening the menu doesn't apply a preset). The `Bullet Speed Override` slider (0–3000) now lives in the Ballistics section.
 * **FOV controls:** `Show FOV Circle` (ON), `FOV Centre` (Mouse / Screen Center), `Force ScreenGui Drawing` (ON), `Aim / Circle Radius`, plus `Print FOV State` / `Print Draw Backend` in Visual → Debug.
 * **Crate controls:** `Invert Crate State`, `Lid Angle Detection` (OFF), `Print Crate States (debug)` in ESP → Crate ESP.
-* Quick actions: Disable All (also clears NPC ESP + snapline), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle, disposes the ESP preview and stops the scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
+* Quick actions: Disable All (also clears NPC ESP + snapline + bow mods), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle, disposes the ESP preview, restores bow timings and stops the scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
 * The floating **ESP Preview** panel is populated by `src/22_esp_preview.lua` + `src/22_esp_preview_setup.lua`. **Show ESP Preview Panel** in ESP → Player ESP re-opens it if you closed it with the panel's `X` button.
 
 Only one thing from the Atlanta template is intentionally **not** copied: the duplicated `vis, other` multi-section block. `window.esp_section:esp_preview({})` is also *not* called, but its feature is now implemented natively — see [ESP preview](#esp-preview). Everything else from the template's init block is kept: `open_tab()`, `config_list_update()`, the theme pass, and `old_config = get_config()` — each guarded with `pcall` where it touches filesystem/config APIs.
@@ -463,23 +496,23 @@ loader.lua  ──fetch──▶  01_config.lua
 
 `setfenv` (when the executor offers it) keeps those shared names in an isolated table so they don't pollute globals; without it the same names simply go into normal globals. Compile errors now also report **which part** the failing line came from.
 
-Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
+Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; `20_bow_mods.lua` is the two-feature bow-mods GC scan; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
 
 ## Files
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap keys**), `SA` state, `bindRender`, **48-colour palette** | 332 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap keys, bow-mods keys**), `SA` state, `bindRender`, **48-colour palette** | 339 |
 | `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, no-op fallback, draw diagnostics | 306 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
 | `src/03_entity_scan.lua` | NPC registry handler + **guarded** LOS visibility cache | 97 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
-| `src/05_manipulation.lua` | **Manipulation v4**: shared RaycastParams, 8-direction peek, adaptive peek, target-aware filter, reused CanQuery entries | 215 |
-| `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp, bow draw state) + snap cooldown | 65 |
-| `src/07_gun_specs.lua` | exact gun DB: speeds, ammo, damage, alt ammo, falloff, ranges + **3 bow ids / SA.IsEquippedBow** | 268 |
+| `src/05_manipulation.lua` | **Manipulation v4 (guns only)**: shared RaycastParams, 8-direction peek, adaptive peek, target-aware filter, reused CanQuery entries, bow bail-out | 220 |
+| `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp; no bow state) + snap cooldown | 56 |
+| `src/07_gun_specs.lua` | exact 19-gun DB: speeds, ammo, damage, alt ammo, falloff, ranges + **name-only `SA.IsEquippedBow()` / `SA.IsBowTool()` gate** | 255 |
 | `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, latency, debug | 221 |
-| `src/09_silent_aim.lua` | **Silent Aim v7.7**: Fix A/B connection reorder, idempotent tap snap, bow remote hook, shared `SA.ResolveShot`, render-step camera binds | 432 |
+| `src/09_silent_aim.lua` | **Silent Aim v7.7 (guns only)**: Fix A/B connection reorder, idempotent tap snap, `saLockActive()` bow gate, stale-hook purge, shared `SA.ResolveShot`, render-step camera binds | 375 |
 | `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
 | `src/12_esp_players.lua` | **Player ESP v2**: tolerant `SA.PlayerRig`, re-execute purge, char tracking, half-build cleanup, diagnostics | 213 |
@@ -493,15 +526,16 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/18_esp_fx_draw.lua` | **unified styling**: text size, boxes, chams, skeleton, tracers, FOV arrows, fade | 241 |
 | `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with **per-player error isolation** | 141 |
 | `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
-| `src/20_gun_mods.lua` | generation-guarded GC scan gun mods | 89 |
-| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls**) | 193 |
+| `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
+| `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
+| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls / guns-only note**) | 192 |
 | `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, live `CFG`/`ESP_COLORS` styling | 376 |
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, camera/render bind, respawn hook, controls, `SA.EspPreview*` API | 223 |
 | `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** / **player ESP + preview diagnostics buttons** | 224 |
-| `src/23_ui_gunmods.lua` | Gun Mods tab | 22 |
-| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **v7.7 silent-aim / manip debug**) | 100 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose** | 85 |
-| `src/26_banner.lua` | startup banner (**v7.7 status**), `return CFG` | 42 |
+| `src/23_ui_gunmods.lua` | Gun Mods tab + **Bow Mods section (2 toggles + diagnostics)** | 45 |
+| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only silent-aim / manip debug, bow-mods state**) | 105 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose + bow timing restore** | 90 |
+| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods status**), `return CFG` | 48 |
 ## Editing
 
 * Parts share one scope: a column-1 `local` in an earlier part is hoisted and visible in later ones. **Indented** `local`s stay private to their function.

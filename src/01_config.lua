@@ -173,10 +173,9 @@ local CFG = _G.__saCFG or {
     manipHysteresis   = 3,
     manipMaxPeekDelta = 40,     -- was 20 / 6
 
-    -- silent aim v7.7 (tap-fire reorder + bow remote hook)
+    -- silent aim v7.7 (tap-fire reorder; GUNS ONLY — bows are skipped)
     saTapReorder = true,        -- Fix A (InputBegan) + Fix B (Tool.Activated)
     saTapWindow  = 0.35,        -- PATCH: widened from 0.2
-    saBowHook    = true,        -- hook ReplicatedStorage.Fust.Remotes.Shoot
 
     -- player esp
     espEnabled      = false,
@@ -253,6 +252,12 @@ local CFG = _G.__saCFG or {
     gmNoRecoil     = false,
     gmNoSway       = false,
     gmNoKick       = false,
+
+    -- bow mods (GC scan; NOT part of silent aim / manipulation)
+    -- Only two features: instant (max) charge and no shot cooldown.
+    bowModsEnabled   = false,
+    bowInstantCharge = false,
+    bowNoCooldown    = false,
 }
 _G.__saCFG = CFG
 
@@ -260,7 +265,7 @@ _G.__saCFG = CFG
 for k, v in pairs({
     manipulation = false, manipDist = 1000, manipPeek = 20, manipMaxPeek = 120,
     manipMaxParts = 48, manipBudget = 96, manipHysteresis = 3, manipMaxPeekDelta = 40,
-    saTapReorder = true, saTapWindow = 0.35, saBowHook = true,
+    saTapReorder = true, saTapWindow = 0.35,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
     espVisibleCheck = true, espShowTool = true, espShowState = true,
@@ -291,6 +296,7 @@ for k, v in pairs({
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
     gmNoSway = false, gmNoKick = false,
+    bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
 }) do if CFG[k] == nil then CFG[k] = v end end
 
 -- One-time migration for configs saved by older builds: those defaulted
@@ -323,7 +329,8 @@ if _G.__saManipFix ~= 2 then
     if CFG.manipMaxPeek == nil                then CFG.manipMaxPeek = 120 end
     if CFG.saTapReorder == nil                then CFG.saTapReorder = true end
     if CFG.saTapWindow == nil                 then CFG.saTapWindow = 0.35 end
-    if CFG.saBowHook == nil                   then CFG.saBowHook = true end
+    -- Bows are no longer aimed; drop the retired flag from saved profiles.
+    CFG.saBowHook = nil
     _G.__saManipFix = 2
 end
 

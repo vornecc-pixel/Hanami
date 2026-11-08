@@ -43,16 +43,21 @@ addButton(dbgSec, "Print Silent Aim (v7.7)", function()
     print("[sa] fix A reorder:", s.reorder, "| conns:", s.reorderedConnections,
         "| reason:", s.reorderReason)
     print("[sa] fix B hooked tools:", s.hookedTools,
-        "| bow remote:", s.bowRemoteHooked, "| bow drawing:", s.bowDrawing)
-    print(string.format("[sa] tap window: %.2fs | bow hold: %d | snapped: %s",
-        s.tapWindow, s.bowHold, tostring(s.snapped)))
+        "| guns only:", s.gunsOnly, "| bow equipped:", s.bowEquipped)
+    print(string.format("[sa] tap window: %.2fs | bow equipped: %s | snapped: %s",
+        s.tapWindow, tostring(s.bowEquipped), tostring(s.snapped)))
 end)
-addButton(dbgSec, "Retry Tap / Bow Hooks", function()
+addButton(dbgSec, "Retry Tap Hooks", function()
     SA.InstallTapReorder()
-    SA.InstallBowHook()
     local s = SA.SilentAimState()
     print("[sa] fix A:", s.reorderReason, "| fix B tools:", s.hookedTools)
-    print("[sa] bow remote: hook runs in the background; check console")
+end)
+addButton(dbgSec, "Print Bow Mods State", function()
+    local b = SA.BowModsState()
+    print(string.format("[bow] master=%s instantCharge=%s noCooldown=%s | u10 cfg tables=%d | u14 live states=%d | patched=%d",
+        tostring(b.enabled), tostring(b.instantCharge), tostring(b.noCooldown),
+        b.configTables, b.liveStates, b.patched))
+    print("[bow] hint: needs getgc + setreadonly; enable 'Enable Bow Mods' in Gun Mods -> Bow Mods")
 end)
 addButton(dbgSec, "Print Draw Backend", function()
     print("[sa] drawing backend:", SA.DrawBackend())

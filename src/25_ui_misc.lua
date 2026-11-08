@@ -17,6 +17,8 @@ infoSec:label({ name = "Crates: fuzzy detection + live registry" })
 infoSec:label({ name = "NPC names: Guard / Scavenger / Soldier" })
 infoSec:label({ name = "Ballistics: per-gun speed + drop + alt ammo" })
 infoSec:label({ name = "Gun Mods: GC scan (getgc + rawset)" })
+infoSec:label({ name = "Bow Mods: instant charge + no cooldown only" })
+infoSec:label({ name = "Silent aim + manip: GUNS ONLY (bows skipped)" })
 
 -- ── MISC : Quick Actions ───────────────────────────────────────────
 local actCol = MiscTab:column()
@@ -29,6 +31,7 @@ end)
 addButton(actSec, "Disable All", function()
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
+    setFlag("bowModsEnabled", false)
     setFlag("espEnabled", false)
     setFlag("npcEspEnabled", false)
     setFlag("crateEnabled", false)
@@ -59,13 +62,15 @@ addButton(actSec, "Unload Everything", function()
     setFlag("showFov", false)
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
+    setFlag("bowModsEnabled", false)
+    setFlag("bowInstantCharge", false)
+    setFlag("bowNoCooldown", false)
+    if SA.BowModsRestore then pcall(SA.BowModsRestore) end
     disableESP(); disableNpcESP(); disableCrateESP()
     if SA.EspPreviewDispose then pcall(SA.EspPreviewDispose) end
     RunService:UnbindFromRenderStep(snapName)
     RunService:UnbindFromRenderStep(restoreName)
-    -- leave no snapped camera, no held bow snap and no disabled CanQuery parts
-    SA.BowDrawing = false
-    SA.BowSnapHold = 0
+    -- leave no snapped camera and no disabled CanQuery parts
     SA.TapRestore(_G.__saTapCF, _G.__saTapCam)
     _G.__saTapCF, _G.__saTapCam, _G.__saTapAt = nil, nil, nil
     saManipRestore()
