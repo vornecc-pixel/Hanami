@@ -34,12 +34,25 @@ local dbgCol = VisualTab:column()
 local dbgSec = dbgCol:section({ name = "Debug" })
 
 bindToggle(dbgSec, "Debug Log", "debug")
-addButton(dbgSec, "Print Sandwich", function()
+addButton(dbgSec, "Print Silent Aim (v7.7)", function()
+    local s = SA.SilentAimState()
     local prio = Enum.RenderPriority.Camera.Value
-    print(string.format("[sa] snap @ %d | gun @ %d | restore @ %d",
-        prio + 2, prio + 3, prio + 4))
-    print(string.format("[sa] actual binds: %s @ %d / %s @ %d",
-        snapName, snapPrio, restoreName, restorePrio))
+    print(string.format("[sa] snap @ %d | restore @ %d (Camera @ %d)",
+        s.snapPriority, s.restorePriority, prio))
+    print("[sa] binds:", s.snapBind, "/", s.restoreBind, "| lock:", s.lock)
+    print("[sa] fix A reorder:", s.reorder, "| conns:", s.reorderedConnections,
+        "| reason:", s.reorderReason)
+    print("[sa] fix B hooked tools:", s.hookedTools,
+        "| bow remote:", s.bowRemoteHooked, "| bow drawing:", s.bowDrawing)
+    print(string.format("[sa] tap window: %.2fs | bow hold: %d | snapped: %s",
+        s.tapWindow, s.bowHold, tostring(s.snapped)))
+end)
+addButton(dbgSec, "Retry Tap / Bow Hooks", function()
+    SA.InstallTapReorder()
+    SA.InstallBowHook()
+    local s = SA.SilentAimState()
+    print("[sa] fix A:", s.reorderReason, "| fix B tools:", s.hookedTools)
+    print("[sa] bow remote: hook runs in the background; check console")
 end)
 addButton(dbgSec, "Print Draw Backend", function()
     print("[sa] drawing backend:", SA.DrawBackend())
@@ -70,10 +83,13 @@ addButton(dbgSec, "Sync Gun Defs (GC)", function()
     local n = SA.SyncGunDefs()
     if n == 0 then print("[sa] no live gun tables found; using static specs") end
 end)
-addButton(dbgSec, "Print Manip State", function()
-    local n = 0; for _ in pairs(saManipCache) do n = n + 1 end
-    print(string.format("[manip] frame=%d budget=%d disabled=%d cached=%d",
-        saManipFrame, saManipBudget, #saManipDisabled, n))
+addButton(dbgSec, "Print Manip State (v4)", function()
+    local m = SA.ManipState()
+    print(string.format("[manip] frame=%d rays left=%d/%d disabled=%d cached=%d dirs=%d",
+        m.frame, m.remaining, m.budget, m.disabled, m.cached, m.directions))
+    print(string.format("[manip] base=%s adaptive=%.1f hardCap=%s peekOrigin=%s",
+        tostring(CFG.manipPeek), m.adaptivePeek or 0, tostring(m.adaptiveCap),
+        tostring(m.peek or "none")))
 end)
 addButton(dbgSec, "Print Current Target", function()
     local t = SA.Target

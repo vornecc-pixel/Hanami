@@ -163,14 +163,20 @@ local CFG = _G.__saCFG or {
     fovCenterMode   = "Mouse",     -- "Mouse" / "Screen Center"
     forceGuiDrawing = true,        -- ScreenGui backend always works; native Drawing often doesn't
 
-    -- manipulation
+    -- manipulation v4 (v7.7 defaults — adaptive peek, 8 directions)
     manipulation      = false,
-    manipDist         = 30,
-    manipPeek         = 4,
-    manipMaxParts     = 3,
-    manipBudget       = 40,
+    manipDist         = 1000,   -- was 30
+    manipPeek         = 20,     -- was 4 (base peek; scales with distance)
+    manipMaxPeek      = 120,    -- NEW: ceiling for the adaptive peek
+    manipMaxParts     = 48,     -- was 20 in the extract / 3 in the old build
+    manipBudget       = 96,     -- was 48 / 40
     manipHysteresis   = 3,
-    manipMaxPeekDelta = 6,
+    manipMaxPeekDelta = 40,     -- was 20 / 6
+
+    -- silent aim v7.7 (tap-fire reorder + bow remote hook)
+    saTapReorder = true,        -- Fix A (InputBegan) + Fix B (Tool.Activated)
+    saTapWindow  = 0.35,        -- PATCH: widened from 0.2
+    saBowHook    = true,        -- hook ReplicatedStorage.Fust.Remotes.Shoot
 
     -- player esp
     espEnabled      = false,
@@ -247,8 +253,9 @@ _G.__saCFG = CFG
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
-    manipulation = false, manipDist = 30, manipPeek = 4, manipMaxParts = 3,
-    manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
+    manipulation = false, manipDist = 1000, manipPeek = 20, manipMaxPeek = 120,
+    manipMaxParts = 48, manipBudget = 96, manipHysteresis = 3, manipMaxPeekDelta = 40,
+    saTapReorder = true, saTapWindow = 0.35, saBowHook = true,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
     espVisibleCheck = true, espShowTool = true, espShowState = true,
@@ -290,6 +297,28 @@ if _G.__saFovFix ~= 2 then
     CFG.fovCenterMode = "Mouse"
     CFG.forceGuiDrawing = true
     _G.__saFovFix = 2
+end
+
+-- One-time migration: v7.7 raised the manipulation defaults a lot. Only
+-- replace values that are still one of the OLD defaults, so a profile the
+-- user tuned is never clobbered. Old values came from either the pre-v7.7
+-- build (30/4/3/40/6) or the v7.7 extract (850/20/20/48/40).
+if _G.__saManipFix ~= 2 then
+    local oldDist  = { [30] = true, [75] = true, [850] = true }
+    local oldPeek  = { [4] = true }
+    local oldParts = { [3] = true, [20] = true }
+    local oldBudg  = { [40] = true, [48] = true, [64] = true }
+    local oldDelta = { [6] = true, [20] = true }
+    if oldDist[CFG.manipDist]                 then CFG.manipDist = 1000 end
+    if oldPeek[CFG.manipPeek]                 then CFG.manipPeek = 20 end
+    if oldParts[CFG.manipMaxParts]            then CFG.manipMaxParts = 48 end
+    if oldBudg[CFG.manipBudget]               then CFG.manipBudget = 96 end
+    if oldDelta[CFG.manipMaxPeekDelta]        then CFG.manipMaxPeekDelta = 40 end
+    if CFG.manipMaxPeek == nil                then CFG.manipMaxPeek = 120 end
+    if CFG.saTapReorder == nil                then CFG.saTapReorder = true end
+    if CFG.saTapWindow == nil                 then CFG.saTapWindow = 0.35 end
+    if CFG.saBowHook == nil                   then CFG.saBowHook = true end
+    _G.__saManipFix = 2
 end
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.

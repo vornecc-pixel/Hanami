@@ -62,6 +62,12 @@ addButton(actSec, "Unload Everything", function()
     disableESP(); disableNpcESP(); disableCrateESP()
     RunService:UnbindFromRenderStep(snapName)
     RunService:UnbindFromRenderStep(restoreName)
+    -- leave no snapped camera, no held bow snap and no disabled CanQuery parts
+    SA.BowDrawing = false
+    SA.BowSnapHold = 0
+    SA.TapRestore(_G.__saTapCF, _G.__saTapCam)
+    _G.__saTapCF, _G.__saTapCam, _G.__saTapAt = nil, nil, nil
+    saManipRestore()
     pcall(function() window.set_menu_visibility(false) end)
     print("[sa] unloaded")
 end)

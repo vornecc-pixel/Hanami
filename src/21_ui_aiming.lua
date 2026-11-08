@@ -111,6 +111,14 @@ bindToggle(gunSec, "Team Check", "teamCheck")
 bindToggle(gunSec, "Target NPCs", "targetNpcs",
     "Guard / Scavenger / Soldier models are found anywhere in Workspace (not just an Npcs folder)")
 
+-- v7.7 tap-fire fixes. Fix A reorders InputBegan, Fix B reorders
+-- Tool.Activated. Both are guarded and fall back to the render-step snap.
+bindToggle(gunSec, "Tap-Fire Reorder (Fix A/B)", "saTapReorder",
+    "Snap the camera BEFORE the game's fire handlers run; needs getconnections. Falls back to the render-step snap")
+bindSlider(gunSec, "Tap Window (s)", "saTapWindow", 0.1, 1, 0.05, "s")
+bindToggle(gunSec, "Bow Shoot Hook", "saBowHook",
+    "Rewrites data.dir / data.origin on Fust.Remotes.Shoot for bows; needs hookfunction")
+
 -- ── AIMING : column 2 (Target / Ballistics / Wall Penetration) ──────
 local aimCol2 = Aiming:column()
 local targetSec, ballSec, manipSec = aimCol2:multi_section({
@@ -154,29 +162,32 @@ addButton(ballSec, "Print Live Ping", function()
         CFG.predictionPingScale or 1, CFG.predictionLatency or 0, SA.LeadLatencyMs()))
 end)
 
-bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
-    "Best all-round: ON, Wall Check OFF, Range 75, Peek 4, Parts 3, Budget 64, Hysteresis 5, Max Delta 6, FOV ~150")
-bindSlider(manipSec, "Range (studs)", "manipDist", 5, 100, 1, "")
-bindSlider(manipSec, "Max Peek Offset", "manipPeek", 0, 8, 0.5, "")
-bindSlider(manipSec, "Max CanQuery Parts", "manipMaxParts", 0, 8, 1, "")
-bindSlider(manipSec, "Ray Budget / Frame", "manipBudget", 8, 128, 1, "")
+bindToggle(manipSec, "Enabled (FOV-aware, v4)", "manipulation",
+    "8 peek directions + adaptive peek + target-aware ray filter. Best with Wall Check OFF and FOV ~150")
+bindSlider(manipSec, "Range (studs)", "manipDist", 5, 1500, 5, "")
+bindSlider(manipSec, "Base Peek Offset", "manipPeek", 0, 60, 1, "")
+bindSlider(manipSec, "Adaptive Peek Cap", "manipMaxPeek", 20, 300, 5, "")
+bindSlider(manipSec, "Max CanQuery Parts", "manipMaxParts", 0, 96, 1, "")
+bindSlider(manipSec, "Ray Budget / Frame", "manipBudget", 8, 256, 1, "")
 bindSlider(manipSec, "Cache Hysteresis (frames)", "manipHysteresis", 0, 12, 1, "")
-bindSlider(manipSec, "Max Peek Delta", "manipMaxPeekDelta", 2, 12, 1, "")
+bindSlider(manipSec, "Max Peek Delta", "manipMaxPeekDelta", 2, 120, 1, "")
 
-manipSec:label({ name = "Recommended: 75 / 4 / 3 / 64 / 5 / 6" })
-manipSec:label({ name = "Range | Peek | Parts | Budget | Hyst | Delta" })
+manipSec:label({ name = "v7.7 defaults: 1000 / 20 / 120 / 48 / 96 / 3 / 40" })
+manipSec:label({ name = "Range | Peek | Cap | Parts | Budget | Hyst | Delta" })
+manipSec:label({ name = "Adaptive peek = base + 6% of distance, capped" })
 manipSec:label({ name = "Tighter FOV (~150px) = fewer peeks per frame" })
 addButton(manipSec, "Apply Recommended Wall Pen", function()
     setFlag("manipulation", true)
     setFlag("wallCheck", false)
-    setFlag("manipDist", 75)
-    setFlag("manipPeek", 4)
-    setFlag("manipMaxParts", 3)
-    setFlag("manipBudget", 64)
-    setFlag("manipHysteresis", 5)
-    setFlag("manipMaxPeekDelta", 6)
+    setFlag("manipDist", 1000)
+    setFlag("manipPeek", 20)
+    setFlag("manipMaxPeek", 120)
+    setFlag("manipMaxParts", 48)
+    setFlag("manipBudget", 96)
+    setFlag("manipHysteresis", 3)
+    setFlag("manipMaxPeekDelta", 40)
     setFlag("fov", 150)
     setFlag("hitChance", 100)
     setFlag("gunCooldown", 0)
-    print("[sa] recommended wall pen applied")
+    print("[sa] v7.7 recommended wall pen applied")
 end)

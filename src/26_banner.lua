@@ -13,6 +13,11 @@ print("════════════════════════�
 print("@abusegpt — Silent Aim + Wall Pen + ESP + Crates + Gun Mods")
 print(string.format("  snap @ %d | restore @ %d", snapPrio, restorePrio))
 print("  binds :", snapName, "/", restoreName)
+local saInfo = SA.SilentAimState()
+print(string.format("  aim   : v7.7 camera snap | tap fix A %s (%d conns) | fix B %d tools | bow hook %s",
+    saInfo.reorder and "ON" or "OFF", saInfo.reorderedConnections,
+    saInfo.hookedTools, saInfo.bowRemoteHooked and "ON" or "OFF"))
+print("  manip : v4 — 8 peek dirs, adaptive peek, target-aware filter")
 print("  aim   :", CFG.masterEnabled and "on" or "off")
 print("  manip :", CFG.manipulation and "on" or "off")
 print("  esp   :", CFG.espEnabled and "on" or "off")

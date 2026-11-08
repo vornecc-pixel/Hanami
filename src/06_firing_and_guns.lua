@@ -1,11 +1,15 @@
 -- ==================================================================
--- Hanami / 06_firing_and_guns.lua — Firing state + snap cooldown
+-- Hanami / 06_firing_and_guns.lua — Firing state (v7.7) + snap cooldown
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk;
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
 
 -- ────────────────────────────────────────────────────────────────────
 -- FIRING STATE
+-- PATCH v7.7: release also stamps `last`, so a quick tap is still inside
+-- the widened 0.35 s window after MouseButton1 goes up. The old build
+-- only stamped `last` on press, which made the tap window useless for
+-- the very fast click that tap-fire reorder is designed to catch.
 -- ────────────────────────────────────────────────────────────────────
 
 local firing = _G.__saFiringState or { held = false, last = 0 }
@@ -20,31 +24,42 @@ if not _G.__saInputBound then
     end)
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            firing.held = false
+            firing.held = false; firing.last = tick()
         end
     end)
 end
 
+-- Shared with the bow remote hook (09_silent_aim.lua). Drawing a bow is
+-- "firing" for the whole draw, and the camera snap is held for a few
+-- frames after release so the released arrow still goes to the target.
+SA.BowDrawing = false
+SA.BowDrawingAt = 0
+SA.BowSnapHold = 0
+
 local function isFiring()
     if not CFG.gunShotOnly then return true end
     if firing.held then return true end
-    return (tick() - firing.last) < 0.2
+    if SA.BowDrawing then
+        if tick() - (SA.BowDrawingAt or 0) < 5 then return true end
+        SA.BowDrawing = false   -- stale draw packet; do not pin the snap
+    end
+    if (SA.BowSnapHold or 0) > 0 then return true end
+    return (tick() - firing.last) < (CFG.saTapWindow or 0.35)
 end
 
 -- ────────────────────────────────────────────────────────────────────
 -- GUN HELPERS
--- Gun id/spec resolution lives in 07_gun_specs.lua (SA.GetEquippedGun).
--- The old getGunSpeed() + hardcoded GUN_SPEEDS lookup was removed.
+-- Exact id/spec resolution lives in 07_gun_specs.lua (SA.GetEquippedGun).
+-- The old getGunSpeed() + hardcoded GUN_SPEEDS lookup is gone.
 -- ────────────────────────────────────────────────────────────────────
 
 local gunCooldownAt = {}
 local function gunCanSnap()
-    if CFG.gunCooldown <= 0 then return true end
-    local id = SA.GetEquippedGun().id
-    if not id then return true end
+    if (CFG.gunCooldown or 0) <= 0 then return true end
+    local ok, id = pcall(function() return SA.GetEquippedGun().id end)
+    if not ok or not id then return true end
     local now = tick()
     if (gunCooldownAt[id] or 0) + CFG.gunCooldown > now then return false end
     gunCooldownAt[id] = now
     return true
 end
-

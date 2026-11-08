@@ -22,6 +22,8 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, bow Shoot remote hook, and one shared shot resolver keeps the FOV circle as the reference point. |
+| **Manipulation v4 (patched)** | Aiming → Wall Penetration | 8 peek directions (cardinals + diagonals), peek distance scales with range, target model included in the ray filter, and much higher caps (48 parts / 96 rays). See the same section. |
 | **Actually compiles in the executor** | loader | See [Luau 200-local-register fix](#7-the-luau-200-local-register-compile-error). The old join hit `Out of local registers ... exceeded limit 200` at `playerSec` and never ran. The loader now hoists column-1 `local`s into the chunk environment, so the main chunk needs zero local registers. |
 | **FOV circle fixed + made the aim reference** | Visual → FOV Circle / Snapline | See [FOV fixes](#fov-fixes--one-reference-point). Now defaults ON, draws through a reliable ScreenGui backend, and its centre + radius are the single reference used by silent aim, snapline, tracers and arrows. |
 | **Crate opened / unopened labels fixed** | ESP → Crate ESP | See [Crate state fixes](#crate-state-fixes). The inverted labels came from a Y-rotation destructuring bug plus false-positive state guesses. Added strict state parsing, `Invert Crate State` and a state debug print. |
@@ -106,6 +108,47 @@ Line 3904 is `local playerSec, npcSec = ...` in `src/22_ui_esp.lua`. Luau allows
 **Fix (in `loader.lua`, so the one-line loader stays unchanged):** before compiling, `hoist()` rewrites every column-1 `local X = ...` into `X = ...` — a name in the chunk environment instead of a register. Indented `local`s inside functions are untouched, so each function keeps its own upvalues. With `setfenv` available the shared names live in an isolated table; otherwise they fall back to normal globals. Everything the parts share (`CFG`, `SA`, `ESP_COLORS`, gun specs, helpers, UI handles) still resolves exactly as before.
 
 Measured on the fixed build: **0** top-level locals, **~21** loop registers in the main chunk, and a worst-case **55** locals in any single function — all far below 200. `python3 tools/verify.py` now checks that budget explicitly, and `build.sh` uses `tools/hoist.py` to produce the same Luau-safe source for the optional `dist/Hanami.lua`.
+
+## Silent aim v7.7 & manipulation v4
+
+`src/05_manipulation.lua`, `src/06_firing_and_guns.lua` and `src/09_silent_aim.lua` were **rewritten** with the v7.7 camera-snap implementation. The old code is gone: the render-step binds now only cover held-fire snapping and restoration, while taps are handled before the game's fire handlers run.
+
+### Why tap-fire needed fixing
+
+The old build only changed `camera.CFrame` inside a `BindToRenderStep` callback. Games that fire their `Shoot` remote **synchronously from `InputBegan` or `Tool.Activated`** had already sent the shot with the unsnapped camera by the time the render step ran, so single taps missed while holding fire worked. v7.7 adds two reorders:
+
+* **Fix A — `InputBegan` reorder.** Read every existing connection's `Function`, disconnect them, install a snap-first connection, then reattach the originals. The camera is therefore snapped when the game's fire handler runs, and a double `task.defer` restores it after nested `task.spawn(fire)` paths finish. Hanami improves on the extract here: if *any* connection's function cannot be read, it aborts **without disconnecting anything** (the extract disconnected first and could leave the game with no input handlers).
+* **Fix B — `Tool.Activated` reorder.** Same idea, per equipped tool, for games that fire from the tool's Activated signal. Tools are marked with `__saTapHooked` so re-executing never double-hooks.
+* **Tap window 0.2 → 0.35 s**, and `InputEnded` now also stamps `last`, so a fast press+release is still inside the window.
+* **Idempotent tap snap.** Some games dispatch from both signals; only the first snap in an input event is allowed, otherwise the second would capture the already-snapped CFrame as "real" and leave the camera stuck on the target. A 1 s TTL clears stale state if a restore ever fails.
+
+All hooks are installed **once** and dispatch through `SA.TapSnap()` / `SA.TapRestore()` / `SA.BowShot()` / `SA.InstallTapReorder()` / `SA.InstallBowHook()`, so re-executing the loader never leaves stale closures or stacks hooks. `Visual → Debug → Retry Tap / Bow Hooks` retries if `getconnections` / `hookfunction` was unavailable at load, and **Print Silent Aim (v7.7)** reports the status.
+
+### Bow support
+
+`07_gun_specs.lua` gained the three bow ids from the extract (`hunting_bow` 350, `crossbow` 500, `compound_bow` 400 studs/s), with live `Workspace.Gravity` for arrow drop. `Fust.Remotes.Shoot` is hooked once to rewrite `data.dir` / `data.origin` from the resolved shot; `data.draw` packets track the draw state so the snap is held while drawing and for 5 frames after release. **The bow path now passes the target model to manipulation** (the extract passed `nil`, so the target's own body could be counted as cover).
+
+### What was deliberately kept
+
+The extract is a *debug extract* — its `flags["sa_lock"]` is empty, `bowCombatState` / `bowConstants` are nil stubs, and its prediction is a one-step `distance / speed` guess with a 25-entry `saBulletSpeeds` table. Porting those verbatim would have regressed features built earlier:
+
+* **Prediction** stays `SA.Predict()` — exact quadratic intercept with per-gun `speed`, bullet drop, alt ammo, `life`/range bounds and live ping (`08_prediction.lua`).
+* **Gun data** stays the exact `u3492` / `u3338` definitions (`07_gun_specs.lua`), not the extract's speed table.
+* **FOV is still the one reference point**: `SA.AimPoint()` + `SA.FovRadius()` drive target picking, the circle, snapline, tracers and arrows. The extract measured from `GetMouseLocation()` directly and created its own `Drawing` circle — that duplicate was not ported.
+* The master switch is `CFG.masterEnabled` + `CFG.gunEnabled` + `SA.Alive` (not `flags["sa_lock"]`), so **Unload Everything** actually stops the tap and bow hooks too.
+
+### New controls
+
+| Control | Where | Default |
+|---|---|---|
+| Tap-Fire Reorder (Fix A/B) | Aiming → Gun | ON |
+| Tap Window (s) | Aiming → Gun | 0.35 |
+| Bow Shoot Hook | Aiming → Gun | ON |
+| Base Peek Offset / Adaptive Peek Cap | Aiming → Wall Penetration | 20 / 120 |
+| Range / Parts / Budget / Hysteresis / Max Delta | Aiming → Wall Penetration | 1000 / 48 / 96 / 3 / 40 |
+| Print Silent Aim (v7.7), Retry Tap / Bow Hooks, Print Manip State (v4) | Visual → Debug | — |
+
+A one-time migration in `01_config.lua` raises saved profiles that still used the old defaults; custom values are left alone.
 
 ## FOV fixes & one reference point
 
@@ -212,7 +255,7 @@ if vel.Magnitude > 0.5 then targetPos = targetPos + vel * travel end
 
 `GUN_SPEEDS`, `GUN_DEFAULT_SPEED`, `getGunSpeed()`, `getEquippedGunId()` and the single-frame `velCache` are **gone**. In their place:
 
-* `src/07_gun_specs.lua` — exact game definitions for all 19 guns, ammo damage, alt-ammo modifiers, falloff profiles, `GUN_RANGE`, `gravity`/`life`, and the `u3492.GunDamage` formula.
+* `src/07_gun_specs.lua` — exact game definitions for all 19 guns, ammo damage, alt-ammo modifiers, falloff profiles, `GUN_RANGE`, `gravity`/`life`, and the `u3492.GunDamage` formula. Also the 3 v7.7 bow ids (`hunting_bow` 350, `crossbow` 500, `compound_bow` 400 studs/s) with live `Workspace.Gravity` and `SA.IsEquippedBow()`.
 * `src/08_prediction.lua` — smoothed target velocity, live ping, an exact intercept solver and the debug helpers.
 
 ### Gun data
@@ -287,7 +330,7 @@ Alt ammo modifiers applied by the resolver:
 | Muzzle Boost Equipped | OFF | Apply +15% rate / −10% damage |
 | Show Lead Marker | ON | Gold ring at the predicted aim point (Visual tab, with colourpicker) |
 
-Debug buttons (Visual → Debug): **Print Gun Spec**, **Print Prediction** (now also prints measured ping / scale / offset / total), **Print Live Ping** (Aiming → Ballistics), **Print Draw Backend**, **Sync Gun Defs (GC)** and **Print Current Target**.
+Debug buttons (Visual → Debug): **Print Silent Aim (v7.7)**, **Retry Tap / Bow Hooks**, **Print Manip State (v4)**, **Print Gun Spec**, **Print Prediction** (now also prints measured ping / scale / offset / total), **Print Live Ping** (Aiming → Ballistics), **Print Draw Backend**, **Sync Gun Defs (GC)** and **Print Current Target**.
 
 ### Live game hooks
 
@@ -295,23 +338,25 @@ Debug buttons (Visual → Debug): **Print Gun Spec**, **Print Prediction** (now 
 * The equipped tool is resolved via `ItemId` / `WeaponId` / `ToolId` / `Item` / `Weapon` / `Gun` attributes or the tool name, normalised against the `model` names (`SemiAutoPistol`, `LRSniper`, `ScarRifle`, …) and display names. Unknown tools fall back to 1000 studs/s / 550 range and are flagged `[UNKNOWN]`.
 * `SA.Saturday2 = fn` and `SA.S2Damage = function(id, spec) ... end` can be assigned at runtime if the game exposes them; `GunDamage` then uses the `s2Damage` branch automatically. Otherwise it uses `Defs[ammo].damage × damageMult`.
 * `SA.Predict` assumes the game applies `gravity` as constant downward acceleration on the projectile. If a given gun has no visible drop in-game, turn **Bullet Drop Compensation** off.
+* `Fust.Remotes.Shoot` is hooked once (opt-in via **Bow Shoot Hook**) so the bow's `data.dir` / `data.origin` come from `SA.ResolveShot()`. It also tracks the bow draw state from `data.draw` packets. The hook is `pcall`-guarded and simply never installs if `hookfunction` / the remote is unavailable; guns are unaffected.
 
 ## Best settings for wall penetration
 
-Wall penetration = the **FOV-aware wall peek** (`Aiming → Wall Penetration`). It temporarily disables `CanQuery` on the wall parts in front of you for the hit-scan, then restores them immediately after the shot. It is FOV-gated, so it only spends raycasts on targets that are actually inside your aim cone.
+Wall penetration = the **FOV-aware wall peek** (`Aiming → Wall Penetration`, now **Manipulation v4**). It temporarily disables `CanQuery` on the wall parts in front of you for the hit-scan, then restores them in the same frame's restore bind. It is FOV-gated, so it only spends raycasts on targets that are actually inside your aim cone. v4 adds 8 peek directions, a target-aware ray filter, and an adaptive peek that grows with distance.
 
-**Recommended all-round setup** (press **Apply Recommended Wall Pen** to set all of it at once):
+**Recommended all-round setup** (press **Apply Recommended Wall Pen** to set all of it at once) — these are the v7.7 defaults:
 
 | Setting | Value | Why |
 |---|---|---|
-| Enabled (FOV-aware) | **ON** | Turns on the peek/disable-restore cycle. |
+| Enabled (FOV-aware, v4) | **ON** | Turns on the peek/disable-restore cycle. |
 | Wall Check | **OFF** | Strict LOS-only mode. It is bypassed automatically while Manipulation is ON anyway — with it ON *and* penetration OFF, shots behind any wall are aborted. |
-| Range | **75 studs** | Covers most fights. Pushing to 100 searches a lot more geometry for little gain. |
-| Max Peek Offset | **4** | Enough side clearance for thin walls / door frames without teleporting the ray origin far off your crosshair. |
-| Max CanQuery Parts | **3** | Handles a wall + a prop + a fence. Higher values make the restore pass heavier and are more noticeable. |
-| Ray Budget / Frame | **64** | Good balance between finding a clear peek and staying smooth. Use **32** on low-end devices / big servers. |
-| Cache Hysteresis | **5 frames** | Keeps the same peek active instead of re-scanning every frame when you strafe. |
-| Max Peek Delta | **6** | Caps how far a cached peek may drift before it is recomputed. |
+| Range | **1000 studs** | Raised from 75; adaptive peek now handles long shots. The distance check is a hard gate, not a search radius. |
+| Base Peek Offset | **20** | Starting side clearance. The actual peek is `clamp(20 + 6% of distance, 20, cap)`. |
+| Adaptive Peek Cap | **120** | Hard ceiling so the ray origin never drifts arbitrarily far from the crosshair. |
+| Max CanQuery Parts | **48** | Raised from 3 so layered cover (wall + props + fences) can be cleared. Entries are reused, so the restore pass stays cheap. |
+| Ray Budget / Frame | **96** | Raised from 64 to match the 8 peek directions (each costs up to 7 rays). Drop to **48** on low-end devices. |
+| Cache Hysteresis | **3 frames** | Keeps the same peek active instead of re-scanning every frame when you strafe. |
+| Max Peek Delta | **40** | Now compared against `max(40, adaptivePeek)`, so a legitimate long-distance peek is never rejected by a tiny delta cap. |
 | Aim / Circle Radius (FOV) | **~150 px** | A narrower cone means fewer candidate peeks per frame — the single biggest CPU saving. Also moves the off-screen arrows. |
 | Hit Chance | **100 %** | No random skipped shots while you're testing penetration. |
 | Cooldown | **0 s** | Fire as fast as the weapon allows. |
@@ -321,7 +366,7 @@ Wall penetration = the **FOV-aware wall peek** (`Aiming → Wall Penetration`). 
 Two useful variants:
 
 * **Strict / legit** — Manipulation `OFF`, Wall Check `ON`, FOV `~120`, Hit Chance `60–80`. Only shoots what you can genuinely see.
-* **Heavy cover / static targets** — keep the recommended values but raise `Max CanQuery Parts` to `5` and `Ray Budget` to `96`; keep FOV at `150` so the extra rays stay bounded.
+* **Heavy cover / static targets** — keep the recommended values but raise `Max CanQuery Parts` to `64` and `Ray Budget` to `128`; keep FOV at `150` so the extra rays stay bounded. If you want the old light-touch behaviour, use `Range 75 / Peek 4 / Parts 3 / Budget 64 / Hyst 5 / Delta 6` — the sliders still cover those values.
 
 The snapline and the red ESP colour are your penetration indicator: **green = you already have line of sight, no penetration needed; red = a wall is in the way**.
 
@@ -330,7 +375,7 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 `src/21_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 22–26 build the tabs.
 
 ```
-Aiming   → Silent Aim / Gun · Target / Ballistics / Wall Penetration
+Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window, Bow Shoot Hook) · Target / Ballistics / Wall Penetration (v4)
 ESP      → Player ESP / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
 Gun Mods → Gun Mods · State Overrides
 Visual   → FOV Circle / Snapline · Debug
@@ -371,17 +416,17 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill, `SA` state, `bindRender`, **48-colour palette** | 297 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap keys**), `SA` state, `bindRender`, **48-colour palette** | 326 |
 | `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, no-op fallback, draw diagnostics | 306 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
 | `src/03_entity_scan.lua` | NPC registry handler + LOS visibility cache | 90 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
-| `src/05_manipulation.lua` | wall peek + `CanQuery` manipulation | 148 |
-| `src/06_firing_and_guns.lua` | firing state + snap cooldown | 50 |
-| `src/07_gun_specs.lua` | exact gun DB: speeds, ammo, damage, alt ammo, falloff, ranges | 208 |
+| `src/05_manipulation.lua` | **Manipulation v4**: shared RaycastParams, 8-direction peek, adaptive peek, target-aware filter, reused CanQuery entries | 215 |
+| `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp, bow draw state) + snap cooldown | 65 |
+| `src/07_gun_specs.lua` | exact gun DB: speeds, ammo, damage, alt ammo, falloff, ranges + **3 bow ids / SA.IsEquippedBow** | 268 |
 | `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, latency, debug | 221 |
-| `src/09_silent_aim.lua` | camera sandwich RenderStep binds using `SA.Predict` | 75 |
+| `src/09_silent_aim.lua` | **Silent Aim v7.7**: Fix A/B connection reorder, idempotent tap snap, bow remote hook, shared `SA.ResolveShot`, render-step camera binds | 432 |
 | `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
 | `src/12_esp_players.lua` | player ESP objects, box, health bar, info label | 95 |
@@ -396,12 +441,12 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` for players / NPCs / crates | 128 |
 | `src/19_render_loop.lua` | master render loop: ESP refresh + build caps + FX pass | 56 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods | 89 |
-| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / Wall Pen) | 182 |
+| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls**) | 193 |
 | `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** | 209 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab | 22 |
-| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **FOV state debug**) | 84 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init | 78 |
-| `src/26_banner.lua` | startup banner, `return CFG` | 36 |
+| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **v7.7 silent-aim / manip debug**) | 100 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload** | 84 |
+| `src/26_banner.lua` | startup banner (**v7.7 status**), `return CFG` | 41 |
 
 ## Editing
 
