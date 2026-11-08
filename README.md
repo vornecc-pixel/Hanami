@@ -22,6 +22,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
 | **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, bow Shoot remote hook, and one shared shot resolver keeps the FOV circle as the reference point. |
 | **Manipulation v4 (patched)** | Aiming → Wall Penetration | 8 peek directions (cardinals + diagonals), peek distance scales with range, target model included in the ray filter, and much higher caps (48 parts / 96 rays). See the same section. |
 | **Actually compiles in the executor** | loader | See [Luau 200-local-register fix](#7-the-luau-200-local-register-compile-error). The old join hit `Out of local registers ... exceeded limit 200` at `playerSec` and never ran. The loader now hoists column-1 `local`s into the chunk environment, so the main chunk needs zero local registers. |
@@ -108,6 +109,29 @@ Line 3904 is `local playerSec, npcSec = ...` in `src/22_ui_esp.lua`. Luau allows
 **Fix (in `loader.lua`, so the one-line loader stays unchanged):** before compiling, `hoist()` rewrites every column-1 `local X = ...` into `X = ...` — a name in the chunk environment instead of a register. Indented `local`s inside functions are untouched, so each function keeps its own upvalues. With `setfenv` available the shared names live in an isolated table; otherwise they fall back to normal globals. Everything the parts share (`CFG`, `SA`, `ESP_COLORS`, gun specs, helpers, UI handles) still resolves exactly as before.
 
 Measured on the fixed build: **0** top-level locals, **~21** loop registers in the main chunk, and a worst-case **55** locals in any single function — all far below 200. `python3 tools/verify.py` now checks that budget explicitly, and `build.sh` uses `tools/hoist.py` to produce the same Luau-safe source for the optional `dist/Hanami.lua`.
+
+## Player ESP reliability fix
+
+Symptom: turning Player ESP on drew boxes for *some* players while others stayed invisible, permanently — typically the same names every round.
+
+There wasn't one bug, there were five, and they compounded:
+
+| # | Cause | Fix |
+|---|---|---|
+| 1 | **Build-queue starvation.** `19_render_loop.lua` allowed 2 new objects per frame, started at `GetPlayers()[1]` every frame, and incremented the counter even when `buildESP()` bailed out (no character, dead, parts still streaming in). Two unbuildable players at the front consumed both slots forever; nobody after them was ever created. | `buildBatch()` counts **only successful builds**, skips failed attempts within the same frame, and **rotates the start index** each frame. Attempts are capped at 10 so a long run of failures can't stall the frame either. |
+| 2 | **Respawns never rebuilt.** `CharacterAdded` was connected *only inside* `PlayerAdded`, so anyone already in the server at injection had no handler. Their `BillboardGui` / `Highlight` stayed parented to the removed character, while `espObjects[plr]` remained truthy — so `buildESP()` was never called again. | All existing players are hooked at load, connections are reused (not stacked) across re-executes, and each object records the character it was built for. A swap detected by `13` or `19` clears the object so the render loop rebuilds it. No fixed `task.wait` delay — the queue retries until the new rig is ready. |
+| 3 | **One bad player aborted everything.** `refreshESP()` and `SA.ApplyEspFx()` were single unguarded `pairs()` loops. A failed raycast, destroyed `Head`, or a `Drawing` property write that throws on this executor stopped the loop, so every remaining player silently kept the previous frame. | Every player is refreshed/styled inside its own `pcall`; each of the four render passes is `pcall`-guarded separately. `SA.IsVisible()` also handles degenerate zero-length rays and wraps the raycast. Errors are throttled to one console line per 5 s. |
+| 4 | **Rigid rig requirements.** `buildESP()` demanded `Head` + `HumanoidRootPart` + `Humanoid` by exact name and rejected `hum.Health <= 0`. R6/R15 differences, streamed characters and custom rigs were dropped at build time. | `SA.PlayerRig()` falls back through `RootPart`, `UpperTorso`, `Torso`, `PrimaryPart` and any `BasePart`, with `HeadPart` / root as the head anchor. Dead players are built then **hidden** by the refresh instead of churning the queue. |
+| 5 | **Ghosts from a previous execution.** `espObjects` was a fresh table on every run, so old `BillboardGui`s and drawing lines were never removed; their old render loop disconnects, leaving frozen boxes that look like "working" players. | `espObjects` persists through `_G` and is purged on load, including `o.fx` drawings and `Highlight`s. |
+
+A simulation of the old queue with 8 players (2 permanently unbuildable at the front) built **0 of 6** valid players after 30 frames; the new queue builds **6 of 6 within 3 frames**.
+
+**Diagnostics** (ESP → Player ESP):
+
+* **Print Player ESP State** — one console line per player with the exact reason (`NO CHARACTER`, `NO ROOT PART`, `DEAD`, `NOT BUILT (waiting for build slot)`, `STALE (character changed)`, `STALE GUI (destroyed)` or `BUILT`), plus built/total count and the active draw backend.
+* **Rebuild Player ESP** — clears every object so the render loop rebuilds them all; handy after a big server change or a config toggle.
+
+The rotating, success-only queue is shared with the NPC and crate passes, so they benefit from fix #1 too. All other behaviour (visibility colours, 48 colourpickers, FOV reference point, one text-size slider) is unchanged.
 
 ## Silent aim v7.7 & manipulation v4
 
@@ -376,7 +400,7 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 
 ```
 Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window, Bow Shoot Hook) · Target / Ballistics / Wall Penetration (v4)
-ESP      → Player ESP / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
+ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP) / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
 Gun Mods → Gun Mods · State Overrides
 Visual   → FOV Circle / Snapline · Debug
 Misc     → Info · Quick Actions
@@ -420,7 +444,7 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, no-op fallback, draw diagnostics | 306 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
-| `src/03_entity_scan.lua` | NPC registry handler + LOS visibility cache | 90 |
+| `src/03_entity_scan.lua` | NPC registry handler + **guarded** LOS visibility cache | 97 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
 | `src/05_manipulation.lua` | **Manipulation v4**: shared RaycastParams, 8-direction peek, adaptive peek, target-aware filter, reused CanQuery entries | 215 |
 | `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp, bow draw state) + snap cooldown | 65 |
@@ -429,8 +453,8 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/09_silent_aim.lua` | **Silent Aim v7.7**: Fix A/B connection reorder, idempotent tap snap, bow remote hook, shared `SA.ResolveShot`, render-step camera binds | 432 |
 | `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
-| `src/12_esp_players.lua` | player ESP objects, box, health bar, info label | 95 |
-| `src/13_esp_players_refresh.lua` | player ESP refresh (visibility + scanner + HP) + enable/disable | 108 |
+| `src/12_esp_players.lua` | **Player ESP v2**: tolerant `SA.PlayerRig`, re-execute purge, char tracking, half-build cleanup, diagnostics | 213 |
+| `src/13_esp_players_refresh.lua` | **per-player pcall refresh**, respawn/character-change detection, lifecycle hooks for ALL players | 177 |
 | `src/14_esp_npcs.lua` | NPC ESP objects + enable/disable + events | 110 |
 | `src/15_esp_npcs_refresh.lua` | NPC ESP refresh (visibility + scanner + HP) | 88 |
 | `src/16_esp_crates.lua` | crate classification, **strict opened-state resolver**, anchors, GUI objects | 353 |
@@ -438,11 +462,11 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, highlight gate) + enable/disable + events | 83 |
 | `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry | 128 |
 | `src/18_esp_fx_draw.lua` | **unified styling**: text size, boxes, chams, skeleton, tracers, FOV arrows, fade | 241 |
-| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` for players / NPCs / crates | 128 |
-| `src/19_render_loop.lua` | master render loop: ESP refresh + build caps + FX pass | 56 |
+| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with **per-player error isolation** | 141 |
+| `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods | 89 |
 | `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls**) | 193 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** | 209 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** / **player ESP diagnostics** | 218 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab | 22 |
 | `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **v7.7 silent-aim / manip debug**) | 100 |
 | `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload** | 84 |

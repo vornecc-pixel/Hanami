@@ -77,14 +77,21 @@ function SA.IsVisible(model, pos)
     if e and (now - e.t) < VIS_TTL then return e.vis end
     local cam = ws.CurrentCamera
     if not cam then return true end
-    local filter = {}
-    if lp.Character then table.insert(filter, lp.Character) end
-    table.insert(filter, model)
-    visParams.FilterDescendantsInstances = filter
-    local origin = cam.CFrame.Position
-    local dir = pos - origin
-    local hit = ws:Raycast(origin, dir, visParams)
-    local vis = (hit == nil) or (hit.Distance >= dir.Magnitude - 0.5)
+    -- A single LOS failure must not abort the whole ESP refresh loop.
+    -- Zero-length rays are degenerate; treat them as "visible".
+    local ok, vis = pcall(function()
+        local filter = {}
+        if lp.Character then table.insert(filter, lp.Character) end
+        table.insert(filter, model)
+        visParams.FilterDescendantsInstances = filter
+        local origin = cam.CFrame.Position
+        local dir = pos - origin
+        local mag = dir.Magnitude
+        if mag < 0.001 then return true end
+        local hit = ws:Raycast(origin, dir, visParams)
+        return (hit == nil) or (hit.Distance >= mag - 0.5)
+    end)
+    if not ok then return true end
     visCache[model] = { t = now, vis = vis }
     return vis
 end

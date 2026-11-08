@@ -6,11 +6,51 @@
 
 -- ────────────────────────────────────────────────────────────────────
 -- Frame entry point (called by 19_render_loop.lua after all refreshes)
+--
+-- Every player is styled inside its own pcall now. Previously one bad
+-- character (a destroyed Head, a failed Raycast, a Drawing write that
+-- throws on this executor) aborted the entire FX pass, so all remaining
+-- players in pairs(espObjects) silently kept last frame's drawings.
 -- ────────────────────────────────────────────────────────────────────
+
+local function safeDrawEntity(cam, o, opt)
+    if not pcall(drawEntity, cam, o, opt) then pcall(hideFx, o) end
+end
+
+local function drawPlayerFx(plr, o, cam, myPos, targetModel, origin, fovC, fovR, seed)
+    local char = plr.Character
+    local hrp, head, hum = SA.PlayerRig(char)
+    if not (char and hum and hrp and head) then hideFx(o); return end
+    local dist = (myPos - hrp.Position).Magnitude
+    local vis = CFG.espVisibleCheck and SA.IsVisible(char, hrp.Position)
+    local base = CFG.espVisibleCheck
+        and (vis and espC("playerVisible") or espC("playerHidden"))
+        or espC("playerFlat")
+    local dot = CFG.espVisibleCheck
+        and (vis and espC("playerVisible") or espC("playerHidden"))
+        or espC("playerVisDot")
+    local raw, ok = cam:WorldToViewportPoint(hrp.Position)
+    local hv = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+    local lv = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
+    local h, w = math.abs(hv.Y - lv.Y), 0
+    w = h / 2
+    safeDrawEntity(cam, o, {
+        enabled = dist <= CFG.espMaxDist, pal = "player",
+        base = base, visColor = dot, seed = seed,
+        checkVisible = CFG.espVisibleCheck,
+        dist = dist, maxDist = CFG.espMaxDist, model = char,
+        target = (targetModel == char), origin = origin, opened = false,
+        fovCenter = fovC, fovRadius = fovR,
+        ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1),
+        geom = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
+                 raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
+    })
+end
+
 function SA.ApplyEspFx(cam)
     if not cam then return end
     local origin = tracerOrigin(cam)
-    local myRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    local myRoot = SA.PlayerRig(lp.Character)
     local myPos = myRoot and myRoot.Position or cam.CFrame.Position
     local targetModel = SA.Target and SA.Target.model or nil
     local seed = 0
@@ -22,36 +62,9 @@ function SA.ApplyEspFx(cam)
     if CFG.espEnabled then
         for plr, o in pairs(espObjects) do
             seed = seed + 0.137
-            local char = plr.Character
-            local hum  = char and char:FindFirstChildOfClass("Humanoid")
-            local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-            local head = char and char:FindFirstChild("Head")
-            if not (char and hum and hrp and head) then hideFx(o)
-            else
-                local dist = (myPos - hrp.Position).Magnitude
-                local vis = CFG.espVisibleCheck and SA.IsVisible(char, hrp.Position)
-                local base = CFG.espVisibleCheck
-                    and (vis and espC("playerVisible") or espC("playerHidden"))
-                    or espC("playerFlat")
-                local dot = CFG.espVisibleCheck
-                    and (vis and espC("playerVisible") or espC("playerHidden"))
-                    or espC("playerVisDot")
-                local raw, ok = cam:WorldToViewportPoint(hrp.Position)
-                local hv = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-                local lv = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-                local h, w = math.abs(hv.Y - lv.Y), 0
-                w = h / 2
-                drawEntity(cam, o, {
-                    enabled = dist <= CFG.espMaxDist, pal = "player",
-                    base = base, visColor = dot, seed = seed,
-                    checkVisible = CFG.espVisibleCheck,
-                    dist = dist, maxDist = CFG.espMaxDist, model = char,
-                    target = (targetModel == char), origin = origin, opened = false,
-                    fovCenter = fovC, fovRadius = fovR,
-                    ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1),
-                    geom = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
-                             raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
-                })
+            if not pcall(drawPlayerFx, plr, o, cam, myPos, targetModel,
+                         origin, fovC, fovR, seed) then
+                pcall(hideFx, o)
             end
         end
     else for _, o in pairs(espObjects) do hideFx(o) end end
@@ -84,7 +97,7 @@ function SA.ApplyEspFx(cam)
                 local hv = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
                 local lv = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
                 local h = math.abs(hv.Y - lv.Y); local w = h / 2
-                drawEntity(cam, o, {
+                safeDrawEntity(cam, o, {
                     enabled = dist <= CFG.npcMaxDist, pal = "npc",
                     base = base, visColor = dot, seed = seed,
                     checkVisible = CFG.npcVisibleCheck, typeColor = typeColor,
@@ -112,7 +125,7 @@ function SA.ApplyEspFx(cam)
                 local bv = cam:WorldToViewportPoint(o.pos - Vector3.new(0, 2, 0))
                 local h = math.max(math.abs(tv.Y - bv.Y), 18)
                 local w = math.max(h * 0.9, 24)
-                drawEntity(cam, o, {
+                safeDrawEntity(cam, o, {
                     enabled = true, pal = "crate", base = base, visColor = base,
                     seed = seed, dist = o.dist or 0, maxDist = CFG.crateMaxDist,
                     model = nil, target = false, origin = origin,

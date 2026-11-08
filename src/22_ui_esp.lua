@@ -26,6 +26,15 @@ bindToggle(playerSec, "Show State", "espShowState",
     "Reads Knocked / Downed / Dead / State attributes, else HumanoidStateType")
 bindSlider(playerSec, "Max Distance (studs)", "espMaxDist", 200, 5000, 10, "")
 addButton(playerSec, "Scan Players", function() SA.PrintScan("PLAYER") end)
+addButton(playerSec, "Print Player ESP State", function()
+    SA.PlayerEspDiag()
+end)
+addButton(playerSec, "Rebuild Player ESP", function()
+    local list = {}
+    for plr in pairs(espObjects) do list[#list + 1] = plr end
+    for _, plr in ipairs(list) do clearESP(plr) end
+    print("[esp] cleared " .. #list .. " objects; render loop will rebuild them")
+end)
 
 local npcEspEnabledToggle = npcSec:toggle({
     name = "Enabled", flag = "hn_npcEspEnabled",
