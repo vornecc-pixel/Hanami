@@ -35,6 +35,12 @@ addButton(playerSec, "Rebuild Player ESP", function()
     for _, plr in ipairs(list) do clearESP(plr) end
     print("[esp] cleared " .. #list .. " objects; render loop will rebuild them")
 end)
+addButton(playerSec, "Show ESP Preview Panel", function()
+    if SA.EspPreviewSet then SA.EspPreviewSet(true) end
+end)
+addButton(playerSec, "Rebuild ESP Preview", function()
+    if SA.EspPreviewRefresh then SA.EspPreviewRefresh() end
+end)
 
 local npcEspEnabledToggle = npcSec:toggle({
     name = "Enabled", flag = "hn_npcEspEnabled",

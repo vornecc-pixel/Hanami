@@ -3,7 +3,7 @@
 
 Luau allows at most 200 live local registers in ONE compiled function. The
 parts are written as one logical script with shared `local`s; naively
-concatenating 31 of them puts 225 top-level locals in the main chunk, and
+concatenating all of them puts hundreds of top-level locals in the main chunk, and
 the executor refuses to compile it:
 
     [string "Hanami"]:3904: Out of local registers when trying to

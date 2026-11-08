@@ -239,6 +239,11 @@ local CFG = _G.__saCFG or {
     espTextOutline      = true,
     npcUseTypeColors    = false,
 
+    -- ESP preview panel (Atlanta's floating "ESP Preview" window)
+    espPreview       = true,
+    espPreviewSpin   = true,
+    espPreviewSpeed  = 25,         -- degrees / second
+
     -- gun mods
     gmEnabled      = false,
     gmInstantEquip = false,
@@ -281,6 +286,7 @@ for k, v in pairs({
     espFade = false, espFadeStart = 60, espBoxThickness = 1,
     espTracerOrigin = "Bottom", espArrowFOV = true, espTextSize = 11,
     espShowHealthText = false, espTextOutline = true,
+    espPreview = true, espPreviewSpin = true, espPreviewSpeed = 25,
     npcUseTypeColors = false,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,

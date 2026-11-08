@@ -60,6 +60,7 @@ addButton(actSec, "Unload Everything", function()
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
     disableESP(); disableNpcESP(); disableCrateESP()
+    if SA.EspPreviewDispose then pcall(SA.EspPreviewDispose) end
     RunService:UnbindFromRenderStep(snapName)
     RunService:UnbindFromRenderStep(restoreName)
     -- leave no snapped camera, no held bow snap and no disabled CanQuery parts

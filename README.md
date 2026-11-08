@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **31 short files** (`src/`, largest is 353 lines) plus a short **loader**.
+The original 1,300-line script is split into **33 short files** (`src/`, largest is 432 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -22,6 +22,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Survives spawn, respawn, re-execute and unload. |
 | **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
 | **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, bow Shoot remote hook, and one shared shot resolver keeps the FOV circle as the reference point. |
 | **Manipulation v4 (patched)** | Aiming → Wall Penetration | 8 peek directions (cardinals + diagonals), peek distance scales with range, target model included in the ray filter, and much higher caps (48 parts / 96 rays). See the same section. |
@@ -104,7 +105,7 @@ The first executor run failed **before any feature started**:
 Out of local registers when trying to allocate playerSec: exceeded limit 200
 ```
 
-Line 3904 is `local playerSec, npcSec = ...` in `src/22_ui_esp.lua`. Luau allows at most **200 live local registers in one compiled function**, and joining 31 parts had put **225 column-1 `local`s** in the single main chunk. `luaparse` (Lua 5.1) does not enforce that cap, so the old `LUA PARSE OK` check missed it entirely.
+Line 3904 is `local playerSec, npcSec = ...` in `src/22_ui_esp.lua`. Luau allows at most **200 live local registers in one compiled function**, and joining the parts had put **225 column-1 `local`s** in the single main chunk. `luaparse` (Lua 5.1) does not enforce that cap, so the old `LUA PARSE OK` check missed it entirely.
 
 **Fix (in `loader.lua`, so the one-line loader stays unchanged):** before compiling, `hoist()` rewrites every column-1 `local X = ...` into `X = ...` — a name in the chunk environment instead of a register. Indented `local`s inside functions are untouched, so each function keeps its own upvalues. With `setfenv` available the shared names live in an isolated table; otherwise they fall back to normal globals. Everything the parts share (`CFG`, `SA`, `ESP_COLORS`, gun specs, helpers, UI handles) still resolves exactly as before.
 
@@ -400,10 +401,14 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 
 ```
 Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window, Bow Shoot Hook) · Target / Ballistics / Wall Penetration (v4)
-ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP) / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
+ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
 Gun Mods → Gun Mods · State Overrides
 Visual   → FOV Circle / Snapline · Debug
 Misc     → Info · Quick Actions
+
+floating "ESP Preview" panel (Atlanta window.esp_section)
+         → 3D render · Enabled / Rotate Model / Spin Speed
+         → Rebuild Character · Print Preview State
 ```
 
 * **Every widget writes straight into `CFG`** through its `callback`, and every `default` is read from `CFG`. Building the menu never resets the settings kept in `_G.__saCFG`.
@@ -413,9 +418,33 @@ Misc     → Info · Quick Actions
 * The old Shaman `RadioButton` preset is now a `Custom / Legit / Blatant` dropdown ("Custom" is the default so opening the menu doesn't apply a preset). The `Bullet Speed Override` slider (0–3000) now lives in the Ballistics section.
 * **FOV controls:** `Show FOV Circle` (ON), `FOV Centre` (Mouse / Screen Center), `Force ScreenGui Drawing` (ON), `Aim / Circle Radius`, plus `Print FOV State` / `Print Draw Backend` in Visual → Debug.
 * **Crate controls:** `Invert Crate State`, `Lid Angle Detection` (OFF), `Print Crate States (debug)` in ESP → Crate ESP.
-* Quick actions: Disable All (also clears NPC ESP + snapline), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle and stops the scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
+* Quick actions: Disable All (also clears NPC ESP + snapline), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle, disposes the ESP preview and stops the scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
+* The floating **ESP Preview** panel is populated by `src/22_esp_preview.lua` + `src/22_esp_preview_setup.lua`. **Show ESP Preview Panel** in ESP → Player ESP re-opens it if you closed it with the panel's `X` button.
 
-Two things from the Atlanta template that were intentionally **not** copied: the duplicated `vis, other` multi-section block, and `window.esp_section:esp_preview({})` (it clones your character and assumes an `Animate` script, so it errors on spawn/respawn). Everything else from the template's init block is kept: `open_tab()`, `config_list_update()`, the theme pass, and `old_config = get_config()` — each guarded with `pcall` where it touches filesystem/config APIs.
+Only one thing from the Atlanta template is intentionally **not** copied: the duplicated `vis, other` multi-section block. `window.esp_section:esp_preview({})` is also *not* called, but its feature is now implemented natively — see [ESP preview](#esp-preview). Everything else from the template's init block is kept: `open_tab()`, `config_list_update()`, the theme pass, and `old_config = get_config()` — each guarded with `pcall` where it touches filesystem/config APIs.
+
+## ESP preview
+
+Atlanta's `library:window()` always creates a second, draggable 300×325 panel called **"ESP Preview"** and exposes it as `window.esp_section`. Hanami never put anything in it, so the panel sat there empty and looked broken. The template's own `window.esp_section:esp_preview({})` cannot simply be turned on:
+
+| Problem in the built-in | Why it breaks here |
+|---|---|
+| Reads ~13 template flags | `Name_Color`, `Box_Color`, `Health_Low`, `Enabled`, `Box_Type`, `Distance_Color`, `Weapon_Color`, `Names`, `Healthbar`, `Distance`, `Weapon`, `Boxes`, `Health_High` are all `nil` — Hanami uses `hn_` flags + `CFG` + `ESP_COLORS`. It errors on the first `flags[...].Color`. |
+| Blindly clones the character | Does `lp.Character.Archivable = true`, `lp.Character:Clone()` and `character.Animate:Destroy()` with no nil checks, so it errors before the character spawns and on any rig without an `Animate` script. |
+| Assumes a standard rig | `character.Humanoid` / `SetPrimaryPartCFrame` need a `PrimaryPart`; custom R6/R15/streamed rigs have neither guaranteed. |
+| Leaks on re-execute | Parents a `Camera` to `Workspace`, spawns an infinite `task.spawn` health loop, and calls `task.wait()` from inside a `RenderStepped` connection. |
+| Static colours | Its overlay has nothing to do with Hanami's 48-colour palette, so it would not preview *your* settings. |
+
+`src/22_esp_preview.lua` (core, styling) and `src/22_esp_preview_setup.lua` (build, lifecycle, controls) replace it with a self-contained, `pcall`-guarded widget:
+
+* **3D model.** A `ViewportFrame` with its own `Camera` (parented to the viewport, never to `Workspace`). It clones your current character, strips every `Script` / `LocalScript` / `ModuleScript` / `BillboardGui` / `SurfaceGui` / `Highlight` / `ParticleEmitter` / `Sound` / `ForceField`, restores `Archivable`, sets a `PrimaryPart` fallback, and recentres it with `PivotTo` (with a `SetPrimaryPartCFrame` fallback). If there is no character yet, cloning is blocked, or the clone cannot be parented, it falls back to a synthetic R6-style dummy rig — the panel still renders instead of erroring.
+* **Respawn / re-execute / unload.** `CharacterAdded` rebuilds the model after a short delay; a load-time teardown disconnects the previous render loop, destroys the old viewport **and the old floating panel**, and the `CharacterAdded` connection is stored in `_G` so it never stacks. `Unload Everything` calls `SA.EspPreviewDispose()`. No yields happen inside `RenderStepped` — rotation is pure `dt` math and restyling is throttled to 10 Hz.
+* **Live settings.** Every overlay is restyled through the same `pick(key, base, seed)` helper used by the real ESP, so `CFG.espRainbow`, `CFG.espPerElementColors`, `CFG.espTextSize`, `CFG.espBoxThickness` and all 48 `ESP_COLORS` entries apply instantly. It previews box / corner boxes / outline, name, distance, weapon + state + `HP: NN%` info line, health bar (low→high lerp), visibility dot, skeleton, head dot, tracer and chams fill tint. `VIS` / `WALL` alternates every 2.5 s so both green and red visibility colours are visible. ViewportFrames cannot reliably render `Highlight`, so chams are shown by tinting the model's parts.
+* **Reachable.** On displays shorter than ~1080 px the template docks this panel *below* the main window, i.e. off-screen. The build clamps the panel into the viewport and docks it top-right when the template position cannot fit. If a future Atlanta revision stops exposing `window.esp_section`, the preview builds itself into a new `ESP Preview` section inside the ESP tab instead; the `embedded` flag keeps unload from hiding the main menu in that case.
+
+**Controls** — in the preview panel: `Enabled`, `Rotate Model`, `Spin Speed` (0–90 °/s), `Rebuild Character`, `Print Preview State`. In ESP → Player ESP: `Show ESP Preview Panel` (re-opens the floating window) and `Rebuild ESP Preview`. `Print Preview State` reports whether the model is a clone or the dummy rig, the part count, the panel/viewport visibility and why a fallback was used.
+
+New config keys: `espPreview` (ON), `espPreviewSpin` (ON), `espPreviewSpeed` (25), all backfilled for older saved configs and bound to Atlanta widgets.
 
 ## How the loader works
 
@@ -434,13 +463,13 @@ loader.lua  ──fetch──▶  01_config.lua
 
 `setfenv` (when the executor offers it) keeps those shared names in an isolated table so they don't pollute globals; without it the same names simply go into normal globals. Compile errors now also report **which part** the failing line came from.
 
-Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
+Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
 
 ## Files
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap keys**), `SA` state, `bindRender`, **48-colour palette** | 326 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap keys**), `SA` state, `bindRender`, **48-colour palette** | 332 |
 | `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, no-op fallback, draw diagnostics | 306 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
@@ -466,12 +495,13 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods | 89 |
 | `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls**) | 193 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** / **player ESP diagnostics** | 218 |
+| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, live `CFG`/`ESP_COLORS` styling | 376 |
+| `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, camera/render bind, respawn hook, controls, `SA.EspPreview*` API | 223 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** / **player ESP + preview diagnostics buttons** | 224 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab | 22 |
 | `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **v7.7 silent-aim / manip debug**) | 100 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload** | 84 |
-| `src/26_banner.lua` | startup banner (**v7.7 status**), `return CFG` | 41 |
-
+| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose** | 85 |
+| `src/26_banner.lua` | startup banner (**v7.7 status**), `return CFG` | 42 |
 ## Editing
 
 * Parts share one scope: a column-1 `local` in an earlier part is hoisted and visible in later ones. **Indented** `local`s stay private to their function.

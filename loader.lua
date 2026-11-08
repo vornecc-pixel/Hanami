@@ -3,11 +3,11 @@
 -- It downloads every src/*.lua part and runs them as ONE script.
 --
 -- Luau has a hard limit of 200 live local registers per compiled
--- function. Joining all 31 parts into one giant chunk used to trip it:
+-- function. Joining every part into one giant chunk used to trip it:
 --   [string "Hanami"]:3904: Out of local registers when trying to
 --   allocate playerSec: exceeded limit 200
 -- ...because every part added its own top-level `local`s to the SAME
--- main chunk (225 of them). The script never even started.
+-- main chunk (225 column-1 locals at the time). The script never started.
 --
 -- Fix: before compiling, hoist each column-1 `local X = ...` into the
 -- chunk environment (`X = ...`). Indented `local`s (inside functions)
@@ -52,6 +52,8 @@ local PARTS = {
     "19_render_loop.lua",
     "20_gun_mods.lua",
     "21_ui_aiming.lua",
+    "22_esp_preview.lua",
+    "22_esp_preview_setup.lua",
     "22_ui_esp.lua",
     "23_ui_gunmods.lua",
     "24_ui_visual.lua",

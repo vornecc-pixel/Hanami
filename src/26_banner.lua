@@ -35,6 +35,7 @@ print("  crates:", #SA.GetCrates(), "(live registry)")
 print("  espfx :", CFG.espPerElementColors and "per-element" or "visibility colours")
 print("  colors:", "ESP -> Colours tab (every element)")
 print("  ui    : Atlanta")
+print("  prevw :", CFG.espPreview and "on" or "off", "| floating ESP Preview panel")
 print("  toggle: RightShift | menu: Insert")
 print("══════════════════════════════════════════════")
 
