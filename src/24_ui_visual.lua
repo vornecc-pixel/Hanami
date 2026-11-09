@@ -94,9 +94,10 @@ addButton(dbgSec, "Print Manip State (classic)", function()
     local m = SA.ManipState()
     print(string.format("[manip] frame=%d rays left=%d/%d disabled=%d cached=%d dirs=%d",
         m.frame, m.remaining, m.budget, m.disabled, m.cached, m.directions))
-    print(string.format("[manip] range=%s peek=%s deltaCap=%s parts=%s hyst=%s peekOrigin=%s",
+    print(string.format("[manip] range=%s peek=%s deltaCap=%s parts=%s hyst=%s peekOrigin=%s npcs=%s/%s lastNpc=%s",
         tostring(m.range), tostring(m.basePeek), tostring(m.deltaCap),
-        tostring(m.parts), tostring(m.hysteresis), tostring(m.peek or "none")))
+        tostring(m.parts), tostring(m.hysteresis), tostring(m.peek or "none"),
+        tostring(m.npcsEnabled), tostring(m.npcTargets), tostring(m.lastNpc)))
 end)
 addButton(dbgSec, "Print Current Target", function()
     local t = SA.Target
@@ -544,7 +545,7 @@ end)
 if SA.DisposeManipPopup then pcall(SA.DisposeManipPopup) end
 local saManipPopup = {
     draw = nil, conn = nil, last = 0, built = false, visible = false,
-    possible = false, reason = "", text = "", target = nil,
+    possible = false, reason = "", text = "", target = nil, npc = false,
 }
 _G.__saManipPopup = saManipPopup
 
@@ -608,7 +609,9 @@ local function saManipPopupTick(force)
     info = info or {}
     local detail = reason
     if #detail > 28 then detail = string.sub(detail, 1, 28) .. "..." end
-    local text = "MANIP: " .. saManipPopupTag(possible, reason) .. " | " .. detail
+    local npcTag = info.npc == true and " NPC" or ""
+    local text = "MANIP" .. npcTag .. ": "
+        .. saManipPopupTag(possible, reason) .. " | " .. detail
     local okPos, pt = pcall(SA.AimPoint)
     if not okPos or not pt then pt = Vector2.new(640, 360) end
     pcall(function()
@@ -621,6 +624,7 @@ local function saManipPopupTick(force)
     saManipPopup.reason = reason
     saManipPopup.text = text
     saManipPopup.target = info.model
+    saManipPopup.npc = info.npc == true
     saManipPopup.visible = true
 end
 
@@ -640,6 +644,7 @@ function SA.ManipPopupState()
         reason = saManipPopup.reason,
         text = saManipPopup.text,
         target = saManipPopup.target,
+        npc = saManipPopup.npc == true,
         last = saManipPopup.last or 0,
     }
 end
@@ -649,7 +654,8 @@ function SA.PrintManipPopup()
     print("  enabled:", tostring(s.enabled), "| built:", tostring(s.built),
         "| visible:", tostring(s.visible), "| possible:", tostring(s.possible))
     print("  text:", tostring(s.text))
-    print("  reason:", tostring(s.reason), "| target:", tostring(s.target or "none"))
+    print("  reason:", tostring(s.reason), "| target:", tostring(s.target or "none"),
+        "| NPC:", tostring(s.npc))
     print("==========================================")
 end
 

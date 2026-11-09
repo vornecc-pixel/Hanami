@@ -224,6 +224,7 @@ local SA_CFG_SHIPPED = {
     -- Ranges are deliberately tight: 0-300 studs, base peek 4-6 only.
     -- Every slider below has a real effect in 05_manipulation.lua.
     manipulation      = false,
+    manipNpcs         = true,   -- wall-peek / CanQuery also for NPC targets
     manipDist         = 30,     -- studs, slider 0..300
     manipPeek         = 4,      -- base peek, slider 4..6
     manipMaxParts     = 3,      -- slider 0..8
@@ -358,7 +359,8 @@ for k, v in pairs(SA_CFG_SHIPPED) do SA.CFG_DEFAULTS[k] = v end
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
-    manipulation = false, manipDist = 30, manipPeek = 4,
+    manipulation = false, manipNpcs = true,
+    manipDist = 30, manipPeek = 4,
     manipMaxParts = 3, manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
     saTapReorder = true, saTapWindow = 0.35,
     espEnabled = false, espShowName = true, espShowDist = true,
@@ -501,6 +503,7 @@ CFG.nearestTransparency= saClampNum(CFG.nearestTransparency, 0, 80, 12)
 CFG.showNoTargetReason = CFG.showNoTargetReason == true
 CFG.showManipPopup    = CFG.showManipPopup ~= false
 CFG.espCleanMode      = CFG.espCleanMode ~= false
+CFG.manipNpcs         = CFG.manipNpcs ~= false
 CFG.espOnlyNearest     = CFG.espOnlyNearest == true
 CFG.espNearestCount    = saClampNum(CFG.espNearestCount, 1, 20, 5)
 CFG.espOnlyAimTarget   = CFG.espOnlyAimTarget == true

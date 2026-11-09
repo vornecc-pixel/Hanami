@@ -154,6 +154,28 @@ local function isNpc(model)
     return false
 end
 
+-- Public classifier used by manipulation / diagnostics / self-check.
+-- Prefer the live NPC registry (03_entity_scan.lua), then fall back to the
+-- name / attribute / folder rules above. Real player characters are
+-- explicitly rejected so manipulation never treats a teammate as an NPC.
+function SA.IsNpcModel(model)
+    if not model then return false end
+    local okPlayers, asPlayer = pcall(function()
+        return Players:GetPlayerFromCharacter(model)
+    end)
+    if okPlayers and asPlayer then return false end
+    local okList, npcs = pcall(function()
+        return SA.GetNpcs and SA.GetNpcs() or {}
+    end)
+    if okList and npcs then
+        for _, m in ipairs(npcs) do
+            if m == model then return true end
+        end
+    end
+    local okNpc, npc = pcall(function() return isNpc(model) end)
+    return okNpc and npc == true
+end
+
 local losParams = RaycastParams.new()
 losParams.FilterType = Enum.RaycastFilterType.Exclude
 losParams.IgnoreWater = true

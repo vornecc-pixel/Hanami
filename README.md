@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **35 short files** (`src/`, largest is 813 lines) plus a short **loader** and a committed static/Fengari validation harness.
+The original 1,300-line script is split into **35 short files** (`src/`, largest is 819 lines) plus a short **loader** and a committed static/Fengari validation harness.
 
 ## Load it (one line)
 
@@ -22,6 +22,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **NPC manipulation support** | Aiming → Manipulation | Default ON. NPC targets (Guard / Scavenger / Soldier, tagged or folder NPCs) now use the same six-slider peek / `CanQuery` wall bypass as players, with a dedicated **Manipulate NPCs** toggle, NPC-aware crosshair popup, `SA.IsNpcModel()`, `SA.ManipNpcState()` and an explicit `SA.ManipPossible(npcModel)` read-only probe. |
 | **Clean ESP (outlines only)** | ESP → ESP Features | Default ON. Removes the dark tag pills and chams fill that covered the top of the screen; keeps a thin box outline, chams outline and black text stroke. `Apply Clean ESP` / `SA.CleanEspState()` and a one-click toggle are included. |
 | **Manipulation crosshair popup** | Visual → Nearest HUD | Small READY / BLOCKED / OFF badge above `SA.AimPoint()` (the FOV/crosshair reference). `SA.ManipPossible()` is a read-only probe: it checks clear LOS, 8-direction peek and CanQuery wall bypass without spending the ray budget or changing `CanQuery`. Toggle, refresh and print controls included. |
 | **BETTER quality-of-life pass** | all five tabs | See [BETTER quality-of-life pass](#better-quality-of-life-pass). Native config profiles, self-check panel, real full unload, top-N HUD, all-keybind console, ESP decluttering, aim/FOV UX, real-model side-by-side Preview, committed Fengari tests, adaptive performance and live gun tuning. |
@@ -107,6 +108,14 @@ Aiming gains **FOV Preset** (Custom / Legit / Blatant / Sniper), **Target Priori
 
 The floating Preview can clone a **real-model** source: Local Character, Nearest Player, Nearest NPC or Aim Target. **Side-by-side Player vs NPC** builds a second server-model clone with its own overlay set, shifts the two models to x ± 2.4, widens the orbit camera to 11 studs and rebuilds whenever source / kind / compare changes. `pv.ui2`, `pv.model2` and both part lists are disposed on rebuild and unload. `pv.styleErr` is cleared only on a successful styling pass.
 
+### NPC manipulation support
+
+Aiming → **Manipulation → Manipulate NPCs** is ON by default. When the selected target is an NPC, the existing classic resolver applies the same 8-direction wall peek, `CanQuery` part bypass, ray budget, cache, range and six sliders used for player targets. No NPC-only ray path, extra budget or separate prediction path is introduced. Target selection already had **Target NPCs**; this pass makes the resolver, read-only probe, popup, diagnostics and self-check explicitly NPC-aware.
+
+`SA.IsNpcModel(model)` prefers `SA.GetNpcs()` (the shared incremental Workspace walker), falls back to the literal `Guard` / `Scavenger` / `Soldier` names, `Scavenger` / `IsNpc` / `NPC` attributes and `Npcs` / `Enemies` folders, and rejects anything returned by `Players:GetPlayerFromCharacter()`. `CFG.manipNpcs` is backfilled and clamped like the other new settings. With **Manipulate NPCs** OFF, an NPC shot keeps the original camera origin: no peek is cached and no `CanQuery` write occurs. **Target NPCs** OFF also disables NPC manipulation.
+
+`SA.ManipPossible(npcModel)` accepts an optional explicit model override for diagnostics; without it, the popup still uses the normal FOV/crosshair picker. NPC-aware results are tagged `[NPC]` and the badge reads `MANIP NPC: READY` / `BLOCKED` / `OFF`. `SA.ManipNpcState()` reports the toggle, NPC targeting, registry count, effective range / peek / parts and whether the last real resolver target was an NPC. **Print NPC Manipulation**, **Print Manip State (classic)** and Misc → Self-Check expose it. The probe remains read-only: no `CanQuery` writes, no peek-cache entry and no manipulation ray-budget consumption.
+
 ### Clean ESP (outlines only)
 
 The screenshot-style ESP showed large dark pills behind every name / state / weapon tag. **Clean ESP** is now ON by default. It removes dark tag backdrops and chams fill, and uses **outlines only**: a thin full box outline, a chams outline and a black text stroke. Corner boxes, skeleton, head dot, tracers, off-screen arrows, rainbow and distance fade are switched off by the `Apply Clean ESP` preset, so the view is no longer covered by stacked rectangles.
@@ -125,7 +134,7 @@ Visual → **Nearest HUD → Manip Crosshair Popup** adds a small badge just abo
 
 ### Committed Fengari validation suite
 
-`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 1,295 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 35-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 32 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
+`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 1,406 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 35-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 33 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
 
 ### Adaptive performance mode
 
@@ -799,13 +808,13 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 533 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, NPC manipulation key, bow-mods, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 536 |
 | `src/02_drawing.lua` | per-kind capability probing, ScreenGui proxy, screen-space Tahoma `Text` draw, no-op fallback, draw diagnostics, **draw pool + write-failure tracking** | 477 |
-| `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking, **pinned target / priority / bone / no-target reason** | 266 |
+| `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking, **pinned target / priority / bone / no-target reason**, **public NPC classifier** | 288 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
 | `src/03_entity_scan.lua` | NPC registry handler + **guarded** LOS visibility cache | 97 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump (**Tool child fallback + shared metres**) | 137 |
-| `src/05_manipulation.lua` | **Manipulation (classic sliders, guns only)**: shared RaycastParams, 8-direction peek, fixed 4–6 peek, clamped functional sliders, target-aware filter, reused CanQuery entries, **read-only crosshair popup probe** | 383 |
+| `src/05_manipulation.lua` | **Manipulation (classic sliders, guns only, NPC-aware)**: shared RaycastParams, 8-direction peek, fixed 4–6 peek, clamped functional sliders, target-aware filter, reused CanQuery entries, **read-only crosshair popup probe**, NPC toggle / state / explicit probe | 445 |
 | `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp; no bow state) + snap cooldown | 56 |
 | `src/07_gun_specs.lua` | **all 20 guns + every attribute** (mag / spread / ads / move / reload / recoil / s2 / scope / tags), ammo, damage, alt ammo, 8 named falloffs, ranges + **name-only bow gate** | 326 |
 | `src/08_attachments.lua` | **12 attachment defs**, `AttFit` / slots / tags, tolerant tool scanner, **auto-tune effects** + `SA.*Attachments*` diagnostics | 417 |
@@ -826,13 +835,13 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/19_render_loop.lua` | master render loop: rotating success-only build queue, 4 guarded passes, FX pass, **Adaptive pacing / rolling FPS / entity cap** | 157 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
-| `src/21_ui_aiming.lua` | Atlanta setup + **re-execution-safe keybind wrapper**, binding helpers, Aiming tab (Target / Ballistics / classic Wall Pen sliders / tap-fire / attachments / Manipulation), **FOV preset + target priority / bone / pin / no-target UX** | 466 |
+| `src/21_ui_aiming.lua` | Atlanta setup + **re-execution-safe keybind wrapper**, binding helpers, Aiming tab (Target / Ballistics / classic Wall Pen sliders / tap-fire / attachments / Manipulation), **NPC manipulation toggle / state**, **FOV preset + target priority / bone / pin / no-target UX** | 469 |
 | `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **real-model source selection + side-by-side Player vs NPC compare**, **clean-mode mirroring**, per-tag labels, vis frame, arrow, backdrops | 644 |
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, Preview Kind / Target / Best ESP controls, source/compare rebuild, `SA.EspPreview*` API | 319 |
 | `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **Clean + Best ESP presets** / 48 colourpickers / diagnostics, **ESP decluttering + live count controls** | 398 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + Bow Mods section (2 toggles + diagnostics) + feature keybinds, **Live Gun Tuning / Overrides controls** | 80 |
-| `src/24_ui_visual.lua` | Visual tab (FOV / snapline / debug), **top-N nearest HUD + health/state/team/corner/scale controls + Manip Crosshair Popup**, **Performance Mode + FPS overlay + all-keybind console / rebind / conflicts** | 813 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **in-game self-check panel (incl. manip popup + clean ESP)**, **full unload + popup disposal**, UI init / auto-load | 698 |
+| `src/24_ui_visual.lua` | Visual tab (FOV / snapline / debug), **top-N nearest HUD + health/state/team/corner/scale controls + NPC-aware Manip Crosshair Popup**, **Performance Mode + FPS overlay + all-keybind console / rebind / conflicts** | 819 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **in-game self-check panel (incl. NPC manipulation / manip popup + clean ESP)**, **full unload + popup disposal**, UI init / auto-load | 699 |
 | `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 57 |
 ## Testing
 
@@ -840,7 +849,7 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 npm ci && npm test
 ```
 
-`npm test` builds the ignored `dist/Hanami.lua`, runs the Python Luau-safe join verifier, parses every Lua chunk with luaparse, validates the loader / README / CFG coverage, then executes the committed Fengari mock suite. The runner loads `tools/mocks.lua`, executes the bundle three times in one Lua state and asserts startup, native profile auto-load, re-execution, full unload, manipulation popup READY / BLOCKED / bypass states and all new APIs with zero mock callback / event errors.
+`npm test` builds the ignored `dist/Hanami.lua`, runs the Python Luau-safe join verifier, parses every Lua chunk with luaparse, validates the loader / README / CFG coverage, then executes the committed Fengari mock suite. The runner loads `tools/mocks.lua`, executes the bundle three times in one Lua state and asserts startup, native profile auto-load, re-execution, full unload, manipulation popup READY / BLOCKED / bypass states, NPC manipulation resolver / probe / toggle tests and all new APIs with zero mock callback / event errors.
 
 The suite is static + Fengari mock validation, **not a real Roblox executor** confirmation. Executor-only behaviour (`gethui`, `Drawing`, `getgc`, `getconnections`, real ViewportFrames, filesystem / clipboard and Atlanta's live UI) must still be checked in-game with **Misc → Self-Check**.
 

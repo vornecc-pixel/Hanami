@@ -390,6 +390,128 @@ quiet(function() SA.ManipPopupSet(true) end)
 eq(SA.ManipPopupState().visible, true, "manip popup re-enabled")
 MOCK_MANIP_BLOCKED = false
 
+-- ── NPC manipulation support ────────────────────────────────────────
+-- NPC targets use the SAME classic peek / CanQuery engine. The NPC
+-- classifier must prefer the shared registry but never confuse a real
+-- player character with an NPC model.
+local npcForManip = SA.GetNpcs()[1]
+local playerForManip = Players:GetPlayers()[2].Character
+ok(npcForManip ~= nil, "NPC fixture available")
+eq(SA.IsNpcModel(npcForManip), true, "registry model classified as NPC")
+eq(SA.IsNpcModel(playerForManip), false, "player character NOT classified as NPC")
+local npcManipState = SA.ManipNpcState()
+eq(npcManipState.enabled, true, "NPC manipulation default ON")
+eq(npcManipState.targeting, true, "NPC targeting default ON")
+ok(npcManipState.count >= 1, "NPC manipulation sees registry count")
+eq(type(SA.PrintManipNpcState), "function", "NPC manipulation print API")
+quiet(function() SA.PrintManipNpcState() end)
+
+local savedMouseLocation = UserInputService.GetMouseLocation
+local savedTargetPriority = CFG.targetPriority
+local savedTargetBoneMode = CFG.targetBoneMode
+local savedTargetBone = CFG.targetBone
+local savedPrediction = CFG.prediction
+local savedHitChance = CFG.hitChance
+local savedDistance = CFG.distance
+local savedTeamCheck = CFG.teamCheck
+local savedWallCheck = CFG.wallCheck
+local savedFov = CFG.fov
+local savedFovCentre = CFG.fovCenterMode
+local savedTargetNpcs = CFG.targetNpcs
+local savedManipNpcs = CFG.manipNpcs
+setFlags({
+    masterEnabled = true, gunEnabled = true, manipulation = true,
+    targetNpcs = true, manipNpcs = true, showManipPopup = true,
+    targetPriority = "Crosshair", targetBoneMode = "Global", targetBone = "Head",
+    prediction = false, hitChance = 100, distance = 0,
+    teamCheck = false, wallCheck = false, fov = 150,
+    fovCenterMode = "Mouse", manipMaxParts = 3,
+})
+
+-- Explicit override: probe one NPC even when another player is closer to
+-- the crosshair. This is a read-only probe; it must not change CanQuery.
+local okNpcClear, npcClearReason, npcClearInfo = SA.ManipPossible(npcForManip)
+eq(okNpcClear, true, "clear-line NPC manipulation possible")
+contains(npcClearReason, "[NPC]", "NPC clear-line reason tagged")
+contains(npcClearReason, "clear", "NPC clear-line reason")
+eq(npcClearInfo.npc, true, "NPC probe info flags NPC")
+eq(npcClearInfo.npcEnabled, true, "NPC probe info enabled")
+eq(npcClearInfo.targetingNpcs, true, "NPC probe info targeting")
+eq(npcClearInfo.model, "Guard", "NPC probe target name")
+eq(npcClearInfo.clear, true, "NPC clear-line probe info")
+
+setFlags({ manipNpcs = false })
+local okNpcOff, npcOffReason, npcOffInfo = SA.ManipPossible(npcForManip)
+eq(okNpcOff, false, "NPC manipulation toggle disables NPC probe")
+contains(npcOffReason, "NPC manipulation OFF", "NPC manipulation OFF reason")
+eq(npcOffInfo.npcEnabled, false, "NPC probe info disabled")
+eq(SA.ManipNpcState().enabled, false, "NPC manipulation state disabled")
+
+setFlags({ manipNpcs = true, targetNpcs = false })
+local okNpcNoTarget, npcNoTargetReason = SA.ManipPossible(npcForManip)
+eq(okNpcNoTarget, false, "Target NPCs OFF disables NPC manipulation")
+contains(npcNoTargetReason, "NPC targeting OFF", "NPC targeting OFF reason")
+setFlags({ targetNpcs = true })
+
+MOCK_MANIP_BLOCKED = true
+setFlags({ manipMaxParts = 0 })
+local okNpcBlocked, npcBlockedReason, npcBlockedInfo = SA.ManipPossible(npcForManip)
+eq(okNpcBlocked, false, "wall-blocked NPC manipulation impossible")
+contains(npcBlockedReason, "wall blocked", "NPC wall-blocked reason")
+contains(npcBlockedReason, "[NPC]", "NPC wall-blocked reason tagged")
+eq(npcBlockedInfo.npc, true, "NPC wall-blocked info flags NPC")
+setFlags({ manipMaxParts = 3 })
+local okNpcBypass, npcBypassReason, npcBypassInfo = SA.ManipPossible(npcForManip)
+eq(okNpcBypass, true, "wall-bypass NPC manipulation possible")
+contains(npcBypassReason, "wall bypass", "NPC wall-bypass reason")
+contains(npcBypassReason, "[NPC]", "NPC wall-bypass reason tagged")
+eq(npcBypassInfo.npc, true, "NPC wall-bypass info flags NPC")
+MOCK_MANIP_BLOCKED = false
+
+-- The live shot resolver must also accept an NPC model. Pin one NPC and
+-- verify SA.ResolveShot() marks it as the last manipulated target.
+local npcBone = npcForManip:FindFirstChild("Head")
+ok(npcBone ~= nil, "NPC has Head bone")
+SA.PinnedTarget = {
+    model = npcForManip, bone = npcBone,
+    pos = npcBone.Position, name = npcForManip.Name,
+}
+CFG.targetPriority = "Pinned"
+quiet(function() mock_frame(0.016) end)
+local npcShot = SA.ResolveShot()
+ok(npcShot ~= nil, "pinned NPC shot resolved")
+eq(npcShot.model, npcForManip, "shot target is the NPC model")
+eq(SA.ManipState().lastNpc, true, "real resolver recorded NPC target")
+SA.PinnedTarget = nil
+
+-- The crosshair popup must label an NPC when the NPC is the FOV pick.
+-- Aim the mock mouse exactly at the Guard head; other players remain in
+-- FOV but are further from that reference point.
+UserInputService.GetMouseLocation = function() return Vector2.new(642, 345) end
+quiet(function() SA.ManipPopupRefresh() end)
+local npcPopup = SA.ManipPopupState()
+eq(npcPopup.npc, true, "manip popup identifies NPC target")
+eq(npcPopup.target, "Guard", "manip popup NPC target name")
+contains(npcPopup.text, "MANIP NPC", "manip popup NPC label")
+contains(npcPopup.text, "READY", "manip popup NPC READY")
+UserInputService.GetMouseLocation = nil -- fall back to the mock centre
+
+CFG.targetPriority = savedTargetPriority
+CFG.targetBoneMode = savedTargetBoneMode
+CFG.targetBone = savedTargetBone
+CFG.prediction = savedPrediction
+CFG.hitChance = savedHitChance
+CFG.distance = savedDistance
+CFG.teamCheck = savedTeamCheck
+CFG.wallCheck = savedWallCheck
+CFG.fov = savedFov
+CFG.fovCenterMode = savedFovCentre
+CFG.targetNpcs = savedTargetNpcs
+CFG.manipNpcs = savedManipNpcs
+if savedMouseLocation ~= nil then
+    UserInputService.GetMouseLocation = savedMouseLocation
+end
+
 -- ── top-N HUD / performance overlay ─────────────────────────────────
 setFlags({
     nearestTopN = 2,

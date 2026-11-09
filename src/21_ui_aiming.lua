@@ -394,6 +394,8 @@ local manipToggle = bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
     "Best all-round: ON, Wall Check OFF, Range 75, Peek 4, Parts 3, Budget 64, Hysteresis 5, Max Delta 6, FOV ~150")
 SA.FeatureKeybind(manipToggle, "Enable Manipulation", "hn_bind_manipulation",
     Enum.KeyCode.M, "manipulation")
+bindToggle(manipSec, "Manipulate NPCs", "manipNpcs",
+    "ON (default): wall-peek / CanQuery manipulation also applies when the selected target is a Guard / Scavenger / Soldier NPC")
 bindSlider(manipSec, "Range (studs)", "manipDist", 0, 300, 1, "")
 bindSlider(manipSec, "Base Peek Offset", "manipPeek", 4, 6, 0.5, "")
 bindSlider(manipSec, "Max CanQuery Parts", "manipMaxParts", 0, 8, 1, "")
@@ -405,6 +407,7 @@ manipSec:label({ name = "Recommended: 75 / 4 / 3 / 64 / 5 / 6" })
 manipSec:label({ name = "Range | Peek | Parts | Budget | Hyst | Delta" })
 manipSec:label({ name = "Range 0-300 studs · Base peek 4-6 only" })
 manipSec:label({ name = "Tighter FOV (~150px) = fewer peeks per frame" })
+addButton(manipSec, "Print NPC Manipulation", function() SA.PrintManipNpcState() end)
 addButton(manipSec, "Apply Recommended Wall Pen", function()
     setFlag("manipulation", true)
     setFlag("wallCheck", false)

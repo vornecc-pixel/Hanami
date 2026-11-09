@@ -401,6 +401,7 @@ function SA.SelfCheck()
         { "nearest HUD", "NearestWindowState" }, { "best ESP", "EspFeatureDiag" },
         { "gun diff", "GunDiff" }, { "perf", "PerfState" },
         { "manip popup", "ManipPopupState" }, { "clean ESP", "CleanEspState" },
+        { "NPC manipulation", "ManipNpcState" },
     }
     for _, d in ipairs(diagCalls) do
         local ok = false

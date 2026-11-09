@@ -44,6 +44,7 @@ end
 
 local saManipPeekOrigin = nil
 local saManipLastMaxPeek = 0
+local saManipLastNpc = false
 local saManipCache = {}
 local saManipBudget = 0
 local saManipFrame = 0
@@ -177,6 +178,15 @@ local function saManipResolve(origin, targetPos, targetModel)
     if type(SA.IsEquippedBow) == "function" and SA.IsEquippedBow() then
         return origin, true
     end
+    -- NPC targets use the SAME six-slider peek / CanQuery engine. Respect
+    -- the dedicated NPC toggle (and the existing Target NPCs gate) so a
+    -- user can wall-peek players without touching NPC models.
+    local isNpc = type(SA.IsNpcModel) == "function"
+        and SA.IsNpcModel(targetModel) or false
+    saManipLastNpc = isNpc
+    if isNpc and (CFG.targetNpcs ~= true or CFG.manipNpcs == false) then
+        return origin, true
+    end
     local dist = (targetPos - origin).Magnitude
     if dist > saManipNum("manipDist", 0, 300, 30) then return origin, false end
     saInitParams(targetModel)
@@ -227,7 +237,33 @@ function SA.ManipState()
         hysteresis = saManipNum("manipHysteresis", 0, 12, 3),
         deltaCap = saManipNum("manipMaxPeekDelta", 2, 12, 6),
         directions = 8,
+        npcsEnabled = CFG.manipNpcs ~= false,
+        npcTargets = #(SA.GetNpcs and SA.GetNpcs() or {}),
+        lastNpc = saManipLastNpc,
     }
+end
+
+function SA.ManipNpcState()
+    local npcs = SA.GetNpcs and SA.GetNpcs() or {}
+    return {
+        enabled = CFG.manipNpcs ~= false,
+        targeting = CFG.targetNpcs == true,
+        count = #npcs,
+        range = saManipNum("manipDist", 0, 300, 30),
+        parts = saManipNum("manipMaxParts", 0, 8, 3),
+        peek = saManipNum("manipPeek", 4, 6, 4),
+        lastNpc = saManipLastNpc,
+    }
+end
+
+function SA.PrintManipNpcState()
+    local s = SA.ManipNpcState()
+    print("========== NPC MANIPULATION ==========")
+    print("  enabled:", tostring(s.enabled), "| target NPCs:", tostring(s.targeting),
+        "| registry:", tostring(s.count))
+    print("  range:", tostring(s.range), "| peek:", tostring(s.peek),
+        "| parts:", tostring(s.parts), "| last target NPC:", tostring(s.lastNpc))
+    print("======================================")
 end
 
 -- ── BETTER: read-only "can manipulation find a shot?" probe ─────────
@@ -318,11 +354,14 @@ do
         return nil
     end
 
-    function SA.ManipPossible()
+    function SA.ManipPossible(modelOverride)
         local info = {
             enabled = CFG.manipulation == true,
             aim = CFG.masterEnabled == true and CFG.gunEnabled == true,
             popup = CFG.showManipPopup == true,
+            npc = false,
+            npcEnabled = CFG.manipNpcs ~= false,
+            targetingNpcs = CFG.targetNpcs == true,
         }
         if not info.aim then
             return false, "aim master / gun silent aim OFF", info
@@ -336,13 +375,36 @@ do
         local cam = ws.CurrentCamera
         if not cam then return false, "no camera", info end
         local origin = cam.CFrame.Position
-        local okPick, best = pcall(function()
-            return pickBestTarget(cam, SA.AimPoint(), origin, true)
-        end)
-        if not okPick or not best or not best.model or not best.pos then
-            return false, (SA.NoTargetReason and SA.NoTargetReason()
-                or "no target in FOV"), info
+        local best
+        if modelOverride then
+            -- Diagnostics / tests can probe one specific NPC without
+            -- fighting the crosshair picker for the closest target.
+            local boneName = SA.ResolveTargetBone and SA.ResolveTargetBone()
+                or (CFG.targetBone or "Head")
+            local bone = bonePart(modelOverride, boneName)
+            if not bone then
+                return false, "override target has no aim bone", info
+            end
+            best = { model = modelOverride, bone = bone, pos = bone.Position }
+        else
+            local okPick, picked = pcall(function()
+                return pickBestTarget(cam, SA.AimPoint(), origin, true)
+            end)
+            best = picked
+            if not okPick or not best or not best.model or not best.pos then
+                return false, (SA.NoTargetReason and SA.NoTargetReason()
+                    or "no target in FOV"), info
+            end
         end
+        info.npc = type(SA.IsNpcModel) == "function"
+            and SA.IsNpcModel(best.model) or false
+        if info.npc and not info.targetingNpcs then
+            return false, "NPC targeting OFF", info
+        end
+        if info.npc and not info.npcEnabled then
+            return false, "NPC manipulation OFF", info
+        end
+        local npcTag = info.npc and " [NPC]" or ""
         local targetPos = best.pos
         if CFG.prediction and type(SA.Predict) == "function" then
             local okPred, pred = pcall(SA.Predict, origin, targetPos, best.model)
@@ -354,14 +416,14 @@ do
         info.distance = dist
         info.range = range
         if range > 0 and dist > range then
-            return false, "out of manip range", info
+            return false, "out of manip range" .. npcTag, info
         end
 
         local filters = probeFilters(best.model)
         local direct = probeRay(origin, targetPos, filters)
         if not direct then
             info.clear = true
-            return true, "clear line (no manip needed)", info
+            return true, "clear line (no manip needed)" .. npcTag, info
         end
 
         local maxPeek = saManipNum("manipPeek", 4, 6, 4)
@@ -369,15 +431,15 @@ do
         local peek, peekDist = probePeek(origin, targetPos, direct.Normal, maxPeek)
         if peek and peekDist <= deltaCap then
             info.peek = peekDist
-            return true, string.format("peek %.1f studs", peekDist), info
+            return true, string.format("peek %.1f studs%s", peekDist, npcTag), info
         end
 
         local parts = saManipNum("manipMaxParts", 0, 8, 3)
         local wallParts = probeWallParts(origin, targetPos, parts, best.model)
         if wallParts then
             info.wallParts = wallParts
-            return true, string.format("wall bypass (%d parts)", wallParts), info
+            return true, string.format("wall bypass (%d parts)%s", wallParts, npcTag), info
         end
-        return false, "wall blocked / no peek or CanQuery path", info
+        return false, "wall blocked / no peek or CanQuery path" .. npcTag, info
     end
 end
