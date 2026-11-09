@@ -21,128 +21,151 @@ local library, themes = loadstring(game:HttpGet(
 --   * keeps every real key + mouse button bindable (no whitelist).
 -- It must be installed BEFORE library:window(), so the template's own
 -- "UI Bind" and every feature keybind below get the same behaviour.
-local saKeybindCreate = library.create
-local saKeybindOriginal = library.keybind
-local saKeybindCapture = nil
-
-function library:create(class, props, ...)
-    local inst = saKeybindCreate(self, class, props, ...)
-    if saKeybindCapture and props then
-        -- keybind's little TextButton is 24x14 with empty text
-        if class == "TextButton" and props.Text == ""
-            and props.Size and props.Size.X and props.Size.X.Offset == 24 then
-            saKeybindCapture.button = inst
-        end
-        -- keybind-list row is a TextLabel parented to library.keybind_list
-        if class == "TextLabel" and props.Parent == library.keybind_list then
-            saKeybindCapture.listLbl = inst
-        end
-    end
-    return inst
-end
-
-local function saFindKeybindLabel(name)
-    if not name or not library.keybind_list then return nil end
-    for _, c in ipairs(library.keybind_list:GetChildren()) do
-        if c:IsA("TextLabel") and string.find(c.Text, name, 1, true) then
-            return c
-        end
-    end
-    return nil
-end
-
-function library:keybind(opts)
-    -- Atlanta builds its "UI Bind" INSIDE library:window() as
-    --   :keybind({callback = window.set_menu_visibility, key = Enum.KeyCode.Insert})
-    -- with no name / flag. Rewrite that single call so RightShift is the
-    -- DEFAULT menu toggle, give it a real flag + list row, and start it
-    -- active so the very first RightShift press HIDES the menu (instead
-    -- of the stock one-press lag). The master aim bind moves to Insert,
-    -- so the two never fire on the same key.
-    local isMenuBind = opts and opts.key == Enum.KeyCode.Insert
-        and not opts.name and not opts.flag
-    if isMenuBind then
-        opts.flag    = "hn_menu_bind"
-        opts.name    = "Toggle Menu"
-        opts.key     = Enum.KeyCode.RightShift
-        opts.mode    = opts.mode or "toggle"
-        opts.default = true
-    end
-
-    saKeybindCapture = {}
-    local ok, cfg = pcall(saKeybindOriginal, self, opts)
-    local cap = saKeybindCapture
-    saKeybindCapture = nil
-    if not ok then error(cfg, 0) end
-    if isMenuBind then SA.FeatureBinds["hn_menu_bind"] = cfg end
-
-    local listLbl = cap.listLbl or saFindKeybindLabel(opts and opts.name)
-    local origSet = cfg.set
-
-    local function refreshList()
-        listLbl = listLbl or saFindKeybindLabel(opts and opts.name)
-        if not listLbl then return end
-        local isNone = cfg.key == "none"
-            or tostring(cfg.key):find("none", 1, true) ~= nil
-        -- "none" / inactive binds must vanish from the Keybinds panel.
-        listLbl.Visible = (cfg.active == true) and not isNone
-    end
-
-    cfg.set = function(input, ...)
-        origSet(input, ...)
-        refreshList()
-    end
-    -- Config loading and quick actions go through config_flags, so make
-    -- sure they hit the wrapper rather than the stock setter.
-    library.config_flags[cfg.flag] = cfg.set
-
-    local function clearBind()
-        -- Escape is Atlanta's built-in "none" token; this keeps the
-        -- feature in its current ON/OFF state instead of turning it off.
-        pcall(function() cfg.set(Enum.KeyCode.Escape) end)
-        cfg.key = "none"
-        cfg.key_name = "none"
-        cfg.open = false
-        if cfg.set_visible then pcall(cfg.set_visible, false) end
-        -- Atlanta's own MouseButton2Click opens the mode selector. Our
-        -- handler may run BEFORE it, so defer one more close to make sure
-        -- right-click leaves the selector closed regardless of ordering.
-        pcall(function()
-            task.defer(function()
-                cfg.open = false
-                if cfg.set_visible then pcall(cfg.set_visible, false) end
-            end)
-        end)
-        refreshList()
-    end
-
-    cfg.__saButton = cap.button
-    cfg.__saListLbl = listLbl
-    cfg.__saClear = clearBind
-
-    if cap.button then
-        pcall(function()
-            cap.button.MouseButton2Click:Connect(function() clearBind() end)
-        end)
-    end
-    if listLbl then
-        -- TextLabel has no MouseButton2Click; InputBegan catches RMB.
-        -- TextLabels are passive by default, so Active must be ON for the
-        -- Keybinds panel row to receive mouse input at all.
-        pcall(function() listLbl.Active = true end)
-        pcall(function()
-            listLbl.InputBegan:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseButton2 then
-                    clearBind()
-                end
-            end)
-        end)
-    end
-    refreshList()
-    return cfg
-end
-
+-- Registry for EVERY wrapped keybind: used by the Keybinds console,
+-- conflict detector, config profiles and full unload. Initialised before
+-- library:window() because the built-in menu bind is created there.
+SA.AllKeybinds = SA.AllKeybinds or {}
 SA.FeatureBinds = SA.FeatureBinds or {}
+
+-- The loader hoists column-1 `local`s into globals. Keep the ORIGINAL
+-- library methods on the library table itself, and install the wrapper only
+-- once: re-execution then reuses that wrapper instead of stacking another
+-- one (which would grow a call chain on every load). The active capture
+-- lives in the wrapper's private upvalue, not in a hoisted global.
+do
+    library.__saOriginalCreate = library.__saOriginalCreate or library.create
+    library.__saOriginalKeybind = library.__saOriginalKeybind or library.keybind
+    local originalCreate  = library.__saOriginalCreate
+    local originalKeybind = library.__saOriginalKeybind
+    local capture = nil
+
+    if not library.__saKeybindWrapperInstalled then
+    local function findKeybindLabel(name)
+        if not name or not library.keybind_list then return nil end
+        for _, c in ipairs(library.keybind_list:GetChildren()) do
+            if c:IsA("TextLabel") and string.find(c.Text, name, 1, true) then
+                return c
+            end
+        end
+        return nil
+    end
+
+    function library:create(class, props, ...)
+        local inst = originalCreate(self, class, props, ...)
+        if capture and props then
+            -- keybind's little TextButton is 24x14 with empty text
+            if class == "TextButton" and props.Text == ""
+                and props.Size and props.Size.X and props.Size.X.Offset == 24 then
+                capture.button = inst
+            end
+            -- keybind-list row is a TextLabel parented to library.keybind_list
+            if class == "TextLabel" and props.Parent == library.keybind_list then
+                capture.listLbl = inst
+            end
+        end
+        return inst
+    end
+
+    function library:keybind(opts)
+        -- Atlanta builds its "UI Bind" INSIDE library:window() as
+        --   :keybind({callback = window.set_menu_visibility, key = Enum.KeyCode.Insert})
+        -- with no name / flag. Rewrite that single call so RightShift is the
+        -- DEFAULT menu toggle, give it a real flag + list row, and start it
+        -- active so the very first RightShift press HIDES the menu (instead
+        -- of the stock one-press lag). The master aim bind moves to Insert,
+        -- so the two never fire on the same key.
+        local isMenuBind = opts and opts.key == Enum.KeyCode.Insert
+            and not opts.name and not opts.flag
+        if isMenuBind then
+            opts.flag    = "hn_menu_bind"
+            opts.name    = "Toggle Menu"
+            opts.key     = Enum.KeyCode.RightShift
+            opts.mode    = opts.mode or "toggle"
+            opts.default = true
+        end
+
+        capture = {}
+        local ok, cfg = pcall(originalKeybind, self, opts)
+        local cap = capture
+        capture = nil
+        if not ok then error(cfg, 0) end
+        if isMenuBind then SA.FeatureBinds["hn_menu_bind"] = cfg end
+        SA.AllKeybinds[cfg.flag] = cfg
+
+        local listLbl = cap.listLbl or findKeybindLabel(opts and opts.name)
+        local origSet = cfg.set
+
+        local function refreshList()
+            listLbl = listLbl or findKeybindLabel(opts and opts.name)
+            if not listLbl then return end
+            local isNone = cfg.key == "none"
+                or tostring(cfg.key):find("none", 1, true) ~= nil
+            -- "none" / inactive binds must vanish from the Keybinds panel.
+            listLbl.Visible = (cfg.active == true) and not isNone
+        end
+
+        cfg.set = function(input, ...)
+            -- `library:load_config` passes a table {mode, key, active} here.
+            -- Atlanta's stock table branch restores those fields WITHOUT
+            -- calling cfg.callback, so loading a profile must never toggle a
+            -- feature behind the user's back. Our wrapper preserves exactly
+            -- that behaviour and only refreshes the list-row visibility.
+            origSet(input, ...)
+            refreshList()
+        end
+        -- Config loading and quick actions go through config_flags, so make
+        -- sure they hit the wrapper rather than the stock setter.
+        library.config_flags[cfg.flag] = cfg.set
+
+        local function clearBind()
+            -- Escape is Atlanta's built-in "none" token; this keeps the
+            -- feature in its current ON/OFF state instead of turning it off.
+            pcall(function() cfg.set(Enum.KeyCode.Escape) end)
+            cfg.key = "none"
+            cfg.key_name = "none"
+            cfg.open = false
+            if cfg.set_visible then pcall(cfg.set_visible, false) end
+            -- Atlanta's own MouseButton2Click opens the mode selector. Our
+            -- handler may run BEFORE it, so defer one more close to make sure
+            -- right-click leaves the selector closed regardless of ordering.
+            pcall(function()
+                task.defer(function()
+                    cfg.open = false
+                    if cfg.set_visible then pcall(cfg.set_visible, false) end
+                end)
+            end)
+            refreshList()
+        end
+
+        cfg.__saButton = cap.button
+        cfg.__saListLbl = listLbl
+        cfg.__saClear = clearBind
+
+        if cap.button then
+            pcall(function()
+                cap.button.MouseButton2Click:Connect(function() clearBind() end)
+            end)
+        end
+        if listLbl then
+            -- TextLabel has no MouseButton2Click; InputBegan catches RMB.
+            -- TextLabels are passive by default, so Active must be ON for the
+            -- Keybinds panel row to receive mouse input at all.
+            pcall(function() listLbl.Active = true end)
+            pcall(function()
+                listLbl.InputBegan:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+                        clearBind()
+                    end
+                end)
+            end)
+        end
+        refreshList()
+        return cfg
+    end
+    library.__saKeybindWrapperInstalled = true
+    end
+end
+
 function SA.FeatureKeybind(obj, name, flag, key, cfgKey)
     if not obj or not obj.keybind then return nil end
     local bind = obj:keybind({
@@ -267,6 +290,25 @@ local presetDropdown = masterSec:dropdown({
     end,
 })
 
+local fovPresetDropdown = masterSec:dropdown({
+    name = "FOV Preset", flag = "hn_fovPreset",
+    items = { "Custom", "Legit", "Blatant", "Sniper" },
+    default = CFG.fovPreset,
+    callback = function(mode)
+        local radii = { Legit = 90, Blatant = 220, Sniper = 55 }
+        if mode == "Custom" then
+            CFG.fovPreset = "Custom"
+            return
+        end
+        setFlag("fov", radii[mode] or 150)
+        setFlag("hitChance", mode == "Legit" and 65 or 100)
+        setFlag("gunCooldown", mode == "Legit" and 0.08 or 0)
+        setFlag("prediction", true)
+        CFG.fovPreset = mode
+        print("[fov] preset", mode, "->", radii[mode], "px")
+    end,
+})
+
 bindToggle(gunSec, "Gun Silent Aim", "gunEnabled")
 bindToggle(gunSec, "Only While Firing", "gunShotOnly")
 bindToggle(gunSec, "Wall Check", "wallCheck",
@@ -289,6 +331,26 @@ local targetSec, ballSec, manipSec = aimCol2:multi_section({
 })
 
 bindDropdown(targetSec, "Target Bone", "targetBone", { "Head", "Hrp" })
+bindDropdown(targetSec, "Per-Weapon Bone", "targetBoneMode", {
+    "Global", "Head for snipers", "Hrp for shotguns",
+})
+bindDropdown(targetSec, "Target Priority", "targetPriority", {
+    "Crosshair", "Nearest", "Lowest HP", "Pinned",
+})
+addButton(targetSec, "Pin Nearest Player", function()
+    local name, err = SA.PinNearestTarget()
+    if name then
+        setFlag("targetPriority", "Pinned")
+        print("[aim] locked aim to", name)
+    else print("[aim] pin failed:", tostring(err)) end
+end)
+addButton(targetSec, "Clear Pinned Target", function()
+    SA.ClearPinnedTarget()
+    setFlag("targetPriority", "Crosshair")
+end)
+addButton(targetSec, "Print Why No Target", function()
+    print("[aim]", SA.NoTargetReason())
+end)
 hitChanceSlider = bindSlider(targetSec, "Hit Chance (%)", "hitChance", 0, 100, 1, "%")
 bindSlider(targetSec, "Max Distance (studs)", "distance", 0, 500, 1, "")
 cooldownSlider = bindSlider(targetSec, "Cooldown (s)", "gunCooldown", 0, 1, 0.01, "s")

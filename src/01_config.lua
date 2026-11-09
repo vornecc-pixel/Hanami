@@ -27,6 +27,14 @@ local SA = _G.__saShared or {}
 _G.__saShared = SA
 SA.Target = SA.Target or {}   -- current aim-preview target, written by 11_snapline
 SA.Alive  = true              -- set false by "Unload Everything" to stop scanners
+-- A loader re-execute is a NEW instance: clear the one-shot unload guard
+-- and any self-check report from the previous generation.
+SA.Unloaded = false
+SA.LastSelfCheck = nil
+-- Luau keeps math.atan2(y, x); standard Lua 5.3 (and Fengari) removed it
+-- in favour of the two-argument math.atan(y, x). One shared alias keeps
+-- the GUI drawing fallback working in both runtimes.
+SA.Atan2 = math.atan2 or math.atan
 -- The ESP labels and the nearest-player HUD both convert Roblox studs to
 -- metres with the same factor (1 m ≈ 3.571 studs).
 SA.STUDS_PER_METER = 3.571
@@ -162,7 +170,7 @@ _G.__saEspColors = ESP_COLORS
 -- CONFIG
 -- ────────────────────────────────────────────────────────────────────
 
-local CFG = _G.__saCFG or {
+local SA_CFG_SHIPPED = {
     masterEnabled = true,
     debug         = false,
 
@@ -319,8 +327,28 @@ local CFG = _G.__saCFG or {
     bowModsEnabled   = false,
     bowInstantCharge = false,
     bowNoCooldown    = false,
+
+    -- ── BETTER: profiles, keybinds, HUD, declutter, aim, preview, perf ──
+    configProfile = "default", configName = "default", autoLoadConfig = false,
+    keybindMode = "toggle", keybindConflictWarn = true,
+    keybindSelected = "hn_menu_bind",
+    nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
+    nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
+    nearestTransparency = 12, showNoTargetReason = false,
+    espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
+    espTeamMode = "All", espShowLiveCount = false,
+    targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
+    espPreviewSource = "Local Character", espPreviewCompare = false,
+    perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
+    perfShowFps = false,
+    gunDiffOnScan = false, gunOverrideString = "",
 }
+local CFG = _G.__saCFG or SA_CFG_SHIPPED
 _G.__saCFG = CFG
+-- Snapshot the SHIPPED literal, not the live CFG (which may be a saved
+-- profile from an earlier run). "Reset to defaults" needs the originals.
+SA.CFG_DEFAULTS = {}
+for k, v in pairs(SA_CFG_SHIPPED) do SA.CFG_DEFAULTS[k] = v end
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
@@ -365,7 +393,25 @@ for k, v in pairs({
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
     gmNoSway = false, gmNoKick = false,
     bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
+    configProfile = "default", configName = "default", autoLoadConfig = false,
+    keybindMode = "toggle", keybindConflictWarn = true,
+    keybindSelected = "hn_menu_bind",
+    nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
+    nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
+    nearestTransparency = 12, showNoTargetReason = false,
+    espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
+    espTeamMode = "All", espShowLiveCount = false,
+    targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
+    espPreviewSource = "Local Character", espPreviewCompare = false,
+    perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
+    perfShowFps = false,
+    gunDiffOnScan = false, gunOverrideString = "",
 }) do if CFG[k] == nil then CFG[k] = v end end
+-- Older saved configs never had the snapshot either.
+if type(SA.CFG_DEFAULTS) ~= "table" then
+    SA.CFG_DEFAULTS = {}
+    for k, v in pairs(CFG) do SA.CFG_DEFAULTS[k] = v end
+end
 
 -- One-time migration for configs saved by older builds: those defaulted
 -- showFov to FALSE and inverted the transparency slider, so the circle
@@ -425,6 +471,52 @@ CFG.espPreviewSpeed  = saClampNum(CFG.espPreviewSpeed, 0, 90, 25)
 CFG.espPreviewKind   = (CFG.espPreviewKind == "NPC") and "NPC" or "Player"
 CFG.espPreviewTarget = CFG.espPreviewTarget == true
 CFG.nearestWindow    = CFG.nearestWindow ~= false  -- HUD defaults ON
+
+-- Clamp every new BETTER input too: a stale / hand-edited saved profile
+-- must never put a dropdown outside its items or a slider outside range.
+CFG.configProfile      = tostring(CFG.configProfile or "default")
+CFG.configName         = tostring(CFG.configName or "default")
+CFG.autoLoadConfig     = CFG.autoLoadConfig == true
+CFG.keybindMode        = ({ toggle=true, hold=true, always=true })[CFG.keybindMode]
+                         and CFG.keybindMode or "toggle"
+CFG.keybindConflictWarn= CFG.keybindConflictWarn ~= false
+CFG.keybindSelected    = tostring(CFG.keybindSelected or "hn_menu_bind")
+CFG.nearestTopN        = saClampNum(CFG.nearestTopN, 1, 5, 1)
+CFG.nearestShowHealth  = CFG.nearestShowHealth ~= false
+CFG.nearestShowState   = CFG.nearestShowState ~= false
+CFG.nearestShowTeam    = CFG.nearestShowTeam == true
+CFG.nearestCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
+                            ["Bottom Left"]=true, ["Bottom Right"]=true
+                         })[CFG.nearestCorner] and CFG.nearestCorner or "Top Left"
+CFG.nearestScale       = saClampNum(CFG.nearestScale, 0.6, 1.8, 1)
+CFG.nearestTransparency= saClampNum(CFG.nearestTransparency, 0, 80, 12)
+CFG.showNoTargetReason = CFG.showNoTargetReason == true
+CFG.espOnlyNearest     = CFG.espOnlyNearest == true
+CFG.espNearestCount    = saClampNum(CFG.espNearestCount, 1, 20, 5)
+CFG.espOnlyAimTarget   = CFG.espOnlyAimTarget == true
+CFG.espTeamMode        = ({ All=true, ["Teammates Only"]=true,
+                            ["Exclude Teammates"]=true })[CFG.espTeamMode]
+                         and CFG.espTeamMode or "All"
+CFG.espShowLiveCount   = CFG.espShowLiveCount == true
+CFG.targetPriority     = ({ Crosshair=true, Nearest=true, ["Lowest HP"]=true,
+                            Pinned=true })[CFG.targetPriority]
+                         and CFG.targetPriority or "Crosshair"
+CFG.fovPreset          = ({ Custom=true, Legit=true, Blatant=true, Sniper=true })
+                         [CFG.fovPreset] and CFG.fovPreset or "Custom"
+CFG.targetBoneMode     = ({ Global=true, ["Head for snipers"]=true,
+                            ["Hrp for shotguns"]=true })[CFG.targetBoneMode]
+                         and CFG.targetBoneMode or "Global"
+CFG.espPreviewSource   = ({ ["Local Character"]=true, ["Nearest Player"]=true,
+                            ["Nearest NPC"]=true, ["Aim Target"]=true })
+                         [CFG.espPreviewSource] and CFG.espPreviewSource
+                         or "Local Character"
+CFG.espPreviewCompare  = CFG.espPreviewCompare == true
+CFG.perfMode           = CFG.perfMode == true
+CFG.perfEspRebuildMs   = saClampNum(CFG.perfEspRebuildMs, 16, 500, 100)
+CFG.perfMaxEntities    = saClampNum(CFG.perfMaxEntities, 5, 100, 40)
+CFG.perfShowFps        = CFG.perfShowFps == true
+CFG.gunDiffOnScan      = CFG.gunDiffOnScan == true
+CFG.gunOverrideString  = tostring(CFG.gunOverrideString or "")
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

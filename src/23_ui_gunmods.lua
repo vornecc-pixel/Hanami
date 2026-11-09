@@ -47,3 +47,34 @@ addButton(bowSec, "Restore Bow Timings", function()
     SA.BowModsRestore()
     print("[bow] original SHOT_GAP / REDRAW_GAP / MIN_DRAW restored")
 end)
+
+-- ── BETTER : live gun tuning ────────────────────────────────────────
+-- No hit log / damage tracker. Just a new-gun diff against the shipped
+-- 20-gun DB and a manual numeric override editor for the ballistics
+-- solver. Overrides are re-applied after every GC sync.
+local tuneCol = GunTab:column()
+local tuneSec = tuneCol:section({ name = "Live Gun Tuning / Overrides" })
+bindToggle(tuneSec, "Print New-Gun Diff on Sync", "gunDiffOnScan",
+    "After Sync Gun Defs, list guns added by the game and every field that differs from the shipped DB")
+tuneSec:textbox({
+    name = "Per-Gun Overrides", flag = "hn_gunOverrideString",
+    default = CFG.gunOverrideString or "",
+    placeholder = "assault_rifle.speed=1400;lr_sniper.gravity=20",
+    callback = function(text)
+        CFG.gunOverrideString = tostring(text or "")
+        SA.ApplyGunOverrides(CFG.gunOverrideString)
+    end,
+})
+tuneSec:label({ name = "Format: gun_id.field=value; separated by ;" })
+tuneSec:label({ name = "Fields: speed, gravity, life, range, mag, spread …" })
+addButton(tuneSec, "Apply Overrides Now", function()
+    SA.ApplyGunOverrides(CFG.gunOverrideString or "")
+end)
+addButton(tuneSec, "Print Override Help", function() SA.PrintGunOverrides() end)
+addButton(tuneSec, "Print Live Gun Diff", function() SA.PrintGunDiff() end)
+addButton(tuneSec, "Sync Gun Defs + Diff", function()
+    local n = SA.SyncGunDefs()
+    print("[gun] synced", n, "live fields")
+    SA.PrintGunDiff()
+end)
+addButton(tuneSec, "Print Full Gun Table", function() SA.PrintGunTable() end)

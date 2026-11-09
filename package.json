@@ -1,0 +1,17 @@
+{
+  "name": "hanami-validation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static checks and Fengari mock-runtime tests for the Hanami loader parts.",
+  "scripts": {
+    "test": "npm run build && npm run verify && npm run check && npm run test:runtime",
+    "build": "bash build.sh",
+    "verify": "python3 tools/verify.py",
+    "check": "node tools/check.js",
+    "test:runtime": "node tools/run.js"
+  },
+  "dependencies": {
+    "fengari": "^0.1.4",
+    "luaparse": "^0.3.1"
+  }
+}

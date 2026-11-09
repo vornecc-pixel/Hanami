@@ -38,7 +38,8 @@ local function pvTeardown()
     -- window.esp_section; destroy it too so re-executes never stack.
     if pv.ownGui then pcall(function() pv.ownGui:Destroy() end) end
     pv.renderConn, pv.root, pv.camera, pv.clone = nil, nil, nil, nil
-    pv.parts, pv.ui, pv.model, pv.ownGui = nil, nil, nil, nil
+    pv.parts, pv.ui, pv.ui2, pv.model, pv.model2, pv.ownGui = nil, nil, nil, nil, nil, nil
+    pv.lastSource, pv.lastCompare, pv.lastKind = nil, nil, nil
     pv.styleErr, pv.styleWarned, pv.lastStyle = nil, nil, nil
 end
 
@@ -157,22 +158,74 @@ local function pvDummyRig()
     return m
 end
 
--- Clone the local character safely. The Atlanta version assumed
--- `lp.Character.Animate` exists and would error on respawn; here every
--- step is optional and the dummy rig is the fallback.
-local function pvMakeModel()
-    local char = lp.Character
+-- ── BETTER: mirror a REAL server player / NPC model ─────────────────
+-- The old preview always cloned the local character. "Model Source" can
+-- now mirror the nearest live player, the nearest NPC or the current aim
+-- target. Every step stays pcall-guarded with the synthetic rig fallback,
+-- so a streamed / Archivable-locked character never breaks the panel.
+local function pvLocalPos()
+    local root = lp.Character and SA.PlayerRig(lp.Character) or nil
+    if root then return root.Position end
+    local ok, pos = pcall(function() return ws.CurrentCamera.CFrame.Position end)
+    return ok and pos or Vector3.new(0, 0, 0)
+end
+
+local function pvNearestFrom(list, myPos)
+    local best, bestD, bestName = nil, math.huge, nil
+    pcall(function()
+        for _, m in ipairs(list or {}) do
+            if m and m.Parent then
+                local root = m:FindFirstChild("HumanoidRootPart")
+                    or m:FindFirstChild("Head") or m:FindFirstChildOfClass("BasePart")
+                if root and root.Position then
+                    local d = (root.Position - myPos).Magnitude
+                    if d < bestD then best, bestD, bestName = m, d, m.Name end
+                end
+            end
+        end
+    end)
+    return best, bestName or "none", bestD
+end
+
+local function pvFindSourceModel(isNpc)
+    local source = CFG.espPreviewSource or "Local Character"
+    local myPos = pvLocalPos()
+    if source == "Aim Target" or (CFG.espPreviewTarget and SA.Target) then
+        local m = SA.Target and SA.Target.model or nil
+        if m and m.Parent then return m, "aim target: " .. tostring(m.Name) end
+    end
+    if source == "Nearest NPC" or (isNpc and source ~= "Local Character") then
+        local ok, npcs = pcall(function()
+            return SA.GetNpcs and SA.GetNpcs() or {}
+        end)
+        local m, name = pvNearestFrom(ok and npcs or {}, myPos)
+        if m then return m, "nearest NPC: " .. tostring(name) end
+    elseif source == "Nearest Player" then
+        local list = {}
+        pcall(function()
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= lp and plr.Character then
+                    list[#list + 1] = plr.Character
+                end
+            end
+        end)
+        local m, name = pvNearestFrom(list, myPos)
+        if m then return m, "nearest player: " .. tostring(name) end
+    end
+    if lp.Character then return lp.Character, "local character" end
+    return nil, "no source model"
+end
+
+local function pvCloneModel(src, label)
     local clone, why = nil, "no character"
-    if char then
-        -- Restore Archivable even when :Clone() itself throws, otherwise
-        -- the live character is left permanently clonable.
+    if src then
         local prev, okPrev = nil, false
-        okPrev = pcall(function() prev = char.Archivable; char.Archivable = true end)
-        local okClone, cloned = pcall(function() return char:Clone() end)
-        if okPrev then pcall(function() char.Archivable = prev end) end
+        okPrev = pcall(function() prev = src.Archivable; src.Archivable = true end)
+        local okClone, cloned = pcall(function() return src:Clone() end)
+        if okPrev then pcall(function() src.Archivable = prev end) end
         if okClone then clone = cloned end
         if okPrev and okClone and clone then
-            why = "cloned local character"
+            why = "cloned " .. tostring(label)
             pcall(function()
                 for _, d in ipairs(clone:GetDescendants()) do
                     if d:IsA("Script") or d:IsA("LocalScript")
@@ -198,20 +251,27 @@ local function pvMakeModel()
     if not clone then
         local okDummy, dummy = pcall(pvDummyRig)
         clone = okDummy and dummy or nil
-        why = clone and why or "dummy rig unavailable"
+        why = clone and (why .. " (" .. tostring(label) .. ")")
+            or "dummy rig unavailable"
         return clone, why, true
     end
     return clone, why, false
 end
 
+local function pvMakeModel(isNpc)
+    local src, label = pvFindSourceModel(isNpc)
+    return pvCloneModel(src, label)
+end
+
 -- Both the real clone and the dummy rig use a HumanoidRootPart at y≈3,
 -- so recentering the pivot on the origin puts the model in exactly the
 -- same place for the orbit camera either way.
-local function pvRecenter(model)
+local function pvRecenter(model, x)
     if not model then return end
-    local ok = pcall(function() model:PivotTo(CFrame.new(0, 0, 0)) end)
+    local target = CFrame.new(x or 0, 0, 0)
+    local ok = pcall(function() model:PivotTo(target) end)
     if not ok then
-        pcall(function() model:SetPrimaryPartCFrame(CFrame.new(0, 0, 0)) end)
+        pcall(function() model:SetPrimaryPartCFrame(target) end)
     end
 end
 
@@ -229,12 +289,19 @@ local function pvCollectParts(model)
     return list
 end
 
-local function pvBuildOverlays(viewport)
+local function pvBuildOverlays(viewport, xPos, width, tag)
     local ui = {}
-    local holder = pvFrame(viewport, "PreviewHolder",
-        UDim2new(0, 120, 0, 190), UDim2new(0.5, 0, 0.5, 0), vec2(0.5, 0.5))
+    xPos = xPos or 0.5
+    width = width or 120
+    local holder = pvFrame(viewport, tag or "PreviewHolder",
+        UDim2new(0, width, 0, 190), UDim2new(xPos, 0, 0.5, 0), vec2(0.5, 0.5))
 
     ui.holder = holder
+    ui.xPos = xPos
+    ui.title = pvLabel(holder, "Title", UDim2new(1, 0, 0, 14),
+        UDim2new(0, 0, 0, -22), vec2(0, 1), Enum.TextXAlignment.Center)
+    ui.title.TextColor3 = c3(150, 180, 255)
+    ui.title.Text = ""
     ui.box = pvFrame(holder, "Box", UDim2new(1, -2, 1, -2), UDim2new(0, 1, 0, 1))
     pcall(function()
         ui.boxStroke = Instance.new("UIStroke")
@@ -312,11 +379,13 @@ local function pvBuildOverlays(viewport)
         ui.skeleton[i] = l
     end
 
-    ui.tracer = pvSolid(viewport, "Tracer", UDim2new(0, 2, 0, 110),
-        UDim2new(0.5, 0, 1, 0), vec2(0.5, 1), c3(255, 120, 200))
+    ui.tracer = pvSolid(viewport, "Tracer" .. (tag or ""), UDim2new(0, 2, 0, 110),
+        UDim2new(xPos, 0, 1, 0), vec2(0.5, 1), c3(255, 120, 200))
     -- Off-screen arrow (a rotated diamond, like the GUI Triangle fallback)
-    ui.arrow = pvSolid(viewport, "OffscreenArrow", UDim2new(0, 12, 0, 12),
-        UDim2new(0.9, 0, 0.12, 0), vec2(0.5, 0.5), c3(255, 200, 60))
+    ui.arrow = pvSolid(viewport, "OffscreenArrow" .. (tag or ""),
+        UDim2new(0, 12, 0, 12),
+        UDim2new(math.clamp(xPos + 0.12, 0, 0.95), 0, 0.12, 0),
+        vec2(0.5, 0.5), c3(255, 200, 60))
     ui.arrow.Rotation = 45
     return ui
 end
@@ -326,12 +395,12 @@ end
 -- `CFG.espPreviewKind` switches the WHOLE pipeline between the Player and
 -- the NPC ESP (flags, palette, archetype colours and sample text), so the
 -- best features of BOTH sections are previewable with live CFG values.
-local function pvApplyStyle()
-    local ui = pv.ui
+local function pvApplyStyleTo(ui, isNpc)
+    ui = ui or pv.ui
     if not ui then return end
+    isNpc = isNpc == true
 
     local seed = tick() * 0.11
-    local isNpc = CFG.espPreviewKind == "NPC"
     local pal = isNpc and "npc" or "player"
     local function flag(npcKey, playerKey)
         if isNpc then return CFG[npcKey] end
@@ -520,7 +589,9 @@ local function pvApplyStyle()
     local playerOnly = not isNpc
     ui.tracer.Visible = CFG.espShowTracer == true and playerOnly
     ui.tracer.BackgroundColor3 = col("Tracer")
-    ui.tracer.Position = UDim2new(CFG.espTracerOrigin == "Mouse" and 0.32 or 0.5, 0, 1, 0)
+    ui.tracer.Position = UDim2new(
+        (CFG.espTracerOrigin == "Mouse" and 0.32 or 0.5)
+            + ((ui.xPos or 0.5) - 0.5), 0, 1, 0)
     pcall(function() ui.tracer.BackgroundTransparency = fade end)
 
     ui.arrow.Visible = CFG.espShowOffscreen == true and playerOnly
@@ -529,12 +600,36 @@ local function pvApplyStyle()
 
     -- ViewportFrames do not reliably render Highlight, so chams are
     -- previewed by tinting the model's parts with the fill colour.
-    if pv.parts then
-        for _, e in ipairs(pv.parts) do
+    local parts = ui.parts or pv.parts
+    if parts then
+        for _, e in ipairs(parts) do
             pcall(function()
                 e.part.Color = CFG.espShowFill == true
                     and e.original:Lerp(fillCol, 0.55) or e.original
             end)
         end
+    end
+    if ui.title then
+        ui.title.Text = isNpc and "NPC ESP" or "PLAYER ESP"
+        ui.title.Visible = CFG.espPreviewCompare == true
+    end
+end
+
+-- Side-by-side: primary model uses the selected "Preview Kind", the
+-- second one always uses the OTHER kind, so Player vs NPC ESP can be
+-- compared with the exact same live CFG / palette values.
+function pvApplyStyle()
+    local wantCompare = CFG.espPreviewCompare == true
+    if pv.ui and pv.ui.holder then
+        pv.ui.holder.Position = UDim2new(wantCompare and 0.28 or 0.5, 0, 0.5, 0)
+    end
+    if pv.ui2 and pv.ui2.holder then
+        pv.ui2.holder.Visible = wantCompare
+        pv.ui2.holder.Position = UDim2new(0.72, 0, 0.5, 0)
+    end
+    local primaryNpc = CFG.espPreviewKind == "NPC"
+    pcall(pvApplyStyleTo, pv.ui, primaryNpc)
+    if wantCompare and pv.ui2 then
+        pcall(pvApplyStyleTo, pv.ui2, not primaryNpc)
     end
 end

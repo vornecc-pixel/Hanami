@@ -63,6 +63,79 @@ local function isTeammate(p)
     end
     return false
 end
+-- Public so ESP decluttering / HUD can apply the same team rules as aim.
+function SA.IsTeammate(p) return isTeammate(p) end
+
+-- ── BETTER: target priority, pinned target, live "why no target" ─────
+-- A pinned target survives target-priority changes until it dies or the
+-- player clears it. It is deliberately NOT used by the snapline preview
+-- (preview=true), so the aim line never jumps to a stale pin.
+function SA.ClearPinnedTarget()
+    SA.PinnedTarget = nil
+end
+
+function SA.PinNearestTarget()
+    local myRoot = lp.Character and (lp.Character:FindFirstChild("HumanoidRootPart")
+        or lp.Character:FindFirstChild("Head")) or nil
+    local myPos = myRoot and myRoot.Position or nil
+    if not myPos then return nil, "no local character" end
+    local best, bestD = nil, math.huge
+    local ok = pcall(function()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= lp and plr.Character then
+                local char = plr.Character
+                local root = char:FindFirstChild("HumanoidRootPart")
+                    or char:FindFirstChild("Head")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if root and hum and hum.Health > 0 then
+                    local d = (myPos - root.Position).Magnitude
+                    if d < bestD then bestD, best = d, { plr = plr, char = char,
+                        hum = hum, head = char:FindFirstChild("Head") or root } end
+                end
+            end
+        end
+    end)
+    if not ok or not best then return nil, "no other player with a live rig" end
+    SA.PinnedTarget = { model = best.char, bone = best.head,
+                        name = best.plr.Name, at = tick() }
+    if type(setFlag) == "function" then pcall(setFlag, "targetPriority", "Pinned") end
+    print("[sa] pinned nearest target:", tostring(best.plr.Name),
+        string.format("(%.1f m)", bestD / (SA.STUDS_PER_METER or 3.571)))
+    return best.plr.Name, nil
+end
+
+function SA.NoTargetReason()
+    if not lp.Character then return "no local character" end
+    if CFG.masterEnabled ~= true then return "aim master OFF" end
+    if CFG.gunEnabled ~= true then return "gun silent aim OFF" end
+    if CFG.targetPriority == "Pinned" then
+        return SA.PinnedTarget and ("pinned: " .. tostring(SA.PinnedTarget.name))
+            or "no pinned target (use Pin Nearest Player)"
+    end
+    local t = SA.Target
+    if t and t.model then return "target: " .. tostring(t.model.Name) end
+    if CFG.hitChance < 100 then return "no target in FOV / hit-chance roll" end
+    if CFG.wallCheck and not CFG.manipulation then
+        return "no target in FOV / wall blocked"
+    end
+    return "no target in FOV (widen Aim Radius / enable Target NPCs)"
+end
+
+-- Per-weapon bone override. "Global" keeps the classic Target Bone
+-- dropdown; the two modes only change it for scoped guns / shotguns.
+function SA.ResolveTargetBone()
+    local base = CFG.targetBone or "Head"
+    local mode = CFG.targetBoneMode or "Global"
+    if mode == "Global" then return base end
+    local id = ""
+    pcall(function() id = tostring(SA.GetEquippedGun().id or "") end)
+    local scoped = id:find("sniper", 1, true) or id:find("bolt", 1, true)
+        or id:find("rifle", 1, true)
+    local shotgun = id:find("shotgun", 1, true)
+    if mode == "Head for snipers" then return scoped and "Head" or "Hrp" end
+    if mode == "Hrp for shotguns" then return shotgun and "Hrp" or "Head" end
+    return base
+end
 
 -- The NPC names used by this game. Also accept the common attribute
 -- variants and models that live inside an "Npcs" container.
@@ -111,14 +184,40 @@ end
 -- stable instead of flickering with RNG.
 local function pickBestTarget(camera, aimPx, originPos, preview)
     if not camera or not lp.Character then return nil end
+    -- Pinned target wins for the REAL shot, but never hijacks the
+    -- snapline preview (which must stay the closest-to-crosshair pick).
+    if not preview and (CFG.targetPriority or "Crosshair") == "Pinned"
+        and SA.PinnedTarget then
+        local pin = SA.PinnedTarget
+        local okPin = pcall(function()
+            local hum = pin.model and pin.model:FindFirstChildOfClass("Humanoid")
+            if pin.model and pin.model.Parent and pin.bone and pin.bone.Parent
+                and hum and hum.Health > 0 then
+                pin.pos = pin.bone.Position
+            else
+                SA.PinnedTarget = nil
+            end
+        end)
+        if okPin and SA.PinnedTarget and pin.pos then
+            return { bone = pin.bone, model = pin.model, pos = pin.pos,
+                     pinned = true }
+        end
+    end
     local best = { delta = math.huge }
+    local priority = preview and "Crosshair" or (CFG.targetPriority or "Crosshair")
+    local resolvedBone = SA.ResolveTargetBone and SA.ResolveTargetBone() or CFG.targetBone
+    local function score(bp, d2, hum)
+        if priority == "Nearest" then return (bp - originPos).Magnitude end
+        if priority == "Lowest HP" then return hum and hum.Health or math.huge end
+        return d2  -- Crosshair (and everything unknown)
+    end
     -- EXACTLY the same centre + radius the FOV circle is drawn with.
     -- `aimPx` must be SA.AimPoint(); the radius always comes from
     -- SA.FovRadius() so targets inside the circle are the ones picked.
     local aimRef = aimPx or SA.AimPoint()
     local radius = SA.FovRadius()
     local r2 = radius * radius
-    local function consider(bone, model)
+    local function consider(bone, model, hum)
         if not bone then return end
         local bp = bone.Position
         if CFG.distance > 0 and (bp - originPos).Magnitude > CFG.distance then return end
@@ -127,8 +226,9 @@ local function pickBestTarget(camera, aimPx, originPos, preview)
         local dx, dy = sp.X - aimRef.X, sp.Y - aimRef.Y
         local d2 = dx * dx + dy * dy
         if radius > 0 and d2 > r2 then return end
-        if d2 < best.delta then
-            best = { delta = d2, bone = bone, model = model, pos = bp }
+        local sc = score(bp, d2, hum)
+        if sc < best.delta then
+            best = { delta = sc, bone = bone, model = model, pos = bp }
         end
     end
     for _, p in ipairs(Players:GetPlayers()) do
@@ -137,7 +237,7 @@ local function pickBestTarget(camera, aimPx, originPos, preview)
                 local model = p.Character
                 local hum = model and model:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Health > 0 then
-                    consider(bonePart(model, CFG.targetBone), model)
+                    consider(bonePart(model, resolvedBone), model, hum)
                 end
             end
         end
@@ -148,7 +248,7 @@ local function pickBestTarget(camera, aimPx, originPos, preview)
         for _, model in ipairs(npcs) do
             local hum = model:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
-                consider(bonePart(model, CFG.targetBone), model)
+                consider(bonePart(model, resolvedBone), model, hum)
             end
         end
     end

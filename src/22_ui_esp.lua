@@ -308,3 +308,46 @@ for i, group in ipairs(COLOR_GROUPS) do
         })
     end
 end
+
+-- ── BETTER : ESP decluttering ───────────────────────────────────────
+-- Four live filters (nearest N, aim target, team rule, entity cap) plus
+-- a per-kind ON-SCREEN counter. All of it reads SA.EspPassStats(), which
+-- is computed in the FX pass itself — so the numbers are what you see.
+local declutterCol = EspTab:column()
+local declutterSec = declutterCol:section({ name = "Declutter / Live Counts" })
+
+bindToggle(declutterSec, "Only Nearest N Players", "espOnlyNearest",
+    "Draw ESP for just the closest players; the current aim target always keeps a slot")
+bindSlider(declutterSec, "Nearest N", "espNearestCount", 1, 20, 1, "")
+bindToggle(declutterSec, "Only Current Aim Target", "espOnlyAimTarget",
+    "Hide every player except the one silent aim / snapline is currently picking")
+bindDropdown(declutterSec, "Team Filter", "espTeamMode", {
+    "All", "Teammates Only", "Exclude Teammates",
+})
+bindToggle(declutterSec, "Show Live On-Screen Count", "espShowLiveCount")
+local saEspCountLabel = declutterSec:label({ name = "players 0 · npcs 0 · crates 0" })
+addButton(declutterSec, "Print Live ESP Counts", function()
+    local v = SA.EspPassStats()
+    print(string.format("[esp] on screen: %d players · %d npcs · %d crates",
+        v.players, v.npcs, v.crates))
+    print("[esp] filters: nearest", tostring(v.nearest),
+        "| team", tostring(v.teamMode), "| only aim", tostring(v.onlyAimTarget))
+end)
+
+local saEspCountLast = 0
+bindRender(function()
+    if not SA.Alive then return end
+    local now = tick()
+    if now - saEspCountLast < 0.2 then return end
+    saEspCountLast = now
+    pcall(function()
+        local v = SA.EspPassStats()
+        if CFG.espShowLiveCount then
+            saEspCountLabel.set(string.format(
+                "players %d · npcs %d · crates %d  ·  nearest %s",
+                v.players, v.npcs, v.crates, tostring(v.nearest or "off")))
+        else
+            saEspCountLabel.set("live counts hidden (toggle above)")
+        end
+    end)
+end)

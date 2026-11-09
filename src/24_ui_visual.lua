@@ -205,33 +205,91 @@ local function saNearestBuild()
     return true
 end
 
-local function saNearestPlayer()
+local function saNearestPlayers()
     local myRoot = SA.PlayerRig(lp.Character)
     local myPos = myRoot and myRoot.Position or nil
     if not myPos then
         pcall(function() myPos = ws.CurrentCamera.CFrame.Position end)
     end
-    if not myPos then return nil, nil, nil, "no local position" end
+    if not myPos then return nil, "no local position" end
     local ok, players = pcall(function() return Players:GetPlayers() end)
-    if not ok or not players then return nil, nil, nil, "Players:GetPlayers failed" end
-    local best, bestDist = nil, math.huge
+    if not ok or not players then return nil, "Players:GetPlayers failed" end
+    local rows = {}
     for _, plr in ipairs(players) do
         if plr ~= lp then
-            local root = plr.Character and SA.PlayerRig(plr.Character) or nil
+            local char = plr.Character
+            local root = char and SA.PlayerRig(char) or nil
+            local hum = char and char:FindFirstChildOfClass("Humanoid") or nil
             if root and root.Position then
                 local okD, d = pcall(function()
                     return (myPos - root.Position).Magnitude
                 end)
-                if okD and d and d < bestDist then
-                    best, bestDist = plr, d
+                if okD and d then
+                    local tool = "None"
+                    pcall(function() tool = SA.GetTool(char) end)
+                    local hp = 100
+                    pcall(function()
+                        hp = math.floor(100 * hum.Health
+                            / math.max(hum.MaxHealth, 1) + 0.5)
+                    end)
+                    local mate = false
+                    pcall(function() mate = SA.IsTeammate(plr) end)
+                    local vis = true
+                    pcall(function() vis = SA.IsVisible(char, root.Position) end)
+                    rows[#rows + 1] = { plr = plr, char = char,
+                        dist = d, tool = tostring(tool), hp = hp,
+                        mate = mate, vis = vis }
                 end
             end
         end
     end
-    if not best then return nil, nil, nil, "no other player with a rig" end
-    local tool = "None"
-    pcall(function() tool = SA.GetTool(best.Character) end)
-    return best, bestDist, tool, "ok"
+    table.sort(rows, function(a, b) return a.dist < b.dist end)
+    if #rows == 0 then return nil, "no other player with a rig" end
+    return rows, "ok"
+end
+
+local function saNearestApplyLayout()
+    if not saNearest.frame then return end
+    local scale = tonumber(CFG.nearestScale) or 1
+    local n = math.floor(tonumber(CFG.nearestTopN) or 1)
+    local extra = (CFG.showNoTargetReason and 1 or 0)
+        + (CFG.perfShowFps and 1 or 0)
+    local w = math.floor(300 * scale)
+    local h = math.floor((30 + 18 * n + 16 * extra) * scale)
+    pcall(function()
+        saNearest.frame.Size = UDim2.new(0, w, 0, h)
+        saNearest.frame.BackgroundTransparency = math.clamp(
+            (tonumber(CFG.nearestTransparency) or 12) / 100, 0, 0.95)
+        local corner = CFG.nearestCorner or "Top Left"
+        local x, y = 12, 12
+        if corner == "Top Right" or corner == "Bottom Right" then
+            x = -w - 12
+        end
+        if corner == "Bottom Left" or corner == "Bottom Right" then
+            y = -h - 12
+        end
+        local px = (corner == "Top Right" or corner == "Bottom Right")
+            and UDim2.new(1, x, 0, y) or UDim2.new(0, x, 0, y)
+        if corner == "Bottom Left" or corner == "Bottom Right" then
+            px = (corner == "Bottom Right") and UDim2.new(1, x, 1, y)
+                or UDim2.new(0, x, 1, y)
+        end
+        saNearest.frame.Position = px
+        if saNearest.label then
+            saNearest.label.TextSize = math.floor(12 * scale)
+        end
+    end)
+end
+
+local function saNearestDisplay(plr)
+    local display = plr.Name
+    pcall(function()
+        if plr.DisplayName and plr.DisplayName ~= "" then
+            display = string.format("%s (@%s)", tostring(plr.DisplayName),
+                                    tostring(plr.Name))
+        end
+    end)
+    return display
 end
 
 local function saNearestTick(_, force)
@@ -243,6 +301,7 @@ local function saNearestTick(_, force)
         saNearest.lastBuild = tick()
         saNearestBuild()
     end
+    saNearestApplyLayout()
     if saNearest.gui then saNearest.gui.Enabled = show end
     saNearest.enabled, saNearest.menuOpen, saNearest.visible = enabled, menuOpen, show
     if not enabled then
@@ -252,9 +311,9 @@ local function saNearestTick(_, force)
     local now = tick()
     if not force and now - (saNearest.lastUpdate or 0) < 0.1 then return end
     saNearest.lastUpdate = now
-    local plr, dist, tool, reason = saNearestPlayer()
+    local rows, reason = saNearestPlayers()
     saNearest.lastReason = reason
-    if not plr then
+    if not rows then
         saNearest.lastName, saNearest.lastDist = nil, nil
         saNearest.lastMeters, saNearest.lastTool = nil, nil
         if saNearest.label then
@@ -262,21 +321,46 @@ local function saNearestTick(_, force)
         end
         return
     end
-    local display = plr.Name
-    pcall(function()
-        if plr.DisplayName and plr.DisplayName ~= "" then
-            display = string.format("%s (@%s)", tostring(plr.DisplayName),
-                                    tostring(plr.Name))
+    local top = rows[1]
+    saNearest.lastName = saNearestDisplay(top.plr)
+    saNearest.lastDist, saNearest.lastMeters = top.dist,
+        top.dist / (SA.STUDS_PER_METER or 3.571)
+    saNearest.lastTool = top.tool
+    saNearest.rows = rows
+    local n = math.min(math.floor(tonumber(CFG.nearestTopN) or 1), #rows)
+    local lines = { "NEAREST PLAYERS  ·  1 m ≈ 3.571 studs" }
+    for i = 1, n do
+        local r = rows[i]
+        local bits = { string.format("%d. %s  %.1f m", i,
+            saNearestDisplay(r.plr),
+            r.dist / (SA.STUDS_PER_METER or 3.571)) }
+        if CFG.nearestShowHealth ~= false then
+            bits[#bits + 1] = tostring(r.hp) .. "%"
         end
-    end)
-    local meters = dist / (SA.STUDS_PER_METER or 3.571)
-    saNearest.lastName, saNearest.lastDist = display, dist
-    saNearest.lastMeters, saNearest.lastTool = meters, tostring(tool)
-    if saNearest.label then
-        saNearest.label.Text = string.format(
-            "NEAREST PLAYER\n%s\n%.1f m  ·  [ %s ]",
-            display, meters, tostring(tool))
+        if CFG.nearestShowState ~= false then
+            bits[#bits + 1] = r.vis and "VIS" or "WALL"
+        end
+        if CFG.nearestShowTeam == true then
+            bits[#bits + 1] = r.mate and "MATE" or "ENEMY"
+        end
+        bits[#bits + 1] = "[ " .. r.tool .. " ]"
+        lines[#lines + 1] = table.concat(bits, "  ·  ")
     end
+    if CFG.showNoTargetReason then
+        pcall(function()
+            lines[#lines + 1] = "aim: " .. SA.NoTargetReason()
+        end)
+    end
+    if CFG.perfShowFps then
+        pcall(function()
+            local st = SA.PerfState()
+            lines[#lines + 1] = string.format("fps %.0f  ·  %d players / %d npcs / %d crates",
+                st.fps or 0, st.visible and st.visible.players or 0,
+                st.visible and st.visible.npcs or 0,
+                st.visible and st.visible.crates or 0)
+        end)
+    end
+    if saNearest.label then saNearest.label.Text = table.concat(lines, "\n") end
 end
 
 function SA.NearestWindowRefresh() saNearestTick(0, true) end
@@ -287,6 +371,7 @@ function SA.NearestWindowSet(on)
     saNearestTick(0, true)
 end
 function SA.NearestWindowState()
+    local nearestRow = saNearest.rows and saNearest.rows[1] or nil
     return {
         enabled = CFG.nearestWindow == true,
         built = saNearest.built == true,
@@ -299,6 +384,15 @@ function SA.NearestWindowState()
         reason = (saNearest.built and (saNearest.lastReason or "ok"))
             or saNearest.reason or "unknown",
         lastUpdate = saNearest.lastUpdate or 0,
+        topN = CFG.nearestTopN,
+        rows = saNearest.rows and #saNearest.rows or 0,
+        corner = CFG.nearestCorner,
+        scale = CFG.nearestScale,
+        health = nearestRow and nearestRow.hp or nil,
+        visibleState = nearestRow and (nearestRow.vis and "VIS" or "WALL") or nil,
+        -- `and ... or nil` would turn a legitimate false into nil; the HUD
+        -- needs false to mean "not a teammate".
+        teammate = nearestRow and nearestRow.mate or false,
     }
 end
 function SA.NearestWindowDiag()
@@ -322,3 +416,273 @@ addButton(dbgSec, "Print Nearest HUD", function() SA.NearestWindowDiag() end)
 saNearestBuild()
 saNearestTick(0, true)
 saNearest.conn = bindRender(function(dt) saNearestTick(dt) end)
+
+-- ── BETTER : HUD + Performance controls ─────────────────────────────
+local hudCol = VisualTab:column()
+local hudSec, perfSec = hudCol:multi_section({
+    names = { "Nearest HUD", "Performance Mode" },
+})
+bindSlider(hudSec, "Top-N Players", "nearestTopN", 1, 5, 1, "")
+bindToggle(hudSec, "Show HP %", "nearestShowHealth")
+bindToggle(hudSec, "Show VIS / WALL", "nearestShowState")
+bindToggle(hudSec, "Show Team", "nearestShowTeam")
+bindDropdown(hudSec, "Corner", "nearestCorner", {
+    "Top Left", "Top Right", "Bottom Left", "Bottom Right",
+})
+bindSlider(hudSec, "HUD Scale", "nearestScale", 0.6, 1.8, 0.1, "x")
+bindSlider(hudSec, "HUD Transparency (%)", "nearestTransparency", 0, 80, 1, "%")
+bindToggle(hudSec, "Live 'Why No Target?' Line", "showNoTargetReason",
+    "Shows the exact reason aim has no target (FOV, walls, master off, hit chance, pinned target)")
+addButton(hudSec, "Lock Nearest as Aim Target", function()
+    local name, err = SA.PinNearestTarget()
+    if name then
+        setFlag("targetPriority", "Pinned")
+        print("[hud] locked aim to nearest:", name)
+    else print("[hud] lock failed:", tostring(err)) end
+end)
+addButton(hudSec, "Print Nearest HUD", function() SA.NearestWindowDiag() end)
+
+bindToggle(perfSec, "Performance Mode", "perfMode",
+    "Adaptive ESP rebuild pacing, drawing reuse, entity cap per frame and FPS counter")
+bindSlider(perfSec, "Rebuild Interval (ms @60fps)", "perfEspRebuildMs", 16, 500, 1, "ms")
+bindSlider(perfSec, "Max ESP Entities / Frame", "perfMaxEntities", 5, 100, 1, "")
+bindToggle(perfSec, "FPS Counter in HUD", "perfShowFps")
+addButton(perfSec, "Print Performance State", function()
+    local st = SA.PerfState()
+    print(string.format("[perf] %.1f fps | frame %d | rebuild %.0f ms (base %s) | cap %s (base %s)",
+        st.fps, st.frame, st.effectiveRebuildMs or 0, tostring(st.rebuildMs),
+        tostring(st.effectiveEntityCap), tostring(st.maxEntities)))
+    if st.pool then print("[perf] draw pool:", tostring(st.pool.enabled),
+        "free", st.pool.total, st.pool.byKind) end
+    if st.visible then print("[perf] visible ESP:",
+        st.visible.players, "players /", st.visible.npcs, "npcs /",
+        st.visible.crates, "crates") end
+end)
+addButton(perfSec, "Print Draw Pool", function()
+    local p = SA.DrawPoolStats()
+    print("[perf] pool enabled:", tostring(p.enabled), "| free:", p.total,
+        "|", p.byKind)
+end)
+
+-- A tiny always-on-top FPS / entity overlay, independent of the Atlanta
+-- menu. It only updates at ~5 Hz so it never costs a frame of styling.
+-- Re-executing must remove the previous generation's GUI / bind first.
+if SA.DisposePerfOverlay then pcall(SA.DisposePerfOverlay) end
+local saPerfOverlay = { gui = nil, label = nil, last = 0 }
+
+function SA.DisposePerfOverlay()
+    if saPerfOverlay.conn then pcall(function() saPerfOverlay.conn:Disconnect() end) end
+    if saPerfOverlay.gui then pcall(function() saPerfOverlay.gui:Destroy() end) end
+    saPerfOverlay.gui, saPerfOverlay.label, saPerfOverlay.conn = nil, nil, nil
+end
+
+local function saPerfOverlayBuild()
+    if saPerfOverlay.gui then return end
+    local parent = nil
+    pcall(function()
+        if typeof(gethui) == "function" then parent = gethui() end
+    end)
+    if not parent then pcall(function() parent = game:GetService("CoreGui") end) end
+    if not parent then return end
+    pcall(function()
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "HanamiPerfOverlay"
+        sg.ResetOnSpawn = false
+        sg.IgnoreGuiInset = true
+        sg.DisplayOrder = 996
+        sg.Enabled = false
+        sg.Parent = parent
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "PerfText"
+        lbl.Size = UDim2.new(0, 300, 0, 48)
+        lbl.Position = UDim2.new(0.5, -150, 0, 8)
+        lbl.BackgroundColor3 = Color3.fromRGB(12, 14, 22)
+        lbl.BackgroundTransparency = 0.35
+        lbl.TextColor3 = Color3.fromRGB(190, 235, 255)
+        lbl.TextXAlignment = Enum.TextXAlignment.Center
+        lbl.TextYAlignment = Enum.TextYAlignment.Center
+        lbl.TextSize = 12
+        lbl.Text = ""
+        lbl.Parent = sg
+        pcall(function() SA.ApplyEspFont(lbl) end)
+        saPerfOverlay.gui, saPerfOverlay.label = sg, lbl
+    end)
+end
+
+saPerfOverlay.conn = bindRender(function()
+    if not SA.Alive then return end
+    local show = CFG.perfMode == true and CFG.perfShowFps == true
+        and (window and window.opened) == false
+    if not saPerfOverlay.gui and show then saPerfOverlayBuild() end
+    if saPerfOverlay.gui then saPerfOverlay.gui.Enabled = show end
+    if not show or not saPerfOverlay.label then return end
+    local now = tick()
+    if now - saPerfOverlay.last < 0.2 then return end
+    saPerfOverlay.last = now
+    pcall(function()
+        local st = SA.PerfState()
+        local v = st.visible or {}
+        saPerfOverlay.label.Text = string.format(
+            "%.0f FPS  ·  rebuild %.0f ms  ·  cap %s\nplayers %s  npcs %s  crates %s  ·  pool %s",
+            st.fps or 0, st.effectiveRebuildMs or 0,
+            tostring(st.effectiveEntityCap), tostring(v.players or 0),
+            tostring(v.npcs or 0), tostring(v.crates or 0),
+            tostring(st.pool and st.pool.total or 0))
+    end)
+end)
+
+
+-- ────────────────────────────────────────────────────────────────────
+-- BETTER 5 · KEYBIND ERGONOMICS (all seven wrapped binds)
+-- Rebind / Clear / toggle-hold-always / conflict detector. Rebind accepts
+-- ANY KeyCode or UserInputType, Escape = None. Loaded after every feature
+-- bind has been registered, so SA.AllKeybinds is complete here.
+-- ────────────────────────────────────────────────────────────────────
+-- ────────────────────────────────────────────────────────────────────
+-- BETTER 5 · KEYBIND ERGONOMICS
+-- All seven wrapped binds in one mini-section: Rebind, Clear, hold /
+-- toggle / always mode, and a conflict detector. Rebind listens for ANY
+-- KeyCode or UserInputType (mouse buttons included), with Escape = None.
+-- ────────────────────────────────────────────────────────────────────
+
+function SA.SetAllKeybindModes(mode)
+    mode = ({ toggle = true, hold = true, always = true })[mode]
+        and mode or "toggle"
+    local n = 0
+    for flag, cfg in pairs(SA.AllKeybinds or {}) do
+        -- Set fields directly: Atlanta's cfg.set_mode("hold") calls
+        -- cfg.set(false), which would fire every callback and switch all
+        -- features OFF. A MODE change must never change ON/OFF state.
+        cfg.mode = mode
+        if mode == "always" then cfg.active = true end
+        pcall(function()
+            library.flags[flag] = { mode = cfg.mode, key = cfg.key,
+                                    active = cfg.active }
+        end)
+        n = n + 1
+    end
+    CFG.keybindMode = mode
+    print("[bind] mode set to", mode, "for", n, "binds")
+    return n
+end
+
+function SA.KeybindConflicts()
+    local byKey, out = {}, {}
+    for flag, cfg in pairs(SA.AllKeybinds or {}) do
+        local k = SA.KeyToString(cfg.key)
+        if k ~= "none" and k ~= "" then
+            local bucket = byKey[k] or {}
+            bucket[#bucket + 1] = flag
+            byKey[k] = bucket
+        end
+    end
+    for k, flags in pairs(byKey) do
+        if #flags > 1 then
+            table.sort(flags)
+            out[#out + 1] = { key = k, flags = flags }
+        end
+    end
+    table.sort(out, function(a, b) return a.key < b.key end)
+    return out
+end
+
+function SA.PrintKeybindConflicts()
+    local list = SA.KeybindConflicts()
+    print("════════════ KEYBIND CONFLICTS ════════════")
+    if #list == 0 then print("  none — every bound key is unique") end
+    for _, c in ipairs(list) do
+        print(" ", c.key, "->", table.concat(c.flags, ", "))
+    end
+    print("══════════════════════════════════════")
+    return list
+end
+
+function SA.PrintAllKeybinds()
+    local flags = {}
+    for flag in pairs(SA.AllKeybinds or {}) do flags[#flags + 1] = flag end
+    table.sort(flags)
+    print("════════════ ALL KEYBINDS ════════════")
+    for _, flag in ipairs(flags) do
+        local cfg = SA.AllKeybinds[flag]
+        print(string.format("  %-28s %-28s %-7s active=%s",
+            flag, SA.KeyToString(cfg.key), tostring(cfg.mode),
+            tostring(cfg.active)))
+    end
+    print("══════════════════════════════════════")
+    return #flags
+end
+
+function SA.StartRebind(flag)
+    local cfg = SA.AllKeybinds and SA.AllKeybinds[flag] or nil
+    if not cfg then return false, "unknown bind: " .. tostring(flag) end
+    pcall(function() if SA.RebindConn then SA.RebindConn:Disconnect() end end)
+    SA.RebindFlag = flag
+    local conn
+    conn = UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        local key = nil
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            key = input.KeyCode
+        else
+            key = input.UserInputType
+        end
+        pcall(function() cfg.set(key) end)
+        pcall(function() conn:Disconnect() end)
+        SA.RebindConn, SA.RebindFlag = nil, nil
+        print("[bind]", flag, "->", tostring(key))
+        if CFG.keybindConflictWarn then SA.PrintKeybindConflicts() end
+    end)
+    SA.RebindConn = conn
+    print("[bind] press ANY key / mouse button to bind", flag, "(Escape = None)")
+    return true
+end
+
+function SA.CancelRebind()
+    pcall(function() if SA.RebindConn then SA.RebindConn:Disconnect() end end)
+    SA.RebindConn, SA.RebindFlag = nil, nil
+end
+
+function SA.ClearSelectedKeybind()
+    local cfg = SA.AllKeybinds and SA.AllKeybinds[CFG.keybindSelected] or nil
+    if not cfg then return false, "no bind selected" end
+    if cfg.__saClear then pcall(cfg.__saClear) end
+    return true
+end
+
+
+
+local kbCol = VisualTab:column()
+local kbSec = kbCol:section({ name = "Keybinds (All 7)" })
+local saKBSelectedItems = {}
+for flag in pairs(SA.AllKeybinds or {}) do
+    saKBSelectedItems[#saKBSelectedItems + 1] = flag
+end
+table.sort(saKBSelectedItems)
+kbSec:dropdown({
+    name = "Bind", flag = "hn_keybindSelected",
+    items = saKBSelectedItems,
+    default = CFG.keybindSelected,
+    callback = function(v) CFG.keybindSelected = tostring(v or "hn_menu_bind") end,
+})
+kbSec:dropdown({
+    name = "All Binds Mode", flag = "hn_keybindMode",
+    items = { "toggle", "hold", "always" },
+    default = CFG.keybindMode,
+    callback = function(mode)
+        CFG.keybindMode = mode
+        SA.SetAllKeybindModes(mode)
+    end,
+})
+bindToggle(kbSec, "Warn on Conflicts", "keybindConflictWarn")
+addButton(kbSec, "Rebind Selected", function()
+    SA.StartRebind(CFG.keybindSelected)
+end)
+addButton(kbSec, "Clear Selected", function()
+    SA.ClearSelectedKeybind()
+end)
+addButton(kbSec, "Cancel Rebind", function() SA.CancelRebind() end)
+addButton(kbSec, "Print All Keybinds", function() SA.PrintAllKeybinds() end)
+addButton(kbSec, "Print Conflicts", function() SA.PrintKeybindConflicts() end)
+addButton(kbSec, "Set All: Toggle", function() SA.SetAllKeybindModes("toggle") end)
+addButton(kbSec, "Set All: Hold", function() SA.SetAllKeybindModes("hold") end)
+kbSec:label({ name = "Rebind accepts ANY key or mouse button · Escape = None" })

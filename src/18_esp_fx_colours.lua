@@ -44,9 +44,14 @@ local function getDraw(o, key, kind)
     if not o.fx then o.fx = {} end
     local d = o.fx[key]
     if not d then
-        local ok, obj = pcall(function() return SA.NewDraw(kind) end)
-        if not ok or not obj then return nil end
-        d = obj; o.fx[key] = d
+        d = SA.DrawPoolTake and SA.DrawPoolTake(kind) or nil
+        if not d then
+            local ok, obj = pcall(function() return SA.NewDraw(kind) end)
+            if not ok or not obj then return nil end
+            d = obj
+            pcall(function() d.__saPoolKind = kind end)
+        end
+        o.fx[key] = d
         d.Visible = false
         if kind == "Line" then d.Thickness = math.max(CFG.espBoxThickness or 1, 1) end
         if kind == "Circle" then d.NumSides = 24; d.Filled = true; d.Thickness = 1 end
@@ -62,7 +67,9 @@ end
 
 function SA.DisposeEspFx(o)
     if not o or not o.fx then return end
-    for _, d in pairs(o.fx) do removeDrawing(d) end
+    for _, d in pairs(o.fx) do
+        if SA.RecycleDraw then pcall(SA.RecycleDraw, d) else removeDrawing(d) end
+    end
     o.fx = nil
 end
 

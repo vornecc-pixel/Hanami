@@ -9,31 +9,48 @@
 -- Atlanta's window.esp_section once, then exposes the SA.* controls.
 -- ==================================================================
 
-local function pvBuildModel()
-    if not pv.root then return end
-    if pv.model then pcall(function() pv.model:Destroy() end) end
-    pv.model = nil
-    local model, why, isDummy = pvMakeModel()
-    pv.reason = why
-    pv.isDummy = isDummy == true
+local function pvPlaceOne(isNpc, x, ui, tag)
+    local model, why, isDummy = pvMakeModel(isNpc)
     if model then
-        pvRecenter(model)
+        pvRecenter(model, x)
         local ok = pcall(function() model.Parent = pv.root end)
         if not ok then model = nil end
     end
     if not model then
         local okDummy, dummy = pcall(pvDummyRig)
         if okDummy and dummy then
+            pvRecenter(dummy, x)
             pcall(function() dummy.Parent = pv.root end)
             model = dummy
-            pv.isDummy = true
-            pv.reason = "fallback dummy rig"
-        else
-            pv.reason = "no 3D model available"
+            isDummy = true
+            why = "fallback dummy rig"
         end
     end
-    pv.model = model
-    pv.parts = pvCollectParts(model)
+    if ui then ui.parts = model and pvCollectParts(model) or {} end
+    pv[tag] = model
+    pv[tag .. "Reason"] = why
+    pv[tag .. "Dummy"] = isDummy == true
+    local parts = model and pvCollectParts(model) or {}
+    for _, e in ipairs(parts) do pv.parts[#pv.parts + 1] = e end
+    return model, why
+end
+
+local function pvBuildModel()
+    if not pv.root then return end
+    if pv.model then pcall(function() pv.model:Destroy() end) end
+    if pv.model2 then pcall(function() pv.model2:Destroy() end) end
+    pv.model, pv.model2, pv.parts = nil, nil, {}
+    local compare = CFG.espPreviewCompare == true
+    local primaryNpc = CFG.espPreviewKind == "NPC"
+    local x1, x2 = compare and -2.4 or 0, compare and 2.4 or 0
+    local m1, w1 = pvPlaceOne(primaryNpc, x1, pv.ui, "model")
+    pv.reason, pv.isDummy = w1, pv.modelDummy
+    if compare then
+        pvPlaceOne(not primaryNpc, x2, pv.ui2, "model2")
+    end
+    pv.lastSource = CFG.espPreviewSource
+    pv.lastCompare = compare
+    pv.lastKind = CFG.espPreviewKind
     pcall(pvApplyStyle)
 end
 
@@ -52,13 +69,22 @@ local function pvTick(dt)
     -- the floating panel is gone or the menu has hidden it.
     if pv.sgui and (not pv.sgui.Enabled or not pv.sgui.Parent) then return end
 
+    -- Rebuild when the user switches sources, the compared kind or the
+    -- side-by-side toggle. Models are cloned once, not every frame.
+    local compare = CFG.espPreviewCompare == true
+    if pv.lastSource ~= CFG.espPreviewSource
+        or pv.lastCompare ~= compare
+        or pv.lastKind ~= CFG.espPreviewKind then
+        pcall(pvBuildModel)
+    end
     if CFG.espPreviewSpin and pv.camera then
         pv.angle = ((pv.angle or 0)
             + math.max(tonumber(CFG.espPreviewSpeed) or 25, 0) * (dt or 0.016)) % 360
         local a = math.rad(pv.angle)
+        local dist = compare and 11 or 7.5
         pcall(function()
             pv.camera.CFrame = CFrame.lookAt(
-                Vector3.new(math.sin(a) * 7.5, 1.2, math.cos(a) * 7.5),
+                Vector3.new(math.sin(a) * dist, 1.2, math.cos(a) * dist),
                 Vector3.new(0, -0.5, 0))
         end)
     end
@@ -66,10 +92,17 @@ local function pvTick(dt)
     if now - (pv.lastStyle or 0) > 0.1 then
         pv.lastStyle = now
         local okStyle, styleErr = pcall(pvApplyStyle)
-        pv.styleErr = okStyle and nil or tostring(styleErr)
-        if not okStyle and not pv.styleWarned then
-            pv.styleWarned = true
-            warn("[esp] preview styling: " .. tostring(styleErr))
+        -- `okStyle and nil or ...` is ALWAYS the right-hand side in Lua:
+        -- `true and nil` is nil, so the `or` branch still runs. Use an
+        -- explicit if/else so a successful style pass clears the error.
+        if okStyle then
+            pv.styleErr = nil
+        else
+            pv.styleErr = tostring(styleErr)
+            if not pv.styleWarned then
+                pv.styleWarned = true
+                warn("[esp] preview styling: " .. tostring(styleErr))
+            end
         end
     end
 end
@@ -101,9 +134,13 @@ function SA.EspPreviewDiag()
         "| speed:", tostring(CFG.espPreviewSpeed))
     print("  kind    :", tostring(CFG.espPreviewKind), "ESP | aim target:",
         tostring(CFG.espPreviewTarget), "| overlays:", pv.ui and "BUILT" or "MISSING")
+    print("  source  :", tostring(CFG.espPreviewSource),
+        "| compare:", tostring(CFG.espPreviewCompare))
     print("  model   :", pv.isDummy and "synthetic dummy rig"
-        or (pv.model and "local character clone" or "NONE"))
-    print("  parts   :", pv.parts and #pv.parts or 0, "| reason:", tostring(pv.reason or "-"))
+        or (pv.model and "live server clone" or "NONE"),
+        "| 2nd:", pv.model2 and "BUILT" or "off")
+    print("  parts   :", pv.parts and #pv.parts or 0, "| reason:", tostring(pv.reason or "-"),
+        "| 2nd:", tostring(pv.model2Reason or "-"))
     print("  panel   :", pv.sgui and (pv.sgui.Enabled and "visible" or "hidden") or "MISSING",
         "| own:", tostring(pv.ownGui ~= nil))
     print("  viewport:", pv.root and (pv.root.Visible and "visible" or "hidden") or "MISSING")
@@ -231,7 +268,10 @@ else
         pv.camera = cam
         viewport.CurrentCamera = cam
 
-        pv.ui = pvBuildOverlays(viewport)
+        pv.ui = pvBuildOverlays(viewport, 0.28, 104, "PlayerSide")
+        pv.ui2 = pvBuildOverlays(viewport, 0.72, 104, "NpcSide")
+        pv.ui.holder.Position = UDim2new(0.5, 0, 0.5, 0)
+        pv.ui2.holder.Visible = false
         pvBuildModel()
         -- bindRender does not guard its callback; one stray Instance
         -- error must never spam RenderStepped or break the other loops.
@@ -258,6 +298,11 @@ else
     pcall(bindToggle, pvSec, "Enabled", "espPreview",
         "Show / hide the 3D ESP Preview render")
     pcall(bindDropdown, pvSec, "Preview Kind", "espPreviewKind", { "Player", "NPC" })
+    pcall(bindDropdown, pvSec, "Model Source", "espPreviewSource", {
+        "Local Character", "Nearest Player", "Nearest NPC", "Aim Target",
+    })
+    pcall(bindToggle, pvSec, "Side-by-Side Player vs NPC", "espPreviewCompare",
+        "Clone a second real server model and show Player ESP next to NPC ESP with the same live settings")
     pcall(bindToggle, pvSec, "Simulate Aim Target", "espPreviewTarget",
         "Paints box / fill / outline with the Target colour, like Highlight Aim Target")
     pcall(bindToggle, pvSec, "Rotate Model", "espPreviewSpin")

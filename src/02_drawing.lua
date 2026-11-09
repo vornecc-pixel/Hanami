@@ -29,6 +29,7 @@ local drawGui       = _G.__saDrawGui
 local nativeOK      = {}      -- kind -> true / false (lazy capability cache)
 local proxyCount    = 0
 local drawLastError = "none"
+local drawWriteFailures, drawLastWriteError = 0, "none"
 
 local PROPS = {
     Line     = { "Visible", "Color", "Transparency", "Thickness", "From", "To" },
@@ -169,7 +170,7 @@ local function fallbackDraw(kind)
             frame.Size = UDim2.fromOffset(len, math.max(st.Thickness or 1, 1))
             frame.Position = UDim2.fromOffset((st.From.X + st.To.X) / 2,
                                               (st.From.Y + st.To.Y) / 2)
-            frame.Rotation = math.deg(math.atan2(d.Y, d.X))
+            frame.Rotation = math.deg(SA.Atan2(d.Y, d.X))
             frame.BackgroundTransparency = a
         elseif kind == "Circle" then
             local r = math.max(st.Radius or 1, 1)
@@ -221,7 +222,11 @@ local function fallbackDraw(kind)
             -- Instance writes per frame and re-introduce a stutter.
             if st[k] == v then return end
             st[k] = v
-            pcall(sync)
+            local okSync, errSync = pcall(sync)
+            if not okSync then
+                drawWriteFailures = drawWriteFailures + 1
+                drawLastWriteError = tostring(errSync)
+            end
         end,
     })
     proxyCount = proxyCount + 1
@@ -336,12 +341,62 @@ local function textDraw()
         __newindex = function(_, k, v)
             if st[k] == v then return end
             st[k] = v
-            pcall(sync)
+            local okSync, errSync = pcall(sync)
+            if not okSync then
+                drawWriteFailures = drawWriteFailures + 1
+                drawLastWriteError = tostring(errSync)
+            end
         end,
     })
     proxyCount = proxyCount + 1
     sync()
     return proxy
+end
+
+-- ── BETTER: drawing pool (Performance Mode) ─────────────────────────
+-- Toggling ESP features used to Destroy + Instance.new a ScreenGui proxy
+-- for every element of every entity. With Performance Mode ON, freed
+-- GUI proxies are hidden and reused instead. Native Drawing userdata
+-- cannot be tagged, so those still go through the normal Remove path.
+SA.DrawPool = SA.DrawPool or {}
+local DRAW_POOL_CAP = 64
+
+function SA.DrawPoolTake(kind)
+    local bucket = SA.DrawPool[kind]
+    if not bucket or #bucket == 0 then return nil end
+    local d = table.remove(bucket)
+    if type(d) ~= "table" then return nil end
+    pcall(function() d.Visible = false end)
+    return d
+end
+
+function SA.RecycleDraw(d)
+    if CFG.perfMode ~= true or type(d) ~= "table" then
+        pcall(removeDrawing, d)
+        return false
+    end
+    local kind = d.__saPoolKind
+    if not kind then pcall(removeDrawing, d); return false end
+    pcall(function() d.Visible = false end)
+    local bucket = SA.DrawPool[kind] or {}
+    if #bucket >= DRAW_POOL_CAP then
+        pcall(removeDrawing, d)
+        return false
+    end
+    bucket[#bucket + 1] = d
+    SA.DrawPool[kind] = bucket
+    return true
+end
+
+function SA.DrawPoolStats()
+    local total, kinds = 0, {}
+    for k, b in pairs(SA.DrawPool) do
+        total = total + #b
+        kinds[#kinds + 1] = k .. ":" .. #b
+    end
+    table.sort(kinds)
+    return { total = total, byKind = table.concat(kinds, ","),
+             enabled = CFG.perfMode == true }
 end
 
 function SA.NewDraw(kind)
@@ -381,6 +436,8 @@ end
 -- that kind (and everything else, for consistency) onto the GUI backend.
 function SA.InvalidateDrawKind(kind)
     if kind then nativeOK[kind] = false end
+    drawWriteFailures = drawWriteFailures + 1
+    drawLastWriteError = drawLastError
     drawLastError = "runtime write on native " .. tostring(kind) .. " failed -> GUI fallback"
 end
 
@@ -393,6 +450,11 @@ function SA.DrawBackend()
     local any = false
     for _, v in pairs(nativeOK) do if v then any = true end end
     return any and "Drawing" or "unavailable / lazy"
+end
+
+function SA.DrawWriteFailures()
+    return { count = drawWriteFailures, last = drawLastWriteError,
+             backend = SA.DrawBackend() }
 end
 
 function SA.DrawDiag()
@@ -408,6 +470,8 @@ function SA.DrawDiag()
         "Text=ScreenGui (Tahoma FontFace when available)",
         "overlay=" .. (drawGui and drawGui.Parent and drawGui:GetFullName() or "NONE"),
         "proxies=" .. tostring(proxyCount),
+        "writeFailures=" .. tostring(drawWriteFailures),
+        "lastWrite=" .. drawLastWriteError,
         "last=" .. drawLastError,
     }, " | ")
 end

@@ -17,6 +17,72 @@ local function safeDrawEntity(cam, o, opt)
     if not pcall(drawEntity, cam, o, opt) then pcall(hideFx, o) end
 end
 
+-- ── BETTER: ESP decluttering ────────────────────────────────────────
+-- All four filters are computed ONCE per frame from the same players /
+-- distances the FX pass uses, so "nearest N" is stable and costs one
+-- small sort rather than a per-entity distance sweep.
+SA.EspVisibleCount = { players = 0, npcs = 0, crates = 0 }
+local espNearestSet = {}
+
+local function refreshNearestSet(myPos, aimModel)
+    espNearestSet = {}
+    -- The set is keyed by CHARACTER MODEL, exactly what drawPlayerFx()
+    -- passes to SA.EspPassAllowed(). Keying it by Player objects silently
+    -- decluttered every player when Only Nearest N was enabled.
+    if aimModel then
+        espNearestSet[aimModel] = true
+        for plr in pairs(espObjects) do
+            if plr == aimModel or plr.Character == aimModel then
+                espNearestSet[plr.Character or plr] = true
+            end
+        end
+    end
+    if not CFG.espOnlyNearest then return end
+    local list = {}
+    for plr, o in pairs(espObjects) do
+        local char = plr.Character
+        local root = char and SA.PlayerRig(char) or nil
+        if char and root then
+            local ok, d = pcall(function() return (myPos - root.Position).Magnitude end)
+            if ok and d then list[#list + 1] = { model = char, d = d } end
+        end
+    end
+    table.sort(list, function(a, b) return a.d < b.d end)
+    local n = math.min(math.floor(CFG.espNearestCount or 5), #list)
+    for i = 1, n do espNearestSet[list[i].model] = true end
+end
+
+function SA.EspPassAllowed(kind, model, dist, targetModel)
+    if kind ~= "player" then return true end
+    if CFG.espOnlyAimTarget then
+        if not targetModel or targetModel ~= model then return false end
+    end
+    if CFG.espOnlyNearest and not espNearestSet[model] then return false end
+    local team = CFG.espTeamMode or "All"
+    if team ~= "All" and SA.IsTeammate then
+        local mate = false
+        pcall(function()
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p.Character == model then mate = SA.IsTeammate(p); break end
+            end
+        end)
+        if team == "Teammates Only" and not mate then return false end
+        if team == "Exclude Teammates" and mate then return false end
+    end
+    return true
+end
+
+function SA.EspPassStats()
+    return {
+        players = SA.EspVisibleCount.players,
+        npcs = SA.EspVisibleCount.npcs,
+        crates = SA.EspVisibleCount.crates,
+        nearest = CFG.espOnlyNearest and CFG.espNearestCount or nil,
+        teamMode = CFG.espTeamMode,
+        onlyAimTarget = CFG.espOnlyAimTarget == true,
+    }
+end
+
 local function drawPlayerFx(plr, o, cam, myPos, targetModel, origin, fovC, fovR, seed)
     local char = plr.Character
     local hrp, head, hum = SA.PlayerRig(char)
@@ -49,10 +115,13 @@ end
 
 function SA.ApplyEspFx(cam)
     if not cam then return end
+    SA.EspVisibleCount.players, SA.EspVisibleCount.npcs,
+        SA.EspVisibleCount.crates = 0, 0, 0
     local origin = tracerOrigin(cam)
     local myRoot = SA.PlayerRig(lp.Character)
     local myPos = myRoot and myRoot.Position or cam.CFrame.Position
     local targetModel = SA.Target and SA.Target.model or nil
+    refreshNearestSet(myPos, targetModel)
     local seed = 0
     -- shared with the FOV circle (10_fov_circle.lua) so off-screen arrows
     -- ride the exact same radius/centre the user sees
@@ -60,11 +129,23 @@ function SA.ApplyEspFx(cam)
     local fovR = SA.FovRadius()
 
     if CFG.espEnabled then
+        local drawn = 0
+        local cap = CFG.perfMode and (SA.PerfEffectiveEntityCap
+            and SA.PerfEffectiveEntityCap() or math.max(math.floor(CFG.perfMaxEntities or 40), 1))
+            or math.huge
         for plr, o in pairs(espObjects) do
             seed = seed + 0.137
-            if not pcall(drawPlayerFx, plr, o, cam, myPos, targetModel,
-                         origin, fovC, fovR, seed) then
+            if drawn >= cap or
+                not SA.EspPassAllowed("player", plr.Character, nil, targetModel) then
                 pcall(hideFx, o)
+            else
+                if not pcall(drawPlayerFx, plr, o, cam, myPos, targetModel,
+                             origin, fovC, fovR, seed) then
+                    pcall(hideFx, o)
+                else
+                    drawn = drawn + 1
+                    SA.EspVisibleCount.players = SA.EspVisibleCount.players + 1
+                end
             end
         end
     else for _, o in pairs(espObjects) do hideFx(o) end end
@@ -108,6 +189,9 @@ function SA.ApplyEspFx(cam)
                     geom = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
                              raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
                 })
+                if dist <= CFG.npcMaxDist then
+                    SA.EspVisibleCount.npcs = SA.EspVisibleCount.npcs + 1
+                end
             end
         end
     else for _, o in pairs(npcObjects) do hideFx(o) end end
@@ -135,6 +219,7 @@ function SA.ApplyEspFx(cam)
                     geom = { x = raw.X - w / 2, y = tv.Y, w = w, h = h,
                              raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
                 })
+                SA.EspVisibleCount.crates = SA.EspVisibleCount.crates + 1
             end
         end
     else for _, o in pairs(crateObjects) do hideFx(o) end end

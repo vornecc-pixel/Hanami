@@ -230,6 +230,93 @@ end
 -- Optional: pull live speed/gravity/range straight out of the game's
 -- GC tables (u3492.GUN_RANGE / u3338.GUNS) instead of trusting the
 -- static numbers. Off by default; call from the Debug button.
+-- ── BETTER: live gun tuning ─────────────────────────────────────────
+-- Snapshot the SHIPPED DB once. "Gun Diff" compares live GC values and
+-- manual overrides against this baseline, and reports guns the game has
+-- added since the static 20-gun table was written.
+local SA_GUN_FIELDS = { "speed", "gravity", "life", "range", "mag",
+    "spread", "adsSpread", "moveSpread", "reload", "rate", "pellets",
+    "s2Damage", "damageMult" }
+
+if not SA.GunBaselineReady then
+    SA.GunBaseline = {}
+    for id, spec in pairs(SA.GUN_SPECS or GUN_SPECS) do
+        local row = {}
+        for _, f in ipairs(SA_GUN_FIELDS) do
+            if type(spec[f]) == "number" then row[f] = spec[f] end
+        end
+        SA.GunBaseline[id] = row
+    end
+    SA.GunBaselineReady = true
+end
+
+function SA.GunDiff()
+    local added, changed = {}, {}
+    for id, spec in pairs(SA.GUN_SPECS or GUN_SPECS) do
+        local base = SA.GunBaseline[id]
+        if not base then
+            added[#added + 1] = id
+        else
+            for _, f in ipairs(SA_GUN_FIELDS) do
+                if base[f] and type(spec[f]) == "number"
+                    and math.abs(spec[f] - base[f]) > 0.0001 then
+                    changed[#changed + 1] = string.format(
+                        "%s.%s %s -> %s", id, f, tostring(base[f]),
+                        tostring(spec[f]))
+                end
+            end
+        end
+    end
+    table.sort(added); table.sort(changed)
+    return { added = added, changed = changed }
+end
+
+function SA.PrintGunDiff()
+    local d = SA.GunDiff()
+    print("════════════ LIVE GUN DIFF ════════════")
+    print("  new guns:", #d.added == 0 and "none" or table.concat(d.added, ", "))
+    print("  changed fields:", #d.changed)
+    for _, c in ipairs(d.changed) do print("   -", c) end
+    print("══════════════════════════════════════")
+    return d
+end
+
+-- Manual editor: "assault_rifle.speed=1400;lr_sniper.gravity=20".
+-- Only numeric ballistics fields are accepted, so a typo can never
+-- corrupt another part of the gun spec table.
+function SA.ApplyGunOverrides(text)
+    text = tostring(text or "")
+    local n, bad = 0, {}
+    for entry in text:gmatch("[^;]+") do
+        local id, field, raw = entry:match(
+            "^%s*([%w_]+)%.([%w_]+)%s*=%s*(-?[%d%.]+)%s*$")
+        local allowed = false
+        for _, f in ipairs(SA_GUN_FIELDS) do
+            if f == field then allowed = true; break end
+        end
+        local spec = id and (SA.GUN_SPECS or GUN_SPECS)[id] or nil
+        if id and field and allowed and spec and tonumber(raw) then
+            spec[field] = tonumber(raw)
+            if field == "s2Damage" then spec.balance = tonumber(raw) end
+            n = n + 1
+        elseif entry:match("%S") then
+            bad[#bad + 1] = entry
+        end
+    end
+    SA.InvalidateGunCache()
+    print(string.format("[gun] applied %d manual overrides (%d ignored)", n, #bad))
+    for _, b in ipairs(bad) do print("  ignored:", b) end
+    return n, bad
+end
+
+function SA.PrintGunOverrides()
+    print("════════════ MANUAL GUN OVERRIDES ════════════")
+    print("  format: gun_id.field=value;gun_id.field=value")
+    print("  fields:", table.concat(SA_GUN_FIELDS, ", "))
+    print("  current:", tostring(CFG.gunOverrideString or ""))
+    print("══════════════════════════════════════════")
+end
+
 function SA.SyncGunDefs()
     if typeof(getgc) ~= "function" then return 0, "getgc unavailable" end
     local n, err = 0, nil
@@ -253,6 +340,38 @@ function SA.SyncGunDefs()
                         "pellets", "s2Damage", "damageMult" }
                     for id, d in pairs(guns) do
                         local spec = GUN_SPECS[id]
+                        -- A gun the static DB has never seen: register a
+                        -- safe stub from the live table so prediction and
+                        -- aliases work immediately. No GC object is kept.
+                        if not spec and typeof(d) == "table" then
+                            local stub = {
+                                name = tostring(rawget(d, "name") or id),
+                                speed = tonumber(rawget(d, "speed")) or 1000,
+                                ammo = rawget(d, "ammo"),
+                                mag = tonumber(rawget(d, "mag")) or 1,
+                                pellets = tonumber(rawget(d, "pellets")) or 1,
+                                rate = tonumber(rawget(d, "rate")) or 0.2,
+                                damageMult = tonumber(rawget(d, "damageMult")) or 1,
+                                s2Damage = tonumber(rawget(d, "s2Damage")),
+                                spread = tonumber(rawget(d, "spread")) or 2,
+                                adsSpread = tonumber(rawget(d, "adsSpread")) or 0.5,
+                                moveSpread = tonumber(rawget(d, "moveSpread")) or 1,
+                                range = tonumber(rawget(d, "range")) or DEFAULT_RANGE,
+                                reload = tonumber(rawget(d, "reload")) or 3,
+                                gravity = tonumber(rawget(d, "gravity")) or 0,
+                                life = tonumber(rawget(d, "life")),
+                                recoil = {},
+                            }
+                            stub.balance = stub.s2Damage
+                            GUN_SPECS[id] = stub
+                            SA.GUN_SPECS = GUN_SPECS
+                            if GUN_ALIASES and norm then
+                                GUN_ALIASES[norm(id)] = id
+                                GUN_ALIASES[norm(stub.name)] = id
+                            end
+                            spec = stub
+                            n = n + 1
+                        end
                         if spec and typeof(d) == "table" then
                             for _, f in ipairs(fields) do
                                 local val = rawget(d, f)
@@ -270,6 +389,10 @@ function SA.SyncGunDefs()
         end
     end)
     SA.InvalidateGunCache()
+    if CFG.gunDiffOnScan == true then pcall(SA.PrintGunDiff) end
+    if CFG.gunOverrideString and CFG.gunOverrideString ~= "" then
+        pcall(SA.ApplyGunOverrides, CFG.gunOverrideString)
+    end
     print(string.format("[sa] synced %d live gun fields from GC", n))
     return n, err
 end

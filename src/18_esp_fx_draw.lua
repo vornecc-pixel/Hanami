@@ -294,7 +294,7 @@ local function drawEntity(cam, o, opt)
         if tri then
             pcall(function()
                 local anchorAt = CFG.espArrowFOV and (fovC + dir.Unit * fovR) or px
-                local a = math.atan2(dir.Y, dir.X)
+                local a = SA.Atan2(dir.Y, dir.X)
                 local r = math.clamp(fovR * 0.035, 7, 16)  -- scales with the FOV
                 tri.PointA = anchorAt + Vector2.new(math.cos(a), math.sin(a)) * r
                 tri.PointB = anchorAt + Vector2.new(math.cos(a + 2.4), math.sin(a + 2.4)) * r
