@@ -140,7 +140,7 @@ local newKeys = {
     "gunDiffOnScan", "gunOverrideString",
     "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
     "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
-    "hitboxVisible", "fireWallCheck",
+    "hitboxVisible", "fireWallCheck", "espDataRefreshMs",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -1253,12 +1253,78 @@ SA.GUN_SPECS.assault_rifle.speed = baseSpeed
 SA.InvalidateGunCache()
 eq(SA.GUN_SPECS.assault_rifle.speed, baseSpeed, "baseline speed restored")
 
+-- ── ESP FPS optimization regressions ────────────────────────────────
+eq(CFG.espDataRefreshMs, 100, "ESP text refresh default")
+eq(SA.EspDataIntervalFrames(), 6, "100 ms refresh is 6 frames at 60 fps")
+eq(SA.NpcListRaw(), _G.__saNpcList, "NPC raw list avoids per-frame copy")
+eq(SA.CrateListRaw(), _G.__saCrateList, "crate raw list avoids per-frame copy")
+
+-- One GUI proxy with four property changes must sync exactly once, and
+-- only after the render-step flush. This is the stutter fix for the
+-- ScreenGui fallback backend.
+SA.DrawSyncFlush()
+local sync0 = SA.DrawSyncStats()
+local batchDraw = SA.NewDraw("Text")
+local batchLabel = batchDraw.__saDebugLabel
+ok(batchLabel ~= nil, "screen-space text proxy exposes debug label")
+eq(batchLabel.Text, "", "GUI text starts empty")
+batchDraw.Text = "batch-test"
+batchDraw.Position = Vector2.new(22, 33)
+batchDraw.Color = Color3.new(1, 0, 0)
+batchDraw.Visible = true
+local sync1 = SA.DrawSyncStats()
+ok(sync1.writes - sync0.writes >= 4, "four draw writes recorded")
+ok(SA.DrawSyncPending() >= 1, "draw sync is deferred")
+eq(batchLabel.Text, "", "GUI sync deferred until flush")
+local flushed = SA.DrawSyncFlush()
+ok(flushed >= 1, "draw sync flush processed proxies")
+eq(batchLabel.Text, "batch-test", "coalesced sync applies final text")
+eq(SA.DrawSyncPending(), 0, "no pending draws after flush")
+local sync2 = SA.DrawSyncStats()
+ok(sync2.flushes - sync1.flushes >= 1, "one proxy sync recorded")
+ok(sync2.writes - sync0.writes > sync2.flushes - sync0.flushes,
+    "fewer GUI syncs than property writes")
+batchDraw.Remove()
+quiet(function() SA.PrintDrawSyncStats() end)
+
+-- ESP ON must style geometry every frame, but name / weapon / state /
+-- BillboardGui data only at the 6-frame interval. The FX pass re-shows
+-- the prebuilt lines because it now owns legacy line / chams visibility.
+setFlags({
+    espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+    espVisibleCheck = false, espShowSkeleton = false, espShowHeadDot = false,
+    espShowTracer = false, espShowOffscreen = false, espFade = false,
+    espOnlyNearest = false, espOnlyAimTarget = false, espTeamMode = "All",
+    perfMode = false, espDataRefreshMs = 100,
+    snapLineEnabled = false, showManipPopup = false,
+    masterEnabled = false, gunEnabled = false,
+})
+frameTimes(8)
+local firstEspObject = nil
+for _, o in pairs(espObjects) do firstEspObject = o; break end
+ok(firstEspObject ~= nil, "player ESP object built for FPS pass")
+eq(firstEspObject.lines.top.Visible, true, "FX pass re-shows prebuilt box lines")
+eq(firstEspObject.highlight.Enabled, true, "FX pass re-enables chams")
+local perf0 = SA.EspPerfState()
+mock_esp_reset()
+frameTimes(12)
+local perf1 = SA.EspPerfState()
+eq(perf1.fxPasses - perf0.fxPasses, 12, "ESP geometry styled every frame")
+ok(perf1.dataRefreshes - perf0.dataRefreshes > 0, "data refresh still runs")
+ok(perf1.dataRefreshes - perf0.dataRefreshes < 12, "data refresh is throttled")
+ok(perf1.dataSkips - perf0.dataSkips > 0, "data refresh frames are skipped")
+ok(MOCK_W2V_CALLS <= 12 * (count(espObjects) * 4 + 4),
+    "WorldToViewportPoint calls bounded by throttled refresh")
+ok(type(perf1.drawSync) == "table", "ESP FPS state exposes draw sync stats")
+quiet(function() SA.PrintEspPerfState() end)
+quiet(function() SA.ResetToDefaults() end)
+
 -- ── UI buttons (every callback is pcall-wrapped by the mock) ─────────
 local buttonNames = {
     "Print Feature Keybinds", "Print Profiles", "Run Config Round-Trip Test",
     "Run Self-Check", "Show Self-Check Panel", "Hide Self-Check Panel",
     "Print Config Coverage", "Print Draw Write Failures",
-    "Print Performance State", "Print Live ESP Counts", "Print Live Gun Diff",
+    "Print Performance State", "Print ESP FPS State", "Print Live ESP Counts", "Print Live Gun Diff",
     "Print All Keybinds", "Print Conflicts", "Set All: Hold",
     "Set All: Toggle", "Print Override Help", "Sync Gun Defs + Diff",
     "Print Full Gun Table", "Print Nearest HUD", "Print Draw Pool",

@@ -84,6 +84,7 @@ local function buildNpc(model)
     npcObjects[model] = {
         bb = bb, nameLbl = nameLbl, distLbl = distLbl, infoLbl = infoLbl,
         highlight = hl, lines = lines,
+        root = hrp, head = head, hum = hum,
     }
 end
 

@@ -8,6 +8,8 @@
 callback_errors = 0
 event_errors = 0
 mock_clock = 0
+MOCK_W2V_CALLS = 0
+MOCK_RAYCAST_CALLS = 0
 
 local function wrap_callback(fn)
     return function(...)
@@ -45,6 +47,12 @@ end
 -- Bust the 120 ms SA.IsVisible cache between wall-check test phases.
 function mock_advance_time(dt)
     mock_clock = mock_clock + (dt or 0.2)
+end
+
+-- FPS regression counters for the ESP hot path.
+function mock_esp_reset()
+    MOCK_W2V_CALLS = 0
+    MOCK_RAYCAST_CALLS = 0
 end
 
 mock_spawned, mock_deferred = {}, {}
@@ -619,6 +627,7 @@ INST_META.__index = function(t, k)
     if k == "GetPivot" then return function(self) return CFrame.new(0, 0, 0) end end
     if k == "WorldToViewportPoint" then
         return function(self, p)
+            MOCK_W2V_CALLS = (MOCK_W2V_CALLS or 0) + 1
             local x = 640 + (p and p.X or 0) * 0.1
             local y = 360 - (p and p.Y or 0) * 10
             return Vector3.new(x, y, 1), true
@@ -626,6 +635,7 @@ INST_META.__index = function(t, k)
     end
     if k == "Raycast" then
         return function(_, origin, dir, params)
+            MOCK_RAYCAST_CALLS = (MOCK_RAYCAST_CALLS or 0) + 1
             if not MOCK_MANIP_BLOCKED or not MOCK_MANIP_WALL then return nil end
             local filters = params and params.FilterDescendantsInstances or {}
             for _, f in ipairs(filters) do

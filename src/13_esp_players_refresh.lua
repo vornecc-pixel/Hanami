@@ -13,6 +13,19 @@
 -- one character can never hide the rest of the server.
 -- ────────────────────────────────────────────────────────────────────
 
+-- Reuse the rig references saved by buildESP(). SA.PlayerRig() walks the
+-- character with several FindFirstChild / IsA calls; running it twice per
+-- entity per frame was pure overhead after the objects were built.
+local function refreshPlayerRig(o, char)
+    local root, head, hum = o.root, o.head, o.hum
+    if o.char == char and root and root.Parent and head and head.Parent and hum then
+        return root, head, hum
+    end
+    root, head, hum = SA.PlayerRig(char)
+    o.root, o.head, o.hum = root, head, hum
+    return root, head, hum
+end
+
 local function hidePlayerEsp(o)
     if not o then return end
     pcall(function() if o.bb then o.bb.Enabled = false end end)
@@ -35,7 +48,7 @@ local function refreshOnePlayer(plr, o, cam)
     if o.bb and not o.bb.Parent then clearESP(plr); return end
     if o.highlight and not o.highlight.Parent then clearESP(plr); return end
 
-    local hrp, head, hum = SA.PlayerRig(char)
+    local hrp, head, hum = refreshPlayerRig(o, char)
     if not (hrp and head and hum) then hidePlayerEsp(o); return end
     if hum.Health <= 0 then hidePlayerEsp(o); return end
 
@@ -49,6 +62,7 @@ local function refreshOnePlayer(plr, o, cam)
 
     -- GREEN = clear line of sight, RED = behind a wall
     local visible = CFG.espVisibleCheck and SA.IsVisible(char, hrp.Position)
+    o.vis = visible
     local col = CFG.espVisibleCheck
         and (visible and ESP_COLORS.playerVisible or ESP_COLORS.playerHidden) or ESP_COLORS.playerFlat
 

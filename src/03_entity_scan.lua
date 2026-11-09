@@ -41,6 +41,10 @@ function SA.GetNpcs()
     return out
 end
 
+-- The render loop walks this live list directly instead of allocating a
+-- filtered copy every frame. Invalid entries are skipped by buildBatch().
+function SA.NpcListRaw() return npcList end
+
 -- Rescan buttons just ask the shared walker for an early pass; no
 -- synchronous full-workspace scan can stall the client here.
 function SA.RefreshNpcs()

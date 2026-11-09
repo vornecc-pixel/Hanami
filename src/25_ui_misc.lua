@@ -408,6 +408,8 @@ function SA.SelfCheck()
         { "player warning", "PlayerWarningState" },
         { "fire assist", "FireAssistState" },
         { "force head", "ForceHeadState" },
+        { "draw sync", "DrawSyncStats" },
+        { "esp perf", "EspPerfState" },
     }
     for _, d in ipairs(diagCalls) do
         local ok = false

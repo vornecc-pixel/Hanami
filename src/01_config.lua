@@ -55,6 +55,11 @@ local function bindRender(fn)
             return
         end
         fn(...)
+        -- Coalesce all ScreenGui proxy writes made by this render callback
+        -- into ONE sync per dirty draw (02_drawing.lua). The native
+        -- Drawing backend writes its own properties directly and needs no
+        -- flush, so this is a no-op when no GUI proxy was touched.
+        if SA.DrawSyncFlush then pcall(SA.DrawSyncFlush) end
     end)
     return conn
 end
@@ -373,7 +378,7 @@ local SA_CFG_SHIPPED = {
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
     espPreviewSource = "Local Character", espPreviewCompare = false,
     perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
-    perfShowFps = false,
+    espDataRefreshMs = 100, perfShowFps = false,
     gunDiffOnScan = false, gunOverrideString = "",
 }
 local CFG = _G.__saCFG or SA_CFG_SHIPPED
@@ -447,7 +452,7 @@ for k, v in pairs({
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
     espPreviewSource = "Local Character", espPreviewCompare = false,
     perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
-    perfShowFps = false,
+    espDataRefreshMs = 100, perfShowFps = false,
     gunDiffOnScan = false, gunOverrideString = "",
 }) do if CFG[k] == nil then CFG[k] = v end end
 -- Older saved configs never had the snapshot either.
@@ -573,6 +578,7 @@ CFG.espPreviewCompare  = CFG.espPreviewCompare == true
 CFG.perfMode           = CFG.perfMode == true
 CFG.perfEspRebuildMs   = saClampNum(CFG.perfEspRebuildMs, 16, 500, 100)
 CFG.perfMaxEntities    = saClampNum(CFG.perfMaxEntities, 5, 100, 40)
+CFG.espDataRefreshMs   = saClampNum(CFG.espDataRefreshMs, 16, 500, 100)
 CFG.perfShowFps        = CFG.perfShowFps == true
 CFG.gunDiffOnScan      = CFG.gunDiffOnScan == true
 CFG.gunOverrideString  = tostring(CFG.gunOverrideString or "")

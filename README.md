@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **36 short files** (`src/`, largest is 967 lines) plus a short **loader** and a committed static/Fengari validation harness.
+The original 1,300-line script is split into **36 short files** (`src/`, largest is 978 lines) plus a short **loader** and a committed static/Fengari validation harness.
 
 ## Load it (one line)
 
@@ -38,7 +38,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **ESP decluttering + live counts** | ESP → Declutter / Live Counts | Only Nearest N, Only Aim Target, team filter and per-kind on-screen counters. The nearest set is keyed by character model, so the current aim target always keeps a slot. |
 | **Aim / FOV UX** | Aiming → Silent Aim / Target | Legit / Blatant / Sniper FOV presets, target priority, per-weapon bone, pin nearest, clear pin and an exact "why no target?" line. |
 | **real-model, side-by-side ESP Preview** | floating ESP Preview | Pick Local Character / Nearest Player / Nearest NPC / Aim Target, clone real server models, and compare Player vs NPC ESP with the same live settings. |
-| **Adaptive performance mode** | Visual → Performance Mode | FPS-aware rebuild pacing, entity cap, ScreenGui draw-pool reuse, rolling FPS, write-failure tracking and an independent FPS / entity overlay. |
+| **Adaptive performance mode** | Visual → Performance Mode | FPS-aware rebuild pacing, entity cap, ScreenGui draw-pool reuse, rolling FPS, write-failure tracking, **baseline ESP FPS optimization** (coalesced GUI sync, throttled text refresh, cached rigs / VIS, off-screen skip) and an independent FPS / entity overlay. |
 | **Live gun diff + overrides** | Gun Mods → Live Gun Tuning | Compare the 20-gun baseline with live GC data, register new-gun stubs and apply safe numeric per-gun overrides that survive every sync. |
 | **RightShift is the default menu toggle** | Atlanta menu | See [Feature keybinds](#feature-keybinds). Atlanta ships `Insert` for its UI Bind; Hanami rewrites that one call to **RightShift** and moves the aim master to **Insert**, so both stay bound and never fire on the same press. The menu bind gets a real `hn_menu_bind` flag + Keybinds-panel row (**Toggle Menu**), so it can be right-clicked to `None` like every other bind. |
 | **Five feature keybinds + None / right-click removal** | Aiming / ESP / Gun Mods | See [Feature keybinds](#feature-keybinds). **P** Player ESP, **N** NPC ESP, **G** Gun Mods, **B** Bow Mods, **M** Manipulation, plus the existing **Insert** aim and **RightShift** menu bind. Any keyboard key or mouse button can be bound; press **Escape** or **right-click** the key widget / Keybinds row to set **None** and remove it from the list without turning the feature off. |
@@ -183,11 +183,22 @@ Visual → **Nearest HUD → Manip Crosshair Popup** adds a small badge just abo
 
 ### Committed Fengari validation suite
 
-`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 2,001 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`, including Hitbox Expander fixed / multiply / cap / filters / self-healing / restore coverage and dedicated fire-assist wall-check / both-enabled / no-bypass regressions. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 36-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 52 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
+`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 2,085 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`, including Hitbox Expander fixed / multiply / cap / filters / self-healing / restore coverage, dedicated fire-assist wall-check / both-enabled / no-bypass regressions and ESP FPS optimization / coalesced GUI sync / throttled data refresh regressions. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 36-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 53 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
 
 ### Adaptive performance mode
 
 Visual → **Performance Mode** paces new ESP builds by rolling FPS, caps styled entities per frame, reuses hidden ScreenGui drawing proxies through `SA.DrawPool`, tracks native write failures and can show an independent `HanamiPerfOverlay` FPS / entity HUD. `SA.PerfState()`, `SA.PerfEffectiveRebuildMs()`, `SA.PerfEffectiveEntityCap()`, `SA.DrawPoolStats()` and `SA.DrawWriteFailures()` are wired into self-check and diagnostics.
+
+### ESP FPS optimization pass
+
+ESP dropped frames because the legacy BillboardGui refresh and the unified FX pass repeated the same rig lookups, `WorldToViewportPoint` calls, visibility probes, string formatting and drawing writes **every frame**, while every property write on a ScreenGui proxy triggered a full GUI sync. The baseline path is now optimized even with Performance Mode OFF:
+
+* ScreenGui proxy writes are **coalesced** into one sync per dirty draw by `SA.DrawSyncFlush()` at the end of each render callback. A hide → show toggle inside one frame collapses to its final value, so no redundant Roblox Instance writes are made. `SA.DrawSyncStats()`, `SA.DrawSyncPending()`, `SA.PrintDrawSyncStats()` and `SA.DrawDiag()` report writes, flushes, batches and saved syncs.
+* Name / weapon / state / distance text and the legacy BillboardGui lines refresh at `espDataRefreshMs` (default **100 ms**, exposed as **ESP Text Refresh** in Visual → Performance Mode). `SA.EspDataIntervalFrames()` converts it to frames; a new build forces an immediate refresh. Box geometry still updates every frame, so boxes never freeze.
+* Cached player / NPC rigs and `o.vis` are shared between the refresh and FX passes. The old O(n²) teammate loop is a one-pass character → teammate map, and the nearest-N sort is throttled to the same data interval. Off-screen entities with tracers / arrows / crate FOV dots OFF are skipped entirely.
+* The render queue iterates `SA.NpcListRaw()` / `SA.CrateListRaw()` **raw list** views instead of allocating filtered copies every frame. `SA.EspPerfState()` / `SA.PrintEspPerfState()` expose FX passes, data refreshes, skips and draw-sync savings; **Print ESP FPS State** prints them in-game.
+
+These changes preserve the ESP visuals and every existing toggle. They reduce CPU work rather than hiding entities: the optional entity cap still belongs to Performance Mode.
 
 ### Live gun diff + overrides
 
@@ -857,11 +868,11 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, NPC manipulation, crate FOV, player warning, trigger / auto fire + dedicated fire-assist wall check, Force Head, bow-mods, hitbox expander, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 593 |
-| `src/02_drawing.lua` | per-kind capability probing, ScreenGui proxy, screen-space Tahoma `Text` draw, no-op fallback, draw diagnostics, **draw pool + write-failure tracking** | 477 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, NPC manipulation, crate FOV, player warning, trigger / auto fire + dedicated fire-assist wall check, ESP data refresh, Force Head, bow-mods, hitbox expander, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 599 |
+| `src/02_drawing.lua` | per-kind capability probing, ScreenGui proxy, screen-space Tahoma `Text` draw, no-op fallback, draw diagnostics, **coalesced sync batching + draw pool + write-failure tracking** | 560 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking, **pinned target / priority / bone / no-target reason**, **public NPC classifier**, **Force Head**, **Trigger Bone / TriggerTarget + dedicated VIS wall check** | 384 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
-| `src/03_entity_scan.lua` | NPC registry handler + **guarded** LOS visibility cache | 97 |
+| `src/03_entity_scan.lua` | NPC registry handler + raw list accessor + **guarded** LOS visibility cache | 101 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump (**Tool child fallback + shared metres**) | 137 |
 | `src/05_manipulation.lua` | **Manipulation (classic sliders, guns only, NPC-aware)**: shared RaycastParams, 8-direction peek, fixed 4–6 peek, clamped functional sliders, target-aware filter, reused CanQuery entries, **read-only crosshair popup probe + fire-assist allowNoAim gate**, NPC toggle / state / explicit probe | 449 |
 | `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp; no bow state) + snap cooldown | 56 |
@@ -872,16 +883,16 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
 | `src/12_esp_players.lua` | **Player ESP v2**: tolerant `SA.PlayerRig`, re-execute purge, char tracking, half-build cleanup, diagnostics | 213 |
-| `src/13_esp_players_refresh.lua` | **per-player pcall refresh**, structured `o.tx` text (weapon / tags), respawn detection, lifecycle hooks | 197 |
-| `src/14_esp_npcs.lua` | NPC ESP objects + enable/disable + events | 110 |
-| `src/15_esp_npcs_refresh.lua` | NPC ESP refresh (visibility + scanner + HP + structured `o.tx` text) | 104 |
+| `src/13_esp_players_refresh.lua` | **per-player pcall refresh**, cached player rig / o.vis, structured `o.tx` text (weapon / tags), respawn detection, lifecycle hooks | 211 |
+| `src/14_esp_npcs.lua` | NPC ESP objects + cached rig + enable/disable + events | 111 |
+| `src/15_esp_npcs_refresh.lua` | NPC ESP refresh with cached rig / o.vis (visibility + scanner + HP + structured `o.tx` text) | 115 |
 | `src/16_esp_crates.lua` | crate classification, **strict opened-state resolver**, anchors, GUI objects | 353 |
-| `src/16_esp_crates_registry.lua` | live crate registry, **crate-state debug**, walker diagnostics | 113 |
+| `src/16_esp_crates_registry.lua` | live crate registry + raw list accessor, **crate-state debug**, walker diagnostics | 116 |
 | `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, structured `o.tx` text, highlight gate) + events | 90 |
-| `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry, **draw-pool reuse** | 135 |
-| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text, NPC / crate colours, boxes, **clean outline-only mode**, **crate FOV dot / outline-highlight branch**, chams, skeleton, tracers, FOV arrows, fade, `SA.Atan2` | 367 |
-| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with per-player error isolation, **ESP decluttering filters + live per-kind counts**, **crate FOV counters / state** | 254 |
-| `src/19_render_loop.lua` | master render loop: rotating success-only build queue, 4 guarded passes, FX pass, **Adaptive pacing / rolling FPS / entity cap** | 157 |
+| `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry, legacy line / chams hide, **draw-pool reuse** | 144 |
+| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text, NPC / crate colours, boxes, **clean outline-only mode**, **crate FOV dot / outline-highlight branch**, off-screen skip, FX-owned legacy line / chams visibility, chams, skeleton, tracers, FOV arrows, fade, `SA.Atan2` | 386 |
+| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with per-player error isolation, cached rig / o.vis, one-pass team map, throttled nearest sort, FPS counters, **ESP decluttering filters + live per-kind counts**, **crate FOV counters / state** | 327 |
+| `src/19_render_loop.lua` | master render loop: rotating success-only build queue, 4 guarded passes, FX pass, throttled data refresh, raw list build queues, FPS counters, **Adaptive pacing / rolling FPS / entity cap** | 216 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
 | `src/20_hitbox_expander.lua` | **Hitbox Expander v2 (R6/R15)**: silent client-side size / collision / query expansion, **self-healing** Size hooks, accessory neutralisation, saved originals + full restore | 333 |
@@ -890,8 +901,8 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, Preview Kind / Target / Best ESP controls, source/compare rebuild, `SA.EspPreview*` API | 319 |
 | `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / **crate FOV-aware toggle + state** / features / **Clean + Best ESP presets** / 48 colourpickers / diagnostics, **ESP decluttering + live count controls** | 401 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + Bow Mods section (2 toggles + diagnostics) + feature keybinds, **Live Gun Tuning / Overrides controls** | 80 |
-| `src/24_ui_visual.lua` | Visual tab, **top-N nearest HUD + NPC-aware Manip Crosshair Popup + 100m player warning**, **Force Head / Fire Assist diagnostics**, **Performance Mode + FPS overlay + all-keybind console / rebind / conflicts** | 967 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **self-check panel (NPC manipulation, crate FOV, player warning, fire assist, Force Head, manip popup + clean ESP)**, **full unload + warning / fire-assist disposal + hitbox restore**, UI init / auto-load | 709 |
+| `src/24_ui_visual.lua` | Visual tab, **top-N nearest HUD + NPC-aware Manip Crosshair Popup + 100m player warning**, **Force Head / Fire Assist diagnostics**, **Performance Mode + ESP data refresh slider + ESP FPS state + FPS overlay + all-keybind console / rebind / conflicts** | 978 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **self-check panel (NPC manipulation, crate FOV, player warning, fire assist, Force Head, manip popup + clean ESP, draw sync + ESP perf)**, **full unload + warning / fire-assist disposal + hitbox restore**, UI init / auto-load | 711 |
 | `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 57 |
 ## Testing
 
@@ -899,7 +910,7 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 npm ci && npm test
 ```
 
-`npm test` builds the ignored `dist/Hanami.lua`, runs the Python Luau-safe join verifier, parses every Lua chunk with luaparse, validates the loader / README / CFG coverage, then executes the committed Fengari mock suite. The runner loads `tools/mocks.lua`, executes the bundle three times in one Lua state and asserts startup, native profile auto-load, re-execution, full unload, manipulation popup READY / BLOCKED / bypass states, NPC manipulation, crate FOV dot / outline checks, 100 m warning, Triggerbot / Auto Fire / part modes / VIS FOV with silent aim OFF / Tool-first backend with mouse fallbacks / dedicated Fire Assist Wall Check / both-enabled / Manipulation Support no-bypass regressions, Force Head and all new APIs with zero mock callback / event errors.
+`npm test` builds the ignored `dist/Hanami.lua`, runs the Python Luau-safe join verifier, parses every Lua chunk with luaparse, validates the loader / README / CFG coverage, then executes the committed Fengari mock suite. The runner loads `tools/mocks.lua`, executes the bundle three times in one Lua state and asserts startup, native profile auto-load, re-execution, full unload, manipulation popup READY / BLOCKED / bypass states, NPC manipulation, crate FOV dot / outline checks, 100 m warning, Triggerbot / Auto Fire / part modes / VIS FOV with silent aim OFF / Tool-first backend with mouse fallbacks / dedicated Fire Assist Wall Check / both-enabled / Manipulation Support no-bypass regressions, ESP FPS optimization / coalesced GUI sync / throttled data refresh / cached rig / off-screen skip / raw list regressions, Force Head and all new APIs with zero mock callback / event errors.
 
 The suite is static + Fengari mock validation, **not a real Roblox executor** confirmation. Executor-only behaviour (`gethui`, `Drawing`, `getgc`, `getconnections`, real ViewportFrames, filesystem / clipboard and Atlanta's live UI) must still be checked in-game with **Misc → Self-Check**.
 

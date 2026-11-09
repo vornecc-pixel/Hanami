@@ -17,32 +17,78 @@ local function safeDrawEntity(cam, o, opt)
     if not pcall(drawEntity, cam, o, opt) then pcall(hideFx, o) end
 end
 
--- ── BETTER: ESP decluttering ────────────────────────────────────────
--- All four filters are computed ONCE per frame from the same players /
--- distances the FX pass uses, so "nearest N" is stable and costs one
--- small sort rather than a per-entity distance sweep.
+-- FPS counters are shared with 19_render_loop.lua (throttled data refresh)
+-- and survive re-execution so Print ESP FPS State shows the whole session.
+SA.EspPerf = SA.EspPerf or { fxPasses = 0, dataRefreshes = 0, dataSkips = 0 }
+SA.EspFxFrame = SA.EspFxFrame or 0
+
+-- ── BETTER: ESP decluttering / FPS pass ──────────────────────────────
 SA.EspVisibleCount = { players = 0, npcs = 0, crates = 0 }
 SA.CrateFovCount = { inside = 0, outside = 0, dots = 0, highlights = 0 }
 local espNearestSet = {}
+local espNearestBuilt, espNearestCount, espNearestFrame = false, nil, -1
+local espTeamSetMode, espTeamSetFrame = nil, -1
+local espTeamMateByChar = {}
 
-local function refreshNearestSet(myPos, aimModel)
-    espNearestSet = {}
-    -- The set is keyed by CHARACTER MODEL, exactly what drawPlayerFx()
-    -- passes to SA.EspPassAllowed(). Keying it by Player objects silently
-    -- decluttered every player when Only Nearest N was enabled.
-    if aimModel then
-        espNearestSet[aimModel] = true
-        for plr in pairs(espObjects) do
-            if plr == aimModel or plr.Character == aimModel then
-                espNearestSet[plr.Character or plr] = true
-            end
+local function espDataInterval()
+    if type(SA.EspDataIntervalFrames) == "function" then
+        return SA.EspDataIntervalFrames()
+    end
+    return 6
+end
+
+-- The build / refresh files already cached the rig. Reuse it in the FX
+-- pass instead of walking FindFirstChild / IsA again for every entity.
+local function fxPlayerRig(o, char)
+    local root, head, hum = o.root, o.head, o.hum
+    if o.char == char and root and root.Parent and head and head.Parent and hum then
+        return root, head, hum
+    end
+    root, head, hum = SA.PlayerRig(char)
+    o.root, o.head, o.hum = root, head, hum
+    return root, head, hum
+end
+
+local function fxNpcRig(o, model)
+    local hum, hrp, head = o.hum, o.root, o.head
+    if model.Parent and hum and hrp and hrp.Parent and head and head.Parent then
+        return hum, hrp, head
+    end
+    hum  = model.Parent and model:FindFirstChildOfClass("Humanoid")
+    hrp  = model.Parent and (model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("Head"))
+    head = model.Parent and (model:FindFirstChild("Head") or hrp)
+    o.hum, o.root, o.head = hum, hrp, head
+    return hum, hrp, head
+end
+
+local function addAimToNearest(aimModel)
+    if not aimModel then return end
+    espNearestSet[aimModel] = true
+    for plr in pairs(espObjects) do
+        if plr == aimModel or plr.Character == aimModel then
+            espNearestSet[plr.Character or plr] = true
         end
     end
+end
+
+local function refreshNearestSet(myPos, aimModel)
+    -- The aim target always keeps a slot, even between nearest-N sorts.
+    addAimToNearest(aimModel)
     if not CFG.espOnlyNearest then return end
+    local frame = SA.EspFxFrame or 0
+    if espNearestBuilt and espNearestCount == CFG.espNearestCount
+        and (frame - espNearestFrame) < espDataInterval() then return end
+    espNearestSet = {}
+    addAimToNearest(aimModel)
     local list = {}
     for plr, o in pairs(espObjects) do
         local char = plr.Character
-        local root = char and SA.PlayerRig(char) or nil
+        local root = o.root
+        if not root or not root.Parent then
+            root = SA.PlayerRig(char)
+            o.root = root
+        end
         if char and root then
             local ok, d = pcall(function() return (myPos - root.Position).Magnitude end)
             if ok and d then list[#list + 1] = { model = char, d = d } end
@@ -51,22 +97,38 @@ local function refreshNearestSet(myPos, aimModel)
     table.sort(list, function(a, b) return a.d < b.d end)
     local n = math.min(math.floor(CFG.espNearestCount or 5), #list)
     for i = 1, n do espNearestSet[list[i].model] = true end
+    espNearestBuilt, espNearestCount, espNearestFrame = true, CFG.espNearestCount, frame
+end
+
+-- Build ONE character -> teammate map per frame. The old code called
+-- Players:GetPlayers() inside EspPassAllowed for every player (O(n^2)).
+local function refreshTeamSet()
+    local mode = CFG.espTeamMode or "All"
+    local frame = SA.EspFxFrame or 0
+    if espTeamSetMode == mode and espTeamSetFrame == frame then return end
+    espTeamSetMode, espTeamSetFrame = mode, frame
+    espTeamMateByChar = {}
+    if mode == "All" or type(SA.IsTeammate) ~= "function" then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        local char = plr.Character
+        if char then
+            local ok, mate = pcall(SA.IsTeammate, plr)
+            espTeamMateByChar[char] = ok and mate or false
+        end
+    end
 end
 
 function SA.EspPassAllowed(kind, model, dist, targetModel)
     if kind ~= "player" then return true end
+    if targetModel and targetModel == model then espNearestSet[model] = true end
     if CFG.espOnlyAimTarget then
         if not targetModel or targetModel ~= model then return false end
     end
     if CFG.espOnlyNearest and not espNearestSet[model] then return false end
     local team = CFG.espTeamMode or "All"
-    if team ~= "All" and SA.IsTeammate then
-        local mate = false
-        pcall(function()
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p.Character == model then mate = SA.IsTeammate(p); break end
-            end
-        end)
+    if team ~= "All" then
+        refreshTeamSet()
+        local mate = espTeamMateByChar[model] == true
         if team == "Teammates Only" and not mate then return false end
         if team == "Exclude Teammates" and mate then return false end
     end
@@ -111,10 +173,17 @@ end
 
 local function drawPlayerFx(plr, o, cam, myPos, targetModel, origin, fovC, fovR, seed)
     local char = plr.Character
-    local hrp, head, hum = SA.PlayerRig(char)
-    if not (char and hum and hrp and head) then hideFx(o); return end
+    if not char or (o.char and o.char ~= char) then hideFx(o); return end
+    local hrp, head, hum = fxPlayerRig(o, char)
+    if not (hum and hrp and head) then hideFx(o); return end
     local dist = (myPos - hrp.Position).Magnitude
-    local vis = CFG.espVisibleCheck and SA.IsVisible(char, hrp.Position)
+    -- The throttled refresh owns LOS; between refreshes reuse o.vis so the
+    -- FX pass does not call SA.IsVisible() a second time every frame.
+    local vis = false
+    if CFG.espVisibleCheck then
+        if type(o.vis) == "boolean" then vis = o.vis
+        else vis = SA.IsVisible(char, hrp.Position); o.vis = vis end
+    end
     local base = CFG.espVisibleCheck
         and (vis and espC("playerVisible") or espC("playerHidden"))
         or espC("playerFlat")
@@ -141,6 +210,8 @@ end
 
 function SA.ApplyEspFx(cam)
     if not cam then return end
+    SA.EspFxFrame = (SA.EspFxFrame or 0) + 1
+    SA.EspPerf.fxPasses = (SA.EspPerf.fxPasses or 0) + 1
     SA.EspVisibleCount.players, SA.EspVisibleCount.npcs,
         SA.EspVisibleCount.crates = 0, 0, 0
     SA.CrateFovCount.inside, SA.CrateFovCount.outside = 0, 0
@@ -149,6 +220,7 @@ function SA.ApplyEspFx(cam)
     local myRoot = SA.PlayerRig(lp.Character)
     local myPos = myRoot and myRoot.Position or cam.CFrame.Position
     local targetModel = SA.Target and SA.Target.model or nil
+    refreshTeamSet()
     refreshNearestSet(myPos, targetModel)
     local seed = 0
     -- shared with the FOV circle (10_fov_circle.lua) so off-screen arrows
@@ -181,14 +253,15 @@ function SA.ApplyEspFx(cam)
     if CFG.npcEspEnabled then
         for model, o in pairs(npcObjects) do
             seed = seed + 0.137
-            local hum  = model.Parent and model:FindFirstChildOfClass("Humanoid")
-            local hrp  = model.Parent and (model:FindFirstChild("HumanoidRootPart")
-                or model:FindFirstChild("Head"))
-            local head = model.Parent and (model:FindFirstChild("Head") or hrp)
-            if not (model.Parent and hum and hrp and head) then hideFx(o)
+            local hum, hrp, head = fxNpcRig(o, model)
+            if not (model.Parent and hum and hum.Health > 0 and hrp and head) then hideFx(o)
             else
                 local dist = (myPos - hrp.Position).Magnitude
-                local vis = CFG.npcVisibleCheck and SA.IsVisible(model, hrp.Position)
+                local vis = false
+                if CFG.npcVisibleCheck then
+                    if type(o.vis) == "boolean" then vis = o.vis
+                    else vis = SA.IsVisible(model, hrp.Position); o.vis = vis end
+                end
                 local base = CFG.npcVisibleCheck
                     and (vis and espC("npcVisible") or espC("npcHidden"))
                     or espC("npcFlat")

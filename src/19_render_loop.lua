@@ -35,7 +35,8 @@ local renderErrAt, renderErrCount = 0, 0
 -- ── BETTER: Performance Mode ────────────────────────────────────────
 -- Adaptive build pacing (only new ESP objects are built every N ms),
 -- a hard cap on objects styled per frame, and a rolling FPS estimate.
--- Refresh + styling still run every frame so boxes never freeze.
+-- Geometry styling still runs every frame; name / weapon / state text and
+-- the legacy BillboardGui lines are refreshed at the user's data interval.
 local perfFrames, perfFps, perfWindow = 0, 0, tick()
 local perfLastBuild = 0
 
@@ -55,6 +56,38 @@ function SA.PerfEffectiveEntityCap()
         * math.clamp(fps / 60, 0.5, 1)))
 end
 
+-- ESP text / legacy-line refresh is throttled in FRAMES, not tick(), so a
+-- 60 Hz client with the default 100 ms interval refreshes every 6 frames.
+-- A new build still forces an immediate refresh for that entity list.
+function SA.EspDataIntervalFrames()
+    local ms = tonumber(CFG.espDataRefreshMs) or 100
+    return math.clamp(math.floor(ms * 60 / 1000 + 0.5), 1, 30)
+end
+
+function SA.EspPerfState()
+    local p = SA.EspPerf or {}
+    local fx = p.fxPasses or 0
+    local data = p.dataRefreshes or 0
+    return {
+        fxPasses = fx,
+        dataRefreshes = data,
+        dataSkips = p.dataSkips or 0,
+        dataIntervalFrames = SA.EspDataIntervalFrames(),
+        refreshRatio = fx > 0 and data / fx or 0,
+        drawSync = SA.DrawSyncStats and SA.DrawSyncStats() or nil,
+    }
+end
+
+function SA.PrintEspPerfState()
+    local s = SA.EspPerfState()
+    print("[esp fps] fx passes", s.fxPasses, "| data refreshes", s.dataRefreshes,
+        "| skips", s.dataSkips, "| interval", s.dataIntervalFrames, "frames")
+    if s.drawSync then
+        print("[esp fps] draw sync writes", s.drawSync.writes,
+            "| flushes", s.drawSync.flushes, "| saved", s.drawSync.saved)
+    end
+end
+
 function SA.PerfState()
     return {
         fps = perfFps,
@@ -64,8 +97,12 @@ function SA.PerfState()
         effectiveRebuildMs = SA.PerfEffectiveRebuildMs(),
         maxEntities = CFG.perfMaxEntities,
         effectiveEntityCap = SA.PerfEffectiveEntityCap(),
+        dataRefreshMs = CFG.espDataRefreshMs,
+        dataIntervalFrames = SA.EspDataIntervalFrames(),
         pool = SA.DrawPoolStats and SA.DrawPoolStats() or nil,
         visible = SA.EspPassStats and SA.EspPassStats() or nil,
+        esp = SA.EspPerfState(),
+        drawSync = SA.DrawSyncStats and SA.DrawSyncStats() or nil,
     }
 end
 
@@ -122,6 +159,9 @@ bindRender(function(dt)
         buildOk = (now - perfLastBuild) >= targetMs / 1000
         if buildOk then perfLastBuild = now end
     end
+    local dataDue = (renderFrame % SA.EspDataIntervalFrames()) == 0
+    local didDataRefresh = false
+    SA.EspPerf = SA.EspPerf or { fxPasses = 0, dataRefreshes = 0, dataSkips = 0 }
 
     renderGuard("players", function()
         if not CFG.espEnabled then return end
@@ -130,25 +170,44 @@ bindRender(function(dt)
                 clearESP(plr)
             end
         end
+        local built = 0
         if buildOk then
-            buildBatch(Players:GetPlayers(), espObjects,
+            built = buildBatch(Players:GetPlayers(), espObjects,
                 function(p) return p == lp end, buildESP)
         end
-        refreshESP()
+        if dataDue or built > 0 then refreshESP(); didDataRefresh = true end
     end)
 
     renderGuard("npcs", function()
         if not CFG.npcEspEnabled then return end
-        if buildOk then buildBatch(SA.GetNpcs(), npcObjects, nil, buildNpc) end
-        refreshNpcESP()
+        local built = 0
+        if buildOk then
+            built = buildBatch(SA.NpcListRaw(), npcObjects, function(m)
+                if not m or not m.Parent then return true end
+                local ok, hum = pcall(function()
+                    return m:FindFirstChildOfClass("Humanoid")
+                end)
+                return not (ok and hum)
+            end, buildNpc)
+        end
+        if dataDue or built > 0 then refreshNpcESP(); didDataRefresh = true end
     end)
 
     renderGuard("crates", function()
         if not CFG.crateEnabled then return end
         local built = 0
-        if buildOk then built = buildBatch(SA.GetCrates(), crateObjects, nil, buildCrate) end
+        if buildOk then
+            built = buildBatch(SA.CrateListRaw(), crateObjects,
+                function(d) return not (d and d.Parent) end, buildCrate)
+        end
         if renderFrame % 3 == 0 or built > 0 then refreshCrateESP() end
     end)
+
+    if didDataRefresh then
+        SA.EspPerf.dataRefreshes = (SA.EspPerf.dataRefreshes or 0) + 1
+    else
+        SA.EspPerf.dataSkips = (SA.EspPerf.dataSkips or 0) + 1
+    end
 
     -- one styling pass for all three ESP types (18_esp_fx_*.lua)
     renderGuard("fx", function()

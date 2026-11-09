@@ -43,6 +43,9 @@ function SA.GetCrates()
     return out
 end
 
+-- No-copy view for the per-frame build queue; stale parents are skipped.
+function SA.CrateListRaw() return crateList end
+
 -- Rescan buttons / enabling the ESP only ask for an early walker pass.
 function SA.RefreshCrates()
     SA.RequestScan()

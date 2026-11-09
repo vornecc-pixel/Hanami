@@ -9,7 +9,9 @@
 -- ────────────────────────────────────────────────────────────────────
 local function drawEntity(cam, o, opt)
     hideFx(o)
-    if not opt.enabled or not o.bb or not o.bb.Enabled then return end
+    -- o.bb.Enabled is a legacy BillboardGui flag that the throttled data
+    -- refresh may not have raised yet. The FX pass owns visibility now.
+    if not opt.enabled then return end
 
     local p         = opt.pal
     local base      = opt.base
@@ -92,6 +94,16 @@ local function drawEntity(cam, o, opt)
         o.bb.Size = UDim2.fromOffset(220, 1)
         o.bb.StudsOffset = Vector3.new(0, 0, 0)
     end
+
+    -- Most entities are behind the camera or outside the viewport. With
+    -- tracers / arrows / crate FOV dots OFF there is nothing to draw for
+    -- them, so return before any per-element styling or screen maths.
+    -- hideFx() already hid the pooled draws, legacy box lines and chams.
+    local playerOnly = (p == "player")
+    local crateDot = crateFov and not crateInsideFov
+    local offscreenVisual = (playerOnly and (CFG.espShowTracer or CFG.espShowOffscreen))
+        or crateDot
+    if not g.onScreen and not offscreenVisual then return end
 
     -- ONE text-size slider still controls every ESP label (players, NPCs,
     -- crates, side tags and the weapon badge); rowH keeps them apart.
@@ -208,6 +220,7 @@ local function drawEntity(cam, o, opt)
 
     -- chams
     if o.highlight then
+        o.highlight.Enabled = g.onScreen and (showOutline or showFill)
         o.highlight.FillColor = fillCol
         o.highlight.OutlineColor = outlineCol
         o.highlight.FillTransparency = showFill and math.clamp(0.7 + t, 0, 1) or 1
@@ -222,6 +235,7 @@ local function drawEntity(cam, o, opt)
             for _, k in ipairs(prebuilt) do
                 local l = o.lines[k]
                 l.Color = boxCol; l.Transparency = t; l.Thickness = thick
+                l.Visible = true
             end
         else
             if prebuilt then for _, k in ipairs(prebuilt) do o.lines[k].Visible = false end end
@@ -256,13 +270,18 @@ local function drawEntity(cam, o, opt)
     end
 
     -- health bar gradient (high / low colours are both pickable)
-    if o.lines and CFG.espShowHealth and g.onScreen then
-        local hi, lo = espC(p .. "HealthHigh"), espC(p .. "HealthLow")
-        o.lines.hpBg.Color = Color3.fromRGB(20, 20, 20)
-        o.lines.hpBg.Transparency = t
-        o.lines.hpFill.Color = CFG.espRainbow and rainbowColor(seed)
-            or lo:Lerp(hi, math.clamp(opt.ratio or 1, 0, 1))
-        o.lines.hpFill.Transparency = t
+    if o.lines then
+        local showHp = CFG.espShowHealth and g.onScreen
+        o.lines.hpBg.Visible = showHp
+        o.lines.hpFill.Visible = showHp
+        if showHp then
+            local hi, lo = espC(p .. "HealthHigh"), espC(p .. "HealthLow")
+            o.lines.hpBg.Color = Color3.fromRGB(20, 20, 20)
+            o.lines.hpBg.Transparency = t
+            o.lines.hpFill.Color = CFG.espRainbow and rainbowColor(seed)
+                or lo:Lerp(hi, math.clamp(opt.ratio or 1, 0, 1))
+            o.lines.hpFill.Transparency = t
+        end
     end
 
     -- small dot beside the box: ALWAYS shows the visibility colour even in

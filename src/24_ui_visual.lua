@@ -456,6 +456,7 @@ addButton(hudSec, "Print Nearest HUD", function() SA.NearestWindowDiag() end)
 
 bindToggle(perfSec, "Performance Mode", "perfMode",
     "Adaptive ESP rebuild pacing, drawing reuse, entity cap per frame and FPS counter")
+bindSlider(perfSec, "ESP Text Refresh (ms @60fps)", "espDataRefreshMs", 16, 500, 1, "ms")
 bindSlider(perfSec, "Rebuild Interval (ms @60fps)", "perfEspRebuildMs", 16, 500, 1, "ms")
 bindSlider(perfSec, "Max ESP Entities / Frame", "perfMaxEntities", 5, 100, 1, "")
 bindToggle(perfSec, "FPS Counter in HUD", "perfShowFps")
@@ -469,6 +470,16 @@ addButton(perfSec, "Print Performance State", function()
     if st.visible then print("[perf] visible ESP:",
         st.visible.players, "players /", st.visible.npcs, "npcs /",
         st.visible.crates, "crates") end
+    print("[perf] ESP text refresh:", tostring(st.dataRefreshMs), "ms |",
+        tostring(st.dataIntervalFrames), "frames")
+    if st.esp then print("[perf] ESP FPS: fx", st.esp.fxPasses,
+        "| data", st.esp.dataRefreshes, "| skips", st.esp.dataSkips) end
+    if st.drawSync then print("[perf] draw sync: writes", st.drawSync.writes,
+        "| flushes", st.drawSync.flushes, "| saved", st.drawSync.saved) end
+end)
+addButton(perfSec, "Print ESP FPS State", function()
+    SA.PrintDrawSyncStats()
+    SA.PrintEspPerfState()
 end)
 addButton(perfSec, "Print Draw Pool", function()
     local p = SA.DrawPoolStats()

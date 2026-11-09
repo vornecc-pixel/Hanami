@@ -60,9 +60,18 @@ local function getDraw(o, key, kind)
     return d
 end
 
+local function hideLegacyFx(o)
+    if not o then return end
+    if o.lines then
+        for _, d in pairs(o.lines) do pcall(function() d.Visible = false end) end
+    end
+    if o.highlight then pcall(function() o.highlight.Enabled = false end) end
+end
+
 local function hideFx(o)
-    if not o or not o.fx then return end
-    for _, d in pairs(o.fx) do d.Visible = false end
+    if not o then return end
+    if o.fx then for _, d in pairs(o.fx) do d.Visible = false end end
+    hideLegacyFx(o)
 end
 
 function SA.DisposeEspFx(o)

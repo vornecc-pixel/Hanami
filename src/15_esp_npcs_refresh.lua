@@ -4,14 +4,24 @@
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
 
+local function npcRefreshRig(o, model)
+    local hum, hrp, head = o.hum, o.root, o.head
+    if model.Parent and hum and hrp and hrp.Parent and head and head.Parent then
+        return hum, hrp, head
+    end
+    hum  = model.Parent and model:FindFirstChildOfClass("Humanoid")
+    hrp  = model.Parent and (model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("Head"))
+    head = model.Parent and (model:FindFirstChild("Head") or hrp)
+    o.hum, o.root, o.head = hum, hrp, head
+    return hum, hrp, head
+end
+
 local function refreshNpcESP()
     local cam = ws.CurrentCamera
     if not cam then return end
     for model, o in pairs(npcObjects) do
-        local hum  = model.Parent and model:FindFirstChildOfClass("Humanoid")
-        local hrp  = model.Parent and (model:FindFirstChild("HumanoidRootPart")
-            or model:FindFirstChild("Head"))
-        local head = model.Parent and (model:FindFirstChild("Head") or hrp)
+        local hum, hrp, head = npcRefreshRig(o, model)
         if not (model.Parent and hum and hum.Health > 0 and hrp and head) then
             clearNpc(model)
         else
@@ -25,6 +35,7 @@ local function refreshNpcESP()
             else
                 -- GREEN = clear line of sight, RED = behind a wall
                 local visible = CFG.npcVisibleCheck and SA.IsVisible(model, hrp.Position)
+                o.vis = visible
                 local col = CFG.npcVisibleCheck
                     and (visible and ESP_COLORS.npcVisible or ESP_COLORS.npcHidden) or ESP_COLORS.npcFlat
 

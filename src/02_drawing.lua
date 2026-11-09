@@ -31,6 +31,61 @@ local proxyCount    = 0
 local drawLastError = "none"
 local drawWriteFailures, drawLastWriteError = 0, "none"
 
+-- Per-frame GUI sync batching. Setting 10 properties on one proxy used to
+-- call sync() 10 times, and each sync rewrote every TextLabel / Frame
+-- property. ESP styling touches hundreds of those every frame. Property
+-- changes now only update the cached state; bindRender() flushes each
+-- dirty proxy ONCE at the end of the callback. A hide->show toggle inside
+-- one frame collapses to the final value, so no redundant Roblox write
+-- ever reaches the Instance.
+local drawPending = setmetatable({}, { __mode = "k" })
+local drawSyncWrites, drawSyncFlushes, drawSyncBatches = 0, 0, 0
+
+function SA.DrawSyncFlush()
+    local n = 0
+    for proxy in pairs(drawPending) do
+        drawPending[proxy] = nil
+        n = n + 1
+        pcall(function()
+            local f = proxy.__saFlush
+            if type(f) == "function" then f() end
+        end)
+    end
+    if n > 0 then drawSyncBatches = drawSyncBatches + 1 end
+    return n
+end
+
+function SA.DrawSyncPending()
+    local n = 0
+    for _ in pairs(drawPending) do n = n + 1 end
+    return n
+end
+
+function SA.DrawSyncStats()
+    return {
+        writes = drawSyncWrites,
+        flushes = drawSyncFlushes,
+        batches = drawSyncBatches,
+        pending = SA.DrawSyncPending(),
+        saved = math.max(drawSyncWrites - drawSyncFlushes, 0),
+    }
+end
+
+function SA.PrintDrawSyncStats()
+    local s = SA.DrawSyncStats()
+    print("[draw sync] writes", s.writes, "| flushes", s.flushes,
+        "| batches", s.batches, "| pending", s.pending,
+        "| saved", s.saved)
+end
+
+local function flushDrawProxy(d)
+    if type(d) ~= "table" then return false end
+    return pcall(function()
+        local f = d.__saFlush
+        if type(f) == "function" then f() end
+    end)
+end
+
 local PROPS = {
     Line     = { "Visible", "Color", "Transparency", "Thickness", "From", "To" },
     Circle   = { "Visible", "Color", "Transparency", "Thickness", "Filled",
@@ -204,29 +259,39 @@ local function fallbackDraw(kind)
     end
 
     local proxy = {}
+    local syncPending = false
+    local function flush()
+        if not syncPending then return end
+        syncPending = false
+        drawPending[proxy] = nil
+        drawSyncFlushes = drawSyncFlushes + 1
+        local okSync, errSync = pcall(sync)
+        if not okSync then
+            drawWriteFailures = drawWriteFailures + 1
+            drawLastWriteError = tostring(errSync)
+        end
+    end
     setmetatable(proxy, {
         __index = function(_, k)
             if k == "Remove" then
                 return function()
+                    drawPending[proxy] = nil
+                    syncPending = false
                     pcall(function() frame:Destroy() end)
                     proxyCount = math.max(proxyCount - 1, 0)
                 end
             end
+            if k == "__saFlush" then return flush end
+            if k == "__saDebugLabel" then return frame end
             if k == "Backend" then return "ScreenGui" end
             return st[k]
         end,
         __newindex = function(_, k, v)
-            -- Most properties (colour, thickness, visible) are rewritten
-            -- with the same value every frame. Skip the GUI sync for those
-            -- so the fallback backend doesn't do thousands of redundant
-            -- Instance writes per frame and re-introduce a stutter.
             if st[k] == v then return end
             st[k] = v
-            local okSync, errSync = pcall(sync)
-            if not okSync then
-                drawWriteFailures = drawWriteFailures + 1
-                drawLastWriteError = tostring(errSync)
-            end
+            drawSyncWrites = drawSyncWrites + 1
+            syncPending = true
+            drawPending[proxy] = true
         end,
     })
     proxyCount = proxyCount + 1
@@ -327,25 +392,39 @@ local function textDraw()
     end
 
     local proxy = {}
+    local syncPending = false
+    local function flush()
+        if not syncPending then return end
+        syncPending = false
+        drawPending[proxy] = nil
+        drawSyncFlushes = drawSyncFlushes + 1
+        local okSync, errSync = pcall(sync)
+        if not okSync then
+            drawWriteFailures = drawWriteFailures + 1
+            drawLastWriteError = tostring(errSync)
+        end
+    end
     setmetatable(proxy, {
         __index = function(_, k)
             if k == "Remove" then
                 return function()
+                    drawPending[proxy] = nil
+                    syncPending = false
                     pcall(function() lbl:Destroy() end)
                     proxyCount = math.max(proxyCount - 1, 0)
                 end
             end
+            if k == "__saFlush" then return flush end
+            if k == "__saDebugLabel" then return lbl end
             if k == "Backend" then return "ScreenGui" end
             return st[k]
         end,
         __newindex = function(_, k, v)
             if st[k] == v then return end
             st[k] = v
-            local okSync, errSync = pcall(sync)
-            if not okSync then
-                drawWriteFailures = drawWriteFailures + 1
-                drawLastWriteError = tostring(errSync)
-            end
+            drawSyncWrites = drawSyncWrites + 1
+            syncPending = true
+            drawPending[proxy] = true
         end,
     })
     proxyCount = proxyCount + 1
@@ -367,6 +446,7 @@ function SA.DrawPoolTake(kind)
     local d = table.remove(bucket)
     if type(d) ~= "table" then return nil end
     pcall(function() d.Visible = false end)
+    flushDrawProxy(d)
     return d
 end
 
@@ -378,6 +458,7 @@ function SA.RecycleDraw(d)
     local kind = d.__saPoolKind
     if not kind then pcall(removeDrawing, d); return false end
     pcall(function() d.Visible = false end)
+    flushDrawProxy(d)
     local bucket = SA.DrawPool[kind] or {}
     if #bucket >= DRAW_POOL_CAP then
         pcall(removeDrawing, d)
@@ -470,6 +551,8 @@ function SA.DrawDiag()
         "Text=ScreenGui (Tahoma FontFace when available)",
         "overlay=" .. (drawGui and drawGui.Parent and drawGui:GetFullName() or "NONE"),
         "proxies=" .. tostring(proxyCount),
+        "sync=" .. tostring(drawSyncWrites) .. "->" .. tostring(drawSyncFlushes)
+            .. " (saved " .. tostring(math.max(drawSyncWrites - drawSyncFlushes, 0)) .. ")",
         "writeFailures=" .. tostring(drawWriteFailures),
         "lastWrite=" .. drawLastWriteError,
         "last=" .. drawLastError,
