@@ -196,6 +196,7 @@ local SA_CFG_SHIPPED = {
     triggerRandomPart= false,
     triggerPart      = "Head",
     triggerUseManip  = false,
+    fireWallCheck    = true,   -- dedicated fire-assist VIS gate (default ON)
 
     -- ballistics / prediction
     prediction           = true,
@@ -366,7 +367,7 @@ local SA_CFG_SHIPPED = {
     showManipPopup = true, showPlayerWarning = true,
     forceHead = true, triggerbot = false, autoFire = false,
     triggerHeadOnly = true, triggerRandomPart = false,
-    triggerPart = "Head", triggerUseManip = false,
+    triggerPart = "Head", triggerUseManip = false, fireWallCheck = true,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -440,7 +441,7 @@ for k, v in pairs({
     showManipPopup = true, showPlayerWarning = true,
     forceHead = true, triggerbot = false, autoFire = false,
     triggerHeadOnly = true, triggerRandomPart = false,
-    triggerPart = "Head", triggerUseManip = false,
+    triggerPart = "Head", triggerUseManip = false, fireWallCheck = true,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -544,6 +545,7 @@ CFG.autoFire          = CFG.autoFire == true
 CFG.triggerHeadOnly   = CFG.triggerHeadOnly ~= false
 CFG.triggerRandomPart = CFG.triggerRandomPart == true
 CFG.triggerUseManip   = CFG.triggerUseManip == true
+CFG.fireWallCheck     = CFG.fireWallCheck ~= false
 CFG.triggerPart       = ({ Head=true, Hrp=true, UpperTorso=true,
                             LowerTorso=true, LeftArm=true, RightArm=true,
                             LeftLeg=true, RightLeg=true, Random=true })

@@ -140,7 +140,7 @@ local newKeys = {
     "gunDiffOnScan", "gunOverrideString",
     "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
     "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
-    "hitboxVisible",
+    "hitboxVisible", "fireWallCheck",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -422,6 +422,7 @@ local savedHitChance = CFG.hitChance
 local savedDistance = CFG.distance
 local savedTeamCheck = CFG.teamCheck
 local savedWallCheck = CFG.wallCheck
+local savedFireWallCheck = CFG.fireWallCheck
 local savedFov = CFG.fov
 local savedFovCentre = CFG.fovCenterMode
 local savedTargetNpcs = CFG.targetNpcs
@@ -511,6 +512,7 @@ CFG.hitChance = savedHitChance
 CFG.distance = savedDistance
 CFG.teamCheck = savedTeamCheck
 CFG.wallCheck = savedWallCheck
+CFG.fireWallCheck = savedFireWallCheck
 CFG.fov = savedFov
 CFG.fovCenterMode = savedFovCentre
 CFG.targetNpcs = savedTargetNpcs
@@ -607,6 +609,7 @@ CFG.fov = 150
 CFG.targetNpcs = false
 CFG.teamCheck = false
 CFG.wallCheck = true
+CFG.fireWallCheck = true
 CFG.prediction = false
 CFG.distance = 0
 CFG.hitChance = 100
@@ -633,6 +636,7 @@ ok(SA.TriggerBonePart(otherModel) ~= nil, "random trigger part resolves")
 CFG.triggerHeadOnly = true
 CFG.triggerRandomPart = false
 CFG.triggerPart = "Head"
+mock_advance_time(0.2)
 local triggerTarget = SA.TriggerTarget()
 ok(triggerTarget ~= nil, "triggerbot FOV target found")
 eq(triggerTarget.model, otherModel, "triggerbot target model")
@@ -643,11 +647,12 @@ MOCK_FIRE_TOOL = 0
 MOCK_FIRE_MOUSE_CLICKS = 0
 MOCK_MOUSE_FAIL = false
 MOCK_FIRE_MOUSE = 0
+MOCK_TOOL_ACTIVATE_FAIL = false
 local okDirectFire, directBackend = SA.FireOnce()
-eq(okDirectFire, true, "direct mouse1click fire")
-eq(directBackend, "mouse1click", "mouse1click is primary backend")
-ok(MOCK_FIRE_MOUSE_CLICKS >= 1, "mouse1click backend called")
-eq(MOCK_FIRE_TOOL, 0, "Tool:Activate not used when mouse input works")
+eq(okDirectFire, true, "direct Tool:Activate fire")
+eq(directBackend, "tool", "Tool:Activate is primary backend")
+ok(MOCK_FIRE_TOOL >= 1, "Tool:Activate backend called")
+eq(MOCK_FIRE_MOUSE_CLICKS, 0, "mouse input not used when Tool works")
 
 -- Regression: a VIS player in FOV must fire even with silent aim OFF.
 CFG.masterEnabled = false
@@ -657,11 +662,13 @@ CFG.autoFire = false
 CFG.triggerUseManip = false
 CFG.manipulation = false
 CFG.wallCheck = true
+CFG.fireWallCheck = true
+mock_advance_time(0.2)
 local shotsBefore = SA.FireAssistState().shots
 eq(SA.FireAssistTick(true), true, "VIS FOV triggerbot fires with silent aim OFF")
 local afterTrigger = SA.FireAssistState()
 eq(afterTrigger.shots, shotsBefore + 1, "triggerbot shot count")
-eq(afterTrigger.backend, "mouse1click", "triggerbot mouse backend")
+eq(afterTrigger.backend, "tool", "triggerbot Tool-first backend")
 eq(afterTrigger.partUsed, "Head", "triggerbot used Head part")
 eq(afterTrigger.visible, true, "triggerbot reports VIS target")
 eq(afterTrigger.silentAimIndependent, true, "fire assist independent of silent aim")
@@ -670,26 +677,147 @@ contains(afterTrigger.reason, "fired", "triggerbot success reason")
 -- Manipulation Support must also work without the silent-aim master/gun gate.
 CFG.triggerUseManip = true
 CFG.manipulation = true
+CFG.fireWallCheck = true
 MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
 local okNoAimProbe, noAimReason = SA.ManipPossible(otherModel, true)
 eq(okNoAimProbe, true, "manip probe allowNoAim with silent aim OFF: " .. tostring(noAimReason))
 eq(SA.FireAssistTick(true), true, "manip support fires with silent aim OFF")
 contains(SA.FireAssistState().reason, "fired", "manip support fired")
 quiet(function() SA.PrintFireAssist() end)
 
+-- Wall check always wins: Manipulation Support can no longer bypass it.
+CFG.triggerbot = true
+CFG.autoFire = false
+CFG.triggerUseManip = true
+CFG.manipulation = true
+CFG.fireWallCheck = true
+MOCK_MANIP_BLOCKED = true
+mock_advance_time(0.2)
+local shotsBeforeWall = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), false, "manip support cannot bypass fire wall check")
+eq(SA.FireAssistState().shots, shotsBeforeWall, "no shot through wall with manip support")
+contains(SA.FireAssistState().reason, "VIS", "manip bypass wall-gated reason")
+
+-- The dedicated gate is independent of silent aim's global wallCheck.
+CFG.wallCheck = false
+CFG.triggerbot = true
+CFG.autoFire = false
+CFG.triggerUseManip = false
+CFG.manipulation = false
+CFG.fireWallCheck = true
+MOCK_MANIP_BLOCKED = true
+mock_advance_time(0.2)
+local shotsGlobalOff = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), false, "fire wall check stays ON when global wallCheck is OFF")
+eq(SA.FireAssistState().shots, shotsGlobalOff, "no shot when global wallCheck is OFF")
+contains(SA.FireAssistState().reason, "VIS", "dedicated wall check reason")
+CFG.wallCheck = true
+
+-- Auto Fire + Manipulation Support also cannot bypass a non-VIS wall.
+CFG.triggerbot = false
+CFG.autoFire = true
+CFG.triggerUseManip = true
+CFG.manipulation = true
+CFG.fireWallCheck = true
+MOCK_MANIP_BLOCKED = true
+mock_advance_time(0.2)
+local shotsAutoManip = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), false, "auto fire + manip cannot bypass fire wall check")
+eq(SA.FireAssistState().shots, shotsAutoManip, "no auto fire shot with manip through wall")
+contains(SA.FireAssistState().reason, "VIS", "auto fire manip wall-gated reason")
+MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
+
+-- Auto Fire stays no-target only while the dedicated wall check is OFF.
 CFG.triggerbot = false
 CFG.autoFire = true
 CFG.triggerUseManip = false
 CFG.manipulation = false
+CFG.fireWallCheck = false
+mock_advance_time(0.2)
 local shotsBeforeAuto = SA.FireAssistState().shots
 eq(SA.FireAssistTick(true), true, "auto fire continuous click 1")
 eq(SA.FireAssistTick(true), true, "auto fire continuous click 2")
 eq(SA.FireAssistState().shots, shotsBeforeAuto + 2, "auto fire shot count")
 eq(SA.FireAssistState().target, nil, "auto fire needs no target")
 
--- Backend fallbacks: mouse1press/release when mouse1click is absent,
--- Tool:Activate when all mouse helpers fail, and clean no-backend failure.
+-- Dedicated fire-assist wall check: Auto Fire is VIS-target-gated, with
+-- no camera snap / aim point added.
+CFG.fireWallCheck = true
+MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
+local camBeforeWall = ws.CurrentCamera.CFrame
+local shotsBeforeGated = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), true, "auto fire wall check fires on VIS target")
+local gated = SA.FireAssistState()
+eq(gated.shots, shotsBeforeGated + 1, "auto fire wall check shot count")
+eq(gated.visible, true, "auto fire wall check reports VIS")
+ok(gated.target ~= nil, "auto fire wall check gates on a target")
+eq(gated.wallCheck, true, "fire assist state reports wall check")
+eq(gated.autoFireGated, true, "auto fire is target-gated")
+eq(ws.CurrentCamera.CFrame, camBeforeWall, "auto fire wall check adds no camera snap")
+
+MOCK_MANIP_BLOCKED = true
+mock_advance_time(0.2)
+local shotsBeforeBlocked = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), false, "auto fire wall check blocks non-VIS target")
+eq(SA.FireAssistState().shots, shotsBeforeBlocked, "no auto fire shot through wall")
+contains(SA.FireAssistState().reason, "VIS", "auto fire wall-gated reason")
+MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
+
+-- Both enabled: Auto Fire wins (continuous / no-target) with wall check OFF,
+-- and the VIS target gate applies again with wall check ON.
+CFG.triggerbot = true
+CFG.autoFire = true
+CFG.fireWallCheck = false
+CFG.triggerUseManip = false
+CFG.manipulation = false
+MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
+local shotsBoth = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), true, "both enabled: auto fire wins")
+eq(SA.FireAssistState().shots, shotsBoth + 1, "both enabled shot count")
+eq(SA.FireAssistState().target, nil, "both enabled with wall check OFF needs no target")
+eq(SA.FireAssistState().autoFireGated, false, "both enabled auto fire not gated")
+
+CFG.fireWallCheck = true
+MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
+local shotsBothWall = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), true, "both enabled with wall check ON gates on VIS target")
+eq(SA.FireAssistState().shots, shotsBothWall + 1, "both enabled wall check shot count")
+ok(SA.FireAssistState().target ~= nil, "both enabled wall check reports target")
+eq(SA.FireAssistState().autoFireGated, true, "both enabled auto fire gated")
+
+-- Triggerbot with wall check OFF still allows wall-pen shots and reports
+-- the non-VIS state honestly.
+CFG.triggerbot = true
+CFG.autoFire = false
+CFG.fireWallCheck = false
+CFG.triggerUseManip = false
+CFG.manipulation = false
+MOCK_MANIP_BLOCKED = true
+mock_advance_time(0.2)
+local shotsWallOff = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), true, "triggerbot wall check OFF fires through wall")
+eq(SA.FireAssistState().shots, shotsWallOff + 1, "wall-pen triggerbot shot count")
+eq(SA.FireAssistState().visible, false, "reports non-VIS target")
+eq(SA.FireAssistState().wallCheck, false, "state reports wall check OFF")
+MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
+
+-- Backend fallbacks: mouse1click, then mouse1press/release when it is
+-- absent, and clean no-backend failure when every backend fails.
+MOCK_TOOL_ACTIVATE_FAIL = true
+MOCK_MOUSE_FAIL = false
 local savedMouse1Click = mouse1click
+local clicksBefore = MOCK_FIRE_MOUSE_CLICKS
+local okClickFallback, clickBackend = SA.FireOnce()
+eq(okClickFallback, true, "mouse1click fallback fires")
+eq(clickBackend, "mouse1click", "mouse1click fallback backend")
+ok(MOCK_FIRE_MOUSE_CLICKS > clicksBefore, "mouse1click fallback called")
 _G.mouse1click = nil
 local mouseBefore = MOCK_FIRE_MOUSE
 local okPressFallback, pressBackend = SA.FireOnce()
@@ -698,13 +826,6 @@ eq(pressBackend, "mouse", "mouse1press/release backend")
 ok(MOCK_FIRE_MOUSE > mouseBefore, "mouse1press fallback called")
 _G.mouse1click = savedMouse1Click
 MOCK_MOUSE_FAIL = true
-MOCK_TOOL_ACTIVATE_FAIL = false
-local toolBefore = MOCK_FIRE_TOOL
-local okToolFallback, toolBackend = SA.FireOnce()
-eq(okToolFallback, true, "Tool:Activate fallback fires")
-eq(toolBackend, "tool", "Tool:Activate fallback backend")
-ok(MOCK_FIRE_TOOL > toolBefore, "Tool:Activate fallback called")
-MOCK_TOOL_ACTIVATE_FAIL = true
 local okNoBackend, noBackend = SA.FireOnce()
 eq(okNoBackend, false, "no fire backend fails cleanly")
 eq(noBackend, "no fire backend", "no-backend reason")

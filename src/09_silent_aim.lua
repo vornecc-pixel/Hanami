@@ -381,10 +381,11 @@ end
 -- TRIGGERBOT / AUTO FIRE (guns only, both OFF by default)
 -- Triggerbot needs a valid FOV target and can pick Head / a random hit
 -- part / a specific part. Auto Fire clicks continuously with no target
--- requirement. Both are INDEPENDENT of the silent-aim master/gun toggles;
--- only SA.Alive and the guns-only bow gate apply. Mouse input is tried
--- first because many games do not fire from Tool:Activate(). The read-only
--- manipulation probe gates shots when Manipulation Support is ON.
+-- requirement unless the dedicated fire-assist wall check is ON. Both are
+-- INDEPENDENT of the silent-aim master/gun toggles; only SA.Alive and the
+-- guns-only bow gate apply. Tool:Activate() is tried first, with executor
+-- mouse input as the fallback. The read-only manipulation probe gates
+-- shots when Manipulation Support is ON but cannot bypass the wall check.
 -- ══════════════════════════════════════════════════════════════════
 if SA.DisposeFireAssist then pcall(SA.DisposeFireAssist) end
 local saFireAssist = _G.__saFireAssist or {
@@ -403,9 +404,15 @@ function SA.DisposeFireAssist()
 end
 
 function SA.FireOnce()
-    -- PREFER real mouse input. Tool:Activate() succeeds on many games but
-    -- never reaches their fire remote, which made a VIS target in FOV look
-    -- like triggerbot / auto fire were doing nothing.
+    -- Tool:Activate() first, with executor mouse input as the fallback.
+    -- The VIS FOV bugfix is preserved by the tolerant LOS target picker,
+    -- silent-aim independence and read-only manipulation probe above.
+    local tool = nil
+    pcall(function() tool = SA.GetEquippedGun().tool end)
+    if tool then
+        local okTool = pcall(function() tool:Activate() end)
+        if okTool then return true, "tool" end
+    end
     local click = executorFn("mouse1click")
     if click then
         local okClick = pcall(click)
@@ -419,12 +426,6 @@ function SA.FireOnce()
             pcall(release)
             return true, "mouse"
         end
-    end
-    local tool = nil
-    pcall(function() tool = SA.GetEquippedGun().tool end)
-    if tool then
-        local okTool = pcall(function() tool:Activate() end)
-        if okTool then return true, "tool" end
     end
     return false, "no fire backend"
 end
@@ -447,22 +448,38 @@ function SA.FireAssistTick(force)
     local now = tick()
     if not force and now - (saFireAssist.last or 0) < 0.08 then return false end
     saFireAssist.last = now
+    saFireAssist.target, saFireAssist.part = nil, nil
     local camera = ws.CurrentCamera
     if not camera then
         saFireAssist.reason = "no camera"
         return false
     end
     local origin = camera.CFrame.Position
-    local needTarget = CFG.triggerbot == true
+    local triggerOn = CFG.triggerbot == true
+    local autoOn = CFG.autoFire == true
+    local wallOn = CFG.fireWallCheck == true
+    -- Auto Fire wins when BOTH are ON (continuous / no-target), except the
+    -- dedicated wall check can force a VIS target gate. Triggerbot alone
+    -- always needs a FOV target.
+    local autoMode = autoOn
+    local needTarget = (triggerOn and not autoMode) or (autoMode and wallOn)
     local target = needTarget and SA.TriggerTarget() or nil
     if needTarget and not target then
-        saFireAssist.reason = "no VIS trigger target in FOV"
+        if autoMode and wallOn then
+            saFireAssist.reason = "no VIS target in FOV (auto fire wall check)"
+        elseif wallOn then
+            saFireAssist.reason = "no VIS trigger target in FOV"
+        else
+            saFireAssist.reason = "no trigger target in FOV"
+        end
         saFireAssist.visible = false
         return false
     end
     saFireAssist.visible = target and target.visible ~= false or false
-    local aim = target and target.pos or nil
-    if target and CFG.prediction and type(SA.Predict) == "function" then
+    -- Auto Fire keeps firing straight ahead: the wall check only GATES the
+    -- click, it never adds a camera snap / aim point.
+    local aim = (target and not autoMode) and target.pos or nil
+    if aim and target and CFG.prediction and type(SA.Predict) == "function" then
         local okPred, predicted = pcall(SA.Predict, origin, aim, target.model)
         if okPred and predicted then aim = predicted end
     end
@@ -514,6 +531,8 @@ function SA.FireAssistState()
         randomPart = CFG.triggerRandomPart == true,
         part = CFG.triggerPart,
         manipSupport = CFG.triggerUseManip == true,
+        wallCheck = CFG.fireWallCheck == true,
+        autoFireGated = CFG.autoFire == true and CFG.fireWallCheck == true,
         forceHead = CFG.forceHead ~= false,
         resolvedAimBone = SA.ResolveTargetBone and SA.ResolveTargetBone()
             or CFG.targetBone,
@@ -537,6 +556,8 @@ function SA.PrintFireAssist()
         tostring(s.randomPart), "| part:", tostring(s.part))
     print("  manip support:", tostring(s.manipSupport), "| force head:",
         tostring(s.forceHead), "| resolved aim bone:", tostring(s.resolvedAimBone))
+    print("  fire wall check:", tostring(s.wallCheck), "| auto fire gated:",
+        tostring(s.autoFireGated))
     print("  reason:", tostring(s.reason), "| backend:", tostring(s.backend))
     print("  VIS:", tostring(s.visible), "| silent-aim independent:",
         tostring(s.silentAimIndependent))

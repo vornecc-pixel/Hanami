@@ -42,6 +42,11 @@ function tick()
     return mock_clock
 end
 
+-- Bust the 120 ms SA.IsVisible cache between wall-check test phases.
+function mock_advance_time(dt)
+    mock_clock = mock_clock + (dt or 0.2)
+end
+
 mock_spawned, mock_deferred = {}, {}
 task = {
     wait = function(seconds) return seconds or 0.016 end,

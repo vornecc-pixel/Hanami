@@ -85,6 +85,7 @@ const requiredDist = [
   'SA.PrintCrateFovState', 'SA.PlayerWarningState', 'SA.PrintPlayerWarning',
   'SA.DisposePlayerWarning', 'SA.DisposeFireAssist',
   'SA.HitboxScan', 'SA.HitboxRestore', 'SA.HitboxState', 'SA.PrintHitbox',
+  'fireWallCheck',
   'pvFindSourceModel', 'pvCloneModel', 'pvBuildOverlays', 'pvApplyStyleTo',
 ];
 for (const needle of requiredDist) {
@@ -108,9 +109,9 @@ const newKeys = [
   'triggerPart', 'triggerUseManip',
   'hitboxEnabled', 'hitboxTarget', 'hitboxMode', 'hitboxScale',
   'hitboxCap', 'hitboxMaxDist', 'hitboxTeamCheck', 'hitboxAliveOnly',
-  'hitboxVisible',
+  'hitboxVisible', 'fireWallCheck',
 ];
-assert(newKeys.length === 51, `expected 51 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 52, `expected 52 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -167,19 +168,20 @@ for (const name of files) {
 }
 const requiredDescriptions = {
   'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean',
-    'npc manipulation', 'trigger', 'warning', 'force head', 'crate fov',
-    'hitbox'],
+    'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
+    'crate fov', 'hitbox'],
   'src/02_shared.lua': ['fov', 'pinned', 'npc classifier', 'force head',
-    'trigger bone', 'vis'],
+    'trigger bone', 'vis', 'wall check'],
   'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist'],
   'src/08_prediction.lua': ['gun diff', 'override'],
   'src/09_silent_aim.lua': ['silent aim', 'guns only', 'trigger', 'auto fire',
-    'vis', 'mouse1click'],
+    'vis', 'wall check', 'tool-first', 'mouse1click'],
   'src/18_esp_fx_draw.lua': ['clean', 'outline', 'crate fov'],
   'src/18_esp_fx_frame.lua': ['per-frame', 'crate fov'],
   'src/19_render_loop.lua': ['adaptive', 'fps'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
-    'trigger', 'auto fire', 'force head', 'silent-aim independent', 'hitbox'],
+    'trigger', 'auto fire', 'wall check', 'force head',
+    'silent-aim independent', 'hitbox'],
   'src/20_hitbox_expander.lua': ['hitbox', 'r6/r15', 'self-healing',
     'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
@@ -220,6 +222,10 @@ const requiredDocs = [
   'Auto Fire',
   'Manipulation Support',
   'VIS player in FOV',
+  'Fire Assist Wall Check',
+  'CFG.fireWallCheck',
+  'VIS target in FOV',
+  'Tool:Activate()',
   'mouse1click',
   'silent-aim independent',
   '### Silent aim Force Head',
@@ -237,8 +243,8 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '1,896 assertions',
-  'all 51 new CFG keys',
+  '2,001 assertions',
+  'all 52 new CFG keys',
   'SA.ManipNpcState()',
   'Clean ESP',
   'outlines only',

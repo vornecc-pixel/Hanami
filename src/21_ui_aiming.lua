@@ -314,7 +314,7 @@ local fovPresetDropdown = masterSec:dropdown({
 bindToggle(gunSec, "Gun Silent Aim", "gunEnabled")
 bindToggle(gunSec, "Only While Firing", "gunShotOnly")
 bindToggle(gunSec, "Wall Check", "wallCheck",
-    "Strict LOS-only shots. Automatically bypassed while Manipulation is ON, so leave OFF for wall pen")
+    "Strict LOS-only silent-aim shots. Fire Assist Wall Check is a separate toggle; bypassed while Manipulation is ON")
 bindToggle(gunSec, "Team Check", "teamCheck")
 bindToggle(gunSec, "Target NPCs", "targetNpcs",
     "Guard / Scavenger / Soldier models are found anywhere in Workspace (not just an Npcs folder)")
@@ -329,9 +329,11 @@ gunSec:label({ name = "Silent aim + manipulation: GUNS ONLY (bows skipped)" })
 -- Triggerbot + Auto Fire. Part modes are independent of silent aim's
 -- Force Head / Target Bone settings; manipulation support is a strict gate.
 bindToggle(triggerSec, "Triggerbot", "triggerbot",
-    "Click only when a valid target is inside the FOV circle; Wall Check ON requires the same VIS LOS tag as ESP")
+    "Click only when a valid target is inside the FOV circle; Fire Assist Wall Check ON requires the same VIS LOS tag as ESP")
 bindToggle(triggerSec, "Auto Fire", "autoFire",
-    "Continuous ~12.5 Hz clicks while ON; no target required. Respects gun cooldown")
+    "Continuous ~12.5 Hz clicks; Fire Assist Wall Check ON gates clicks on a VIS target in FOV")
+bindToggle(triggerSec, "Fire Assist Wall Check", "fireWallCheck",
+    "ON by default: Triggerbot and Auto Fire require a VIS target in FOV; Manipulation Support cannot bypass it")
 bindToggle(triggerSec, "Head Only", "triggerHeadOnly",
     "ON by default. Ignored while Random Hit Part is ON")
 bindToggle(triggerSec, "Random Hit Part", "triggerRandomPart",
@@ -344,7 +346,7 @@ bindToggle(triggerSec, "Manipulation Support", "triggerUseManip",
     "Require manipulation ON and a READY read-only SA.ManipPossible() probe before firing")
 triggerSec:label({ name = "Random wins over Head Only; Hit Part is used when both are OFF" })
 triggerSec:label({ name = "Works with Silent Aim master / gun toggles OFF (guns only)" })
-triggerSec:label({ name = "Backend: mouse1click / mouse1press, then Tool:Activate fallback" })
+triggerSec:label({ name = "Backend: Tool:Activate, then mouse1click / mouse1press fallback" })
 addButton(triggerSec, "Print Fire Assist", function() SA.PrintFireAssist() end)
 
 -- ── AIMING : column 2 (Target / Ballistics / Wall Penetration) ──────

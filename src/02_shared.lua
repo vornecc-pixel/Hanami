@@ -339,17 +339,18 @@ function SA.TriggerTarget()
     -- strict checkWall() rejected a visible target when the ray clipped a
     -- hat / accessory near the hit point, so a player marked VIS in FOV
     -- could still produce "no trigger target".
-    -- Always report the ESP VIS state; only Gate on it when Wall Check is
-    -- ON and Manipulation Support is OFF. This keeps diagnostics honest
-    -- without blocking wall-pen users who leave Wall Check OFF.
+    -- Always report the ESP VIS state; the DEDICATED fire-assist wall
+    -- check is the only gate. Manipulation Support no longer bypasses it,
+    -- so CFG.wallCheck (silent aim) stays completely independent.
     local visible = true
     if type(SA.IsVisible) == "function" then
         local okVis, vis = pcall(SA.IsVisible, best.model, pos)
         if okVis then visible = vis ~= false end
-    elseif CFG.wallCheck and CFG.triggerUseManip ~= true then
-        visible = checkWall(origin, pos, best.model)
+    else
+        local okWall, wall = pcall(checkWall, origin, pos, best.model)
+        if okWall then visible = wall end
     end
-    if CFG.wallCheck and CFG.triggerUseManip ~= true and not visible then
+    if CFG.fireWallCheck == true and not visible then
         return nil
     end
     return {
