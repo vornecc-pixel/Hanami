@@ -92,6 +92,10 @@ const requiredDist = [
   'SA.DrawSyncReset', 'SA.ApplyInstProp', 'SA.EspFrameBudget',
   'SA.EspFrameBudgetReset', 'SA.PrintEspFrameBudget', 'instanceWrites',
   'instanceSkips', 'frameBudget',
+  'SA.GhettoGunState', 'SA.GhettoGunRefresh', 'SA.GhettoGunRestore',
+  'SA.GhettoGunDispose', 'SA.GhettoGunTick', 'SA.PrintGhettoGun',
+  'ghettoGunDesync', 'Print Ghetto Gun Desync', 'hide + anchor',
+  'camera viewmodel', 'local arms',
   'pvFindSourceModel', 'pvCloneModel', 'pvBuildOverlays', 'pvApplyStyleTo',
 ];
 for (const needle of requiredDist) {
@@ -116,8 +120,9 @@ const newKeys = [
   'hitboxEnabled', 'hitboxTarget', 'hitboxMode', 'hitboxScale',
   'hitboxCap', 'hitboxMaxDist', 'hitboxTeamCheck', 'hitboxAliveOnly',
   'hitboxVisible', 'hitboxNpcs', 'fireWallCheck', 'espDataRefreshMs',
+  'ghettoGunDesync',
 ];
-assert(newKeys.length === 54, `expected 54 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 55, `expected 55 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -175,7 +180,7 @@ for (const name of files) {
 const requiredDescriptions = {
   'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean',
     'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
-    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh'],
+    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'ghetto'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching',
     'per-property'],
   'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list'],
@@ -184,7 +189,10 @@ const requiredDescriptions = {
   'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist'],
   'src/08_prediction.lua': ['gun diff', 'override'],
   'src/09_silent_aim.lua': ['silent aim', 'guns only', 'trigger', 'auto fire',
-    'vis', 'wall check', 'tool-first', 'mouse1click'],
+    'vis', 'wall check', 'tool-first', 'mouse1click',
+    'dedicated ghetto part'],
+  'src/09_z_ghetto_gun.lua': ['ghetto', 'hide + anchor', 'tool', 'viewmodel',
+    'local arms', 'frame-paced', 'restore', 'state'],
   'src/13_esp_players_refresh.lua': ['per-player', 'cached player rig', 'vis'],
   'src/14_esp_npcs.lua': ['npc esp', 'cached rig'],
   'src/15_esp_npcs_refresh.lua': ['npc esp', 'cached rig', 'vis'],
@@ -198,16 +206,18 @@ const requiredDescriptions = {
     'frame budget'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
     'trigger', 'auto fire', 'wall check', 'force head',
-    'silent-aim independent', 'npc hitbox', 'hitbox'],
+    'silent-aim independent', 'npc hitbox', 'hitbox', 'ghetto gun desync'],
   'src/20_hitbox_expander.lua': ['hitbox', 'players + npcs', 'r6/r15',
     'npc', 'hrp fallback', 'self-healing', 'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
   'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov'],
   'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup',
-    'npc', 'warning', 'fire assist', 'esp data', 'frame budget'],
+    'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
+    'ghetto gun'],
   'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
-    'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget'],
+    'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget',
+    'ghetto gun'],
 };
 for (const [name, needles] of Object.entries(requiredDescriptions)) {
   const description = rowByName.get(name).description.toLowerCase();
@@ -268,8 +278,21 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '2,337 assertions',
-  'all 54 new CFG keys',
+  '2,994 assertions',
+  'all 55 new CFG keys',
+  '37-part list',
+  '### Ghetto gun desync',
+  'Ghetto Gun Desync',
+  'SA.GhettoGunState()',
+  'SA.GhettoGunRefresh()',
+  'SA.GhettoGunRestore()',
+  'SA.GhettoGunDispose()',
+  'SA.PrintGhettoGun()',
+  'ghettoGunDesync',
+  'Print Ghetto Gun Desync',
+  'hide + anchor',
+  'local arms',
+  'camera-snap resolver',
   'ESP 60 FPS frame-budget pass',
   'Print ESP Frame Budget',
   'SA.EspFrameBudget()',

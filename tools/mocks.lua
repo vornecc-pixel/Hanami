@@ -488,6 +488,10 @@ end
 
 local ISA = {
     Part = { BasePart = true, Part = true },
+    MeshPart = { BasePart = true, MeshPart = true },
+    UnionOperation = { BasePart = true, UnionOperation = true },
+    WedgePart = { BasePart = true, WedgePart = true },
+    CornerWedgePart = { BasePart = true, CornerWedgePart = true },
     Model = { Model = true }, Humanoid = { Humanoid = true },
     Tool = { Tool = true }, Accessory = { Accessory = true },
     TextLabel = { TextLabel = true },
@@ -510,6 +514,10 @@ INST_META.__index = function(t, k)
     if k == "Size" then
         local props = rawget(t, "_props")
         return props and props.Size or nil
+    end
+    if k == "Parent" then
+        local props = rawget(t, "_props")
+        return props and props.Parent or nil
     end
     if k == "IsA" then
         return function(self, cls)
@@ -592,7 +600,9 @@ INST_META.__index = function(t, k)
                 for kk, vv in pairs(n) do
                     if kk == "_props" then
                         o._props = {}
-                        for pk, pv in pairs(vv) do o._props[pk] = pv end
+                        for pk, pv in pairs(vv) do
+                            if pk ~= "Parent" then o._props[pk] = pv end
+                        end
                     elseif kk ~= "children" and kk ~= "Parent" and kk ~= "events" then
                         o[kk] = vv
                     end
@@ -709,13 +719,16 @@ INST_META.__newindex = function(t, k, v)
         return
     end
     if k == "Parent" then
-        local old = rawget(t, "Parent")
+        local props = rawget(t, "_props")
+        if not props then props = {}; rawset(t, "_props", props) end
+        local old = props.Parent
+        if old == v then return end
         if old and old.children then
             for i, c in ipairs(old.children) do
                 if c == t then table.remove(old.children, i); break end
             end
         end
-        rawset(t, "Parent", v)
+        props.Parent = v
         if v and v.children then v.children[#v.children + 1] = t end
         return
     end
@@ -729,7 +742,7 @@ function Instance.new(class)
         __kind = "Instance", ClassName = class, Name = "",
         Parent = nil, children = {}, attributes = {},
         Archivable = true, Transparency = 0, Color = Color3.new(1, 1, 1),
-        Health = 100, MaxHealth = 100, Visible = true,
+        Anchored = false, Health = 100, MaxHealth = 100, Visible = true,
         Position = Vector3.new(0, 0, 0), CFrame = CFrame.new(0, 3, 0),
         ViewportSize = Vector2.new(1280, 720),
     }, INST_META)
@@ -741,8 +754,11 @@ function Instance.new(class)
                           "RenderStepped", "Heartbeat", "AncestryChanged" }) do
         o[ev] = new_event()
     end
-    if class == "Part" or class == "MeshPart" or class == "UnionOperation" then
+    if class == "Part" or class == "MeshPart"
+        or class == "UnionOperation" or class == "WedgePart"
+        or class == "CornerWedgePart" then
         o.Size = Vector3.new(2, 1, 1)
+        o.Anchored = false
         o.CanCollide = true
         o.CanQuery = true
         o.CanTouch = true
@@ -995,6 +1011,33 @@ camera.CFrame = CFrame.new(0, 3, 0)
 camera.ViewportSize = Vector2.new(1280, 720)
 camera.Parent = WorkspaceService
 WorkspaceService.CurrentCamera = camera
+
+-- Ghetto Gun Desync fixtures: a Tool with a Part + MeshPart, a camera
+-- viewmodel with a Part + MeshPart, and the local character's R6/R15 arms.
+-- All are ordinary mock Instances with the real property names Hanami uses.
+local function mock_ghetto_part(name, className, parent)
+    local part = Instance.new(className)
+    part.Name = name
+    part.Anchored = false
+    part.Transparency = 0
+    part.LocalTransparencyModifier = 0
+    part.Parent = parent
+    return part
+end
+local mockGhettoTool = myChar:FindFirstChildOfClass("Tool")
+local mockGhettoViewModel = Instance.new("Model")
+mockGhettoViewModel.Name = "ViewModel"
+mockGhettoViewModel.Parent = camera
+MOCK_GHETTO_PARTS = {
+    toolHandle = mock_ghetto_part("Handle", "Part", mockGhettoTool),
+    toolBarrel = mock_ghetto_part("Barrel", "MeshPart", mockGhettoTool),
+    vmGun = mock_ghetto_part("Gun", "Part", mockGhettoViewModel),
+    vmHand = mock_ghetto_part("RightHand", "MeshPart", mockGhettoViewModel),
+    leftArm = myChar:FindFirstChild("Left Arm"),
+    rightArm = myChar:FindFirstChild("Right Arm"),
+    leftUpperArm = mock_ghetto_part("LeftUpperArm", "Part", myChar),
+    rightUpperArm = mock_ghetto_part("RightUpperArm", "Part", myChar),
+}
 
 game = {
     GetService = function(_, name) return service(name) end,

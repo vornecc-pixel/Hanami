@@ -80,6 +80,7 @@ if run == 2 then
 end
 if run == 3 then
     eq(SA.Unloaded, false, "unload guard must reset on re-execute")
+    ok(_G.__saGhettoGun ~= nil, "ghetto state rebuilt after full unload")
     eq(SA.Alive, true, "alive must reset on re-execute")
     ok(_G.__saShared ~= nil, "shared state rebuilt after full unload")
     ok(_G.__saCFG ~= nil, "CFG rebuilt after full unload")
@@ -100,6 +101,7 @@ if run > 1 then
     ok(after < 40, "render listener count is bounded")
     ok(SA.ManipPopupState and SA.ManipPopupState().built == true,
         "manip popup rebuilt after re-execute")
+    eq(SA.GhettoGunState().parts, 0, "re-execute starts with no ghetto parts")
     -- The wrapper is installed once on the library, with the stock methods
     -- preserved, so repeated loads cannot stack wrapper call chains.
     ok(library.__saKeybindWrapperInstalled == true
@@ -141,6 +143,7 @@ local newKeys = {
     "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
     "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
     "hitboxVisible", "hitboxNpcs", "fireWallCheck", "espDataRefreshMs",
+    "ghettoGunDesync",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -150,6 +153,9 @@ for _, key in ipairs(newKeys) do
     ok(library.flags["hn_" .. key] ~= nil, "uninitialised flag " .. key)
 end
 eq(#SA.ConfigCoverage(), 0, "hn_* config coverage")
+eq(CFG.ghettoGunDesync, false, "ghetto gun desync default OFF")
+eq(SA.GhettoGunState().enabled, false, "ghetto gun state default OFF")
+eq(SA.GhettoGunState().parts, 0, "ghetto gun starts with no tracked parts")
 ok(SA.FlagCount() > 40, "Atlanta flag count")
 contains(SA.FlagSnapshot(), "hn_menu_bind", "flag snapshot")
 ok(count(SA.AllKeybinds) >= 7, "all keybinds registered")
@@ -603,6 +609,139 @@ CFG.targetBoneMode = "Global"
 CFG.targetBone = "Hrp"
 eq(SA.ResolveTargetBone(), "Hrp", "Force Head OFF restores Target Bone")
 CFG.forceHead = true
+
+-- ── Ghetto Gun Desync: hide + anchor, continuous gate, full restore ──
+local savedGhetto = CFG.ghettoGunDesync
+local savedGhettoMaster = CFG.masterEnabled
+local savedGhettoGunEnabled = CFG.gunEnabled
+local savedGhettoMouse = UserInputService.GetMouseLocation
+local savedGhettoManipWall = MOCK_MANIP_BLOCKED
+local savedGhettoCFG = {
+    fov = CFG.fov, fovCenterMode = CFG.fovCenterMode,
+    targetNpcs = CFG.targetNpcs, teamCheck = CFG.teamCheck,
+    wallCheck = CFG.wallCheck, prediction = CFG.prediction,
+    distance = CFG.distance, hitChance = CFG.hitChance,
+    gunCooldown = CFG.gunCooldown, targetPriority = CFG.targetPriority,
+    manipulation = CFG.manipulation,
+}
+local function assertGhettoPart(part, anchored, transparency, ltm, label)
+    ok(part ~= nil, label .. " part exists")
+    eq(part.Anchored, anchored, label .. " Anchored")
+    eq(part.Transparency, transparency, label .. " Transparency")
+    eq(part.LocalTransparencyModifier, ltm,
+        label .. " LocalTransparencyModifier")
+end
+local function assertAllGhettoParts(anchored, transparency, ltm, label)
+    for key, part in pairs(MOCK_GHETTO_PARTS) do
+        assertGhettoPart(part, anchored, transparency, ltm, label .. ": " .. key)
+    end
+end
+
+-- Start from known originals: the mock fixtures are local-only objects.
+for _, part in pairs(MOCK_GHETTO_PARTS) do
+    part.Anchored = false
+    part.Transparency = 0
+    part.LocalTransparencyModifier = 0
+end
+local enemyArm = Players:GetPlayers()[2].Character:FindFirstChild("Left Arm")
+assertGhettoPart(enemyArm, false, 0, 0, "enemy arm before ghetto")
+local ghettoTool = MOCK_GHETTO_PARTS.toolHandle.Parent
+local savedGhettoToolName = ghettoTool.Name
+
+setFlags({
+    masterEnabled = true, gunEnabled = true, ghettoGunDesync = true,
+})
+CFG.fovCenterMode = "Mouse"
+CFG.fov = 150
+CFG.targetNpcs = false
+CFG.teamCheck = false
+CFG.wallCheck = true
+CFG.prediction = false
+CFG.distance = 0
+CFG.hitChance = 100
+CFG.gunCooldown = 0
+CFG.targetPriority = "Crosshair"
+CFG.manipulation = false
+MOCK_MANIP_BLOCKED = false
+UserInputService.GetMouseLocation = function() return Vector2.new(641, 345) end
+mock_advance_time(0.2)
+local ghettoOn = SA.GhettoGunRefresh()
+eq(ghettoOn.enabled, true, "ghetto toggle ON")
+eq(ghettoOn.gate, true, "ghetto gate follows gun silent aim")
+eq(ghettoOn.active, true, "ghetto active without firing")
+eq(ghettoOn.reason, "active", "ghetto active reason")
+eq(ghettoOn.method, "hide + anchor", "ghetto uses hide + anchor")
+eq(ghettoOn.scope, "tool + camera viewmodel + local arms",
+    "ghetto covers Tool + viewmodel + local arms")
+eq(ghettoOn.bullets, "camera-snap resolver", "bullets stay on resolver")
+eq(ghettoOn.parts, 8, "8 tool / viewmodel / arm BaseParts")
+eq(ghettoOn.toolParts, 2, "2 equipped Tool parts")
+eq(ghettoOn.viewmodelParts, 2, "2 camera viewmodel parts")
+eq(ghettoOn.armParts, 4, "4 local R6/R15 arm parts")
+ok(ghettoOn.writes > 0, "ghetto writes applied")
+assertAllGhettoParts(true, 1, 1, "ghetto applied")
+assertGhettoPart(enemyArm, false, 0, 0, "enemy arm untouched by ghetto")
+eq(SA.SilentAimState().ghettoGun, true, "silent aim reports ghetto toggle")
+eq(SA.SilentAimState().ghettoActive, true, "silent aim reports ghetto active")
+eq(SA.SilentAimState().lock, true, "camera-snap lock stays ON with ghetto")
+ok(SA.ResolveShot() ~= nil, "shot resolver still returns a target with ghetto ON")
+quiet(function() SA.PrintGhettoGun() end)
+
+-- The normal render tick refreshes on a 12-frame interval, not every frame.
+local scansBefore = SA.GhettoGunState().scans
+for _ = 1, ghettoOn.intervalFrames do SA.GhettoGunTick(false) end
+ok(SA.GhettoGunState().scans > scansBefore, "ghetto frame-paced refresh")
+
+-- A removed Tool part leaves scope and restores only its own originals.
+local savedToolPartParent = MOCK_GHETTO_PARTS.toolHandle.Parent
+MOCK_GHETTO_PARTS.toolHandle.Parent = nil
+local ghettoStale = SA.GhettoGunRefresh()
+eq(ghettoStale.parts, 7, "removed tool part leaves ghetto scope")
+assertGhettoPart(MOCK_GHETTO_PARTS.toolHandle, false, 0, 0,
+    "removed tool part")
+assertGhettoPart(MOCK_GHETTO_PARTS.toolBarrel, true, 1, 1,
+    "remaining tool part")
+MOCK_GHETTO_PARTS.toolHandle.Parent = savedToolPartParent
+local ghettoBack = SA.GhettoGunRefresh()
+eq(ghettoBack.parts, 8, "reattached tool part returns to ghetto scope")
+assertGhettoPart(MOCK_GHETTO_PARTS.toolHandle, true, 1, 1,
+    "reattached tool part")
+
+-- Bow gate restores immediately, and does not touch the camera resolver.
+ghettoTool.Name = "Hunting Bow"
+local ghettoBow = SA.GhettoGunRefresh()
+eq(ghettoBow.gate, false, "bow disables ghetto gate")
+eq(ghettoBow.active, false, "bow disables ghetto active state")
+eq(ghettoBow.reason, "bow equipped (guns only)", "bow gate reason")
+assertAllGhettoParts(false, 0, 0, "bow restored")
+ghettoTool.Name = savedGhettoToolName
+mock_advance_time(0.2)
+SA.GhettoGunRefresh()
+assertAllGhettoParts(true, 1, 1, "gun restored")
+
+-- Master OFF and the dedicated toggle OFF both restore originals.
+setFlags({ masterEnabled = false })
+local ghettoMasterOff = SA.GhettoGunRefresh()
+eq(ghettoMasterOff.gate, false, "master OFF disables ghetto")
+eq(ghettoMasterOff.reason, "master OFF", "master OFF ghetto reason")
+assertAllGhettoParts(false, 0, 0, "master OFF restored")
+setFlags({ masterEnabled = true, ghettoGunDesync = false })
+local ghettoToggleOff = SA.GhettoGunRefresh()
+eq(ghettoToggleOff.enabled, false, "ghetto toggle OFF")
+eq(ghettoToggleOff.reason, "toggle OFF", "toggle OFF ghetto reason")
+assertAllGhettoParts(false, 0, 0, "toggle OFF restored")
+
+-- Restore the earlier test state before the fire-assist regressions.
+setFlags({
+    masterEnabled = savedGhettoMaster,
+    gunEnabled = savedGhettoGunEnabled,
+    ghettoGunDesync = savedGhetto,
+})
+for key, value in pairs(savedGhettoCFG) do CFG[key] = value end
+UserInputService.GetMouseLocation = savedGhettoMouse
+MOCK_MANIP_BLOCKED = savedGhettoManipWall
+SA.GhettoGunRefresh()
+mock_advance_time(0.2)
 
 CFG.fovCenterMode = "Mouse"
 CFG.fov = 150
@@ -1539,6 +1678,7 @@ local buttonNames = {
     "Print Bow Mods State", "Print Hitbox State", "Rescan Characters",
     "Restore Hitboxes", "Print Attachments", "Print Manip State (classic)",
     "Print Silent Aim (v7.7)", "Print Current Target", "Print Prediction",
+    "Print Ghetto Gun Desync",
     "Print ESP Features", "Apply Clean ESP", "Apply Best ESP",
     "Print Why No Target", "Print Draw Backend",
     "Print Live Ping", "Print Player ESP State", "Rebuild Player ESP",
@@ -1605,9 +1745,24 @@ else
     SA.HitboxScan()
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 8,
         "full unload: hitbox expanded before unload")
+    setFlags({
+        masterEnabled = true, gunEnabled = true, ghettoGunDesync = true,
+    })
+    SA.GhettoGunRefresh()
+    eq(MOCK_GHETTO_PARTS.toolHandle.Anchored, true,
+        "full unload: ghetto gun applied before unload")
+    eq(MOCK_GHETTO_PARTS.toolHandle.Transparency, 1,
+        "full unload: ghetto gun hidden before unload")
     local unloaded, why = SA.FullUnload()
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 2,
         "full unload restores hitbox originals")
+    eq(MOCK_GHETTO_PARTS.toolHandle.Anchored, false,
+        "full unload restores ghetto Anchored")
+    eq(MOCK_GHETTO_PARTS.toolHandle.Transparency, 0,
+        "full unload restores ghetto Transparency")
+    eq(MOCK_GHETTO_PARTS.toolHandle.LocalTransparencyModifier, 0,
+        "full unload restores ghetto LocalTransparencyModifier")
+    eq(_G.__saGhettoGun, nil, "full unload clears ghetto state")
     ok(unloaded == true, "full unload: " .. tostring(why))
     eq(SA.Alive, false, "unload stops loops")
     eq(SA.Unloaded, true, "unload guard")

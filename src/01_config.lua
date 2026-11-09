@@ -193,6 +193,7 @@ local SA_CFG_SHIPPED = {
     gunEnabled     = true,
     gunShotOnly    = true,
     gunCooldown    = 0,
+    ghettoGunDesync = false,    -- cosmetic hide + anchor while gun silent aim is ON
 
     -- triggerbot / auto fire (guns only; both OFF by default)
     triggerbot       = false,
@@ -395,6 +396,7 @@ for k, v in pairs({
     manipDist = 30, manipPeek = 4,
     manipMaxParts = 3, manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
     saTapReorder = true, saTapWindow = 0.35,
+    ghettoGunDesync = false,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
     espVisibleCheck = true, espShowTool = true, espShowState = true,
@@ -596,6 +598,7 @@ CFG.hitboxTeamCheck    = CFG.hitboxTeamCheck ~= false
 CFG.hitboxAliveOnly    = CFG.hitboxAliveOnly ~= false
 CFG.hitboxVisible      = CFG.hitboxVisible == true
 CFG.hitboxNpcs         = CFG.hitboxNpcs ~= false
+CFG.ghettoGunDesync    = CFG.ghettoGunDesync == true
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

@@ -48,6 +48,10 @@ addButton(dbgSec, "Print Silent Aim (v7.7)", function()
         s.tapWindow, tostring(s.bowEquipped), tostring(s.snapped)))
     print("[sa] force head:", tostring(s.forceHead),
         "| resolved bone:", tostring(s.resolvedBone))
+    print("[sa] ghetto gun:", tostring(s.ghettoGun),
+        "| active:", tostring(s.ghettoActive),
+        "| parts:", tostring(s.ghettoParts),
+        "| reason:", tostring(s.ghettoReason))
 end)
 addButton(dbgSec, "Print Fire Assist", function() SA.PrintFireAssist() end)
 addButton(dbgSec, "Retry Tap Hooks", function()

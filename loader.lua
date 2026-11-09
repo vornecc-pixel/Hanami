@@ -38,6 +38,7 @@ local PARTS = {
     "08_attachments.lua",
     "08_prediction.lua",
     "09_silent_aim.lua",
+    "09_z_ghetto_gun.lua",
     "10_fov_circle.lua",
     "11_snapline.lua",
     "12_esp_players.lua",

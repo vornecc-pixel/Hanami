@@ -324,6 +324,10 @@ bindToggle(gunSec, "Target NPCs", "targetNpcs",
 bindToggle(gunSec, "Tap-Fire Reorder (Fix A/B)", "saTapReorder",
     "Snap the camera BEFORE the game's fire handlers run; needs getconnections. Falls back to the render-step snap")
 bindSlider(gunSec, "Tap Window (s)", "saTapWindow", 0.1, 1, 0.05, "s")
+bindToggle(gunSec, "Ghetto Gun Desync", "ghettoGunDesync",
+    "Default OFF: hide + anchor the equipped Tool, camera viewmodel and local arms while Gun Silent Aim is ON. Bullets still use the camera-snap resolver; originals restore on OFF / bow / unload")
+addButton(gunSec, "Print Ghetto Gun Desync", function() SA.PrintGhettoGun() end)
+gunSec:label({ name = "Ghetto desync is cosmetic: no remote hook or shot rewrite" })
 gunSec:label({ name = "Silent aim + manipulation: GUNS ONLY (bows skipped)" })
 
 -- Triggerbot + Auto Fire. Part modes are independent of silent aim's
