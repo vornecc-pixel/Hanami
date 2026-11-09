@@ -107,7 +107,7 @@ addButton(dbgSec, "Print Current Target", function()
 end)
 
 -- ── NEAREST PLAYER HUD (visible while the menu is hidden) ───────────
--- When the Atlanta menu is minimised / toggled off with Insert, a small
+-- When the Atlanta menu is minimised / toggled off with RightShift, a small
 -- companion window shows the closest OTHER player, their distance in
 -- metres and the tool they are holding. It is deliberately NOT part of
 -- library.guis, so set_menu_visibility(false) cannot disable it.

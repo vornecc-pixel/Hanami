@@ -52,11 +52,29 @@ local function saFindKeybindLabel(name)
 end
 
 function library:keybind(opts)
+    -- Atlanta builds its "UI Bind" INSIDE library:window() as
+    --   :keybind({callback = window.set_menu_visibility, key = Enum.KeyCode.Insert})
+    -- with no name / flag. Rewrite that single call so RightShift is the
+    -- DEFAULT menu toggle, give it a real flag + list row, and start it
+    -- active so the very first RightShift press HIDES the menu (instead
+    -- of the stock one-press lag). The master aim bind moves to Insert,
+    -- so the two never fire on the same key.
+    local isMenuBind = opts and opts.key == Enum.KeyCode.Insert
+        and not opts.name and not opts.flag
+    if isMenuBind then
+        opts.flag    = "hn_menu_bind"
+        opts.name    = "Toggle Menu"
+        opts.key     = Enum.KeyCode.RightShift
+        opts.mode    = opts.mode or "toggle"
+        opts.default = true
+    end
+
     saKeybindCapture = {}
     local ok, cfg = pcall(saKeybindOriginal, self, opts)
     local cap = saKeybindCapture
     saKeybindCapture = nil
     if not ok then error(cfg, 0) end
+    if isMenuBind then SA.FeatureBinds["hn_menu_bind"] = cfg end
 
     local listLbl = cap.listLbl or saFindKeybindLabel(opts and opts.name)
     local origSet = cfg.set
@@ -226,7 +244,8 @@ local masterToggle = bindToggle(masterSec, "Enabled", "masterEnabled",
     "Master switch for the camera sandwich")
 local masterBind = masterToggle:keybind({
     name = "Toggle Aim", flag = "hn_master_bind",
-    key = Enum.KeyCode.RightShift, mode = "toggle",
+    key = Enum.KeyCode.Insert, mode = "toggle",
+    -- RightShift is now the menu toggle; Insert keeps the aim master bound.
     default = CFG.masterEnabled,
     callback = function(active) setToggle(masterToggle, active) end,
 })

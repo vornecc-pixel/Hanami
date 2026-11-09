@@ -27,6 +27,7 @@ print("  manip : classic sliders — 8 peek dirs, 0-300 studs, base peek 4-6")
 print("  esp   : Tahoma text — weapon below box, VIS/WALL + state at corner")
 print("  fx    : tracer + arrows PLAYERS ONLY | feature keys P/N/G/B/M")
 print("  hud   : nearest player (metres + gun) while menu hidden")
+print("  keys  : menu RightShift | aim Insert | right-click a bind = None")
 print("  aim   :", CFG.masterEnabled and "on" or "off")
 print("  manip :", CFG.manipulation and "on" or "off")
 print("  esp   :", CFG.espEnabled and "on" or "off")
@@ -50,7 +51,7 @@ print("  espfx :", CFG.espPerElementColors and "per-element" or "visibility colo
 print("  colors:", "ESP -> Colours tab (every element)")
 print("  ui    : Atlanta")
 print("  prevw :", CFG.espPreview and "on" or "off", "| floating ESP Preview panel")
-print("  toggle: RightShift | menu: Insert")
+print("  menu  : RightShift (default) | aim: Insert")
 print("══════════════════════════════════════════════")
 
 return CFG

@@ -22,8 +22,9 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
-| **Five feature keybinds + None / right-click removal** | Aiming / ESP / Gun Mods | See [Feature keybinds](#feature-keybinds). **P** Player ESP, **N** NPC ESP, **G** Gun Mods, **B** Bow Mods, **M** Manipulation, plus the existing **RightShift** aim and **Insert** UI bind. Any keyboard key or mouse button can be bound; press **Escape** or **right-click** the key widget / Keybinds row to set **None** and remove it from the list without turning the feature off. |
-| **Nearest-player HUD while the menu is hidden** | Visual → Debug | See [Nearest player HUD](#nearest-player-hud). A separate draggable window appears when you minimise / toggle off the Atlanta menu (Insert) and shows the closest player's **username**, **distance in metres** (1 m ≈ 3.571 studs) and **held gun/tool**. It is deliberately outside `library.guis`, so hiding the menu cannot disable it. |
+| **RightShift is the default menu toggle** | Atlanta menu | See [Feature keybinds](#feature-keybinds). Atlanta ships `Insert` for its UI Bind; Hanami rewrites that one call to **RightShift** and moves the aim master to **Insert**, so both stay bound and never fire on the same press. The menu bind gets a real `hn_menu_bind` flag + Keybinds-panel row (**Toggle Menu**), so it can be right-clicked to `None` like every other bind. |
+| **Five feature keybinds + None / right-click removal** | Aiming / ESP / Gun Mods | See [Feature keybinds](#feature-keybinds). **P** Player ESP, **N** NPC ESP, **G** Gun Mods, **B** Bow Mods, **M** Manipulation, plus the existing **Insert** aim and **RightShift** menu bind. Any keyboard key or mouse button can be bound; press **Escape** or **right-click** the key widget / Keybinds row to set **None** and remove it from the list without turning the feature off. |
+| **Nearest-player HUD while the menu is hidden** | Visual → Debug | See [Nearest player HUD](#nearest-player-hud). A separate draggable window appears when you minimise / toggle off the Atlanta menu (RightShift) and shows the closest player's **username**, **distance in metres** (1 m ≈ 3.571 studs) and **held gun/tool**. It is deliberately outside `library.guis`, so hiding the menu cannot disable it. |
 | **Tracer lines + off-screen arrows are player-only** | ESP → ESP Features | See [New ESP visuals](#new-esp-visuals-all-in-esp--esp-features). The shared toggles stay ON for players but NPC / crate ESP and the NPC ESP Preview never create those drawings. |
 | **Every gun's attributes updated (20 guns)** | Aiming → Ballistics | See [Ballistic prediction](#ballistic-prediction). All 20 guns now carry `mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `recoil`, `rate`, `auto`, `s2Damage`, `scope`, `headGuard`, `shellReload`, `rocket`, `huntOnly` / `duelOnly` plus the new **Arena Rifle** (`duel_rifle` / `duel_ammo`) and the named `Falloff` table. **Print Gun Table** dumps all of them; **Sync Gun Defs (GC)** now refreshes every numeric field from the live game. |
 | **Prediction auto-tunes for attachments** | Aiming → Attachments (Auto) | See [Attachments & auto prediction tuning](#attachments--auto-prediction-tuning). All 12 attachments are auto-detected off the equipped tool; a silencer re-tunes bullet speed (and therefore lead + drop), sights/grips fold aim-time into the one latency term, and the solver adds a refinement pass and stops on convergence. No manual toggle needed — slot overrides are provided as a fallback. |
@@ -597,7 +598,7 @@ floating "ESP Preview" panel (Atlanta window.esp_section)
 
 * **Every widget writes straight into `CFG`** through its `callback`, and every `default` is read from `CFG`. Building the menu never resets the settings kept in `_G.__saCFG`.
 * Flags are prefixed `hn_` so they can't collide with the library's own config flags. `setFlag("someKey", value)` and `setToggle(obj, value)` are what the presets and quick actions use, so the UI stays in sync when values change programmatically.
-* **Keys:** `RightShift` toggles silent aim (chained keybind on the master toggle), `Insert` shows/hides the menu (Atlanta default).
+* **Keys:** `RightShift` shows/hides the menu (default), `Insert` toggles silent aim (chained keybind on the master toggle). Both are rebindable; right-click any bind to set `None`.
 * **48 colourpickers** live in `ESP → Colours` and write straight into `ESP_COLORS`. Chained onto `label` rows (labels expose `right_holder`), each has a unique `hn_col_<key>` flag. FOV / snapline / lead / target colours moved here from the Visual tab so there is exactly one picker per colour. `Reset ESP Colours` restores defaults and syncs the swatches.
 * The old Shaman `RadioButton` preset is now a `Custom / Legit / Blatant` dropdown ("Custom" is the default so opening the menu doesn't apply a preset). The `Bullet Speed Override` slider (0–3000) now lives in the Ballistics section.
 * **FOV controls:** `Show FOV Circle` (ON), `FOV Centre` (Mouse / Screen Center), `Force ScreenGui Drawing` (ON), `Aim / Circle Radius`, plus `Print FOV State` / `Print Draw Backend` in Visual → Debug.
@@ -651,11 +652,11 @@ The preview also gained the overlays the real ESP already had: a padded **visibi
 
 **Fixed colour regressions** in `drawEntity()`: crate names keep their kind colour (`keepNameColor`) instead of falling back to the player name picker, crate state tags use `crateState` / `crateOpened`, and NPC archetype colours paint the name and state tag even with the new screen-space Tahoma labels.
 
-`SA.ApplyBestEsp()`, `SA.EspFeatureDiag()`, `SA.FeatureBindDiag()`, `SA.NearestWindowState()` and `CFG.espPreviewKind` (`"Player"`), `CFG.espPreviewTarget` (`false`), `CFG.nearestWindow` (`true`) are the new API / config keys; all are backfilled for older saved configs, and the preview kind / speed are clamped on every load so a stale saved value cannot put the mirror into an invalid pipeline. `SA.STUDS_PER_METER = 3.571` is the single studs→metres factor used by the ESP distance labels and the nearest-player HUD.
+`SA.ApplyBestEsp()`, `SA.EspFeatureDiag()`, `SA.FeatureBindDiag()` (includes `hn_menu_bind`), `SA.NearestWindowState()` and `CFG.espPreviewKind` (`"Player"`), `CFG.espPreviewTarget` (`false`), `CFG.nearestWindow` (`true`) are the new API / config keys; all are backfilled for older saved configs, and the preview kind / speed are clamped on every load so a stale saved value cannot put the mirror into an invalid pipeline. `SA.STUDS_PER_METER = 3.571` is the single studs→metres factor used by the ESP distance labels and the nearest-player HUD.
 
 ## Feature keybinds
 
-Every feature master switch now has its own keybind, and the two keybinds that already existed keep working:
+Every feature master switch now has its own keybind, and the two keybinds that already existed keep working. **RightShift is the default menu toggle**; the aim master moved to **Insert** to avoid a double-fire.
 
 | Feature | Widget | Default key | Flag |
 |---|---|---|---|
@@ -664,14 +665,14 @@ Every feature master switch now has its own keybind, and the two keybinds that a
 | Enable Gun Mods | Gun Mods → Gun Mods (GC Scan) → Enable Gun Mods | `G` | `hn_bind_gmEnabled` |
 | Enable Bow Mods | Gun Mods → Bow Mods (GC Scan) → Enable Bow Mods | `B` | `hn_bind_bowModsEnabled` |
 | Enable Manipulation | Aiming → Wall Penetration → Enabled (FOV-aware) | `M` | `hn_bind_manipulation` |
-| Toggle Aim (existing) | Aiming → Master | `RightShift` | `hn_master_bind` |
-| UI Bind (Atlanta built-in) | Settings → Other → UI Bind | `Insert` | library-managed |
+| Toggle Aim (existing) | Aiming → Master | `Insert` | `hn_master_bind` |
+| Toggle Menu (Atlanta UI Bind) | Settings → Other → UI Bind · Keybinds panel | `RightShift` | `hn_menu_bind` |
 
 `SA.FeatureKeybind()` attaches the bind to the **same toggle** the menu uses, so pressing the key, clicking the toggle, loading a config and the **Disable All** quick action all stay in sync. `SA.FeatureBindDiag()` prints every flag / key / mode / active state; `SA.FeatureBindClear(flag)` clears one programmatically. **Print Feature Keybinds** is in Misc → Quick Actions.
 
 ### None / right-click removal
 
-Atlanta already maps `Escape` to `"none"`, but its Keybinds panel leaves the row behind and `MouseButton2Click` only opens the mode selector. `src/21_ui_aiming.lua` wraps `library:keybind` **before** `library:window()` is created, so the built-in UI bind and all six feature binds get the same upgrade:
+Atlanta already maps `Escape` to `"none"`, but its Keybinds panel leaves the row behind and `MouseButton2Click` only opens the mode selector. `src/21_ui_aiming.lua` wraps `library:keybind` **before** `library:window()` is created, so the built-in UI bind and every feature bind get the same upgrade. The wrapper also recognises Atlanta's unnamed `Enum.KeyCode.Insert` UI Bind call and rewrites it (flag `hn_menu_bind`, name **Toggle Menu**, key `RightShift`, `default = true`) before the stock keybind is built — so the first RightShift press hides the menu and the row is visible/right-clickable in the Keybinds panel.
 
 * left-click / `MouseButton1Down` rebinding accepts **every** `Enum.KeyCode` and `Enum.UserInputType` (no whitelist — F-keys, numpad, mouse buttons, etc.).
 * setting a bind to `"none"` (Escape or right-click) does **not** change the feature's ON/OFF state; it just detaches the key.
@@ -682,7 +683,7 @@ The wrapper captures Atlanta's 24×14 `TextButton` and the `TextLabel` parented 
 
 ## Nearest player HUD
 
-Toggle the Atlanta menu off with `Insert` (or any state where `window.opened == false`) and a compact draggable `HanamiNearestPlayer` `ScreenGui` appears. It reports, refreshed at ~10 Hz by the shared render bind:
+Toggle the Atlanta menu off with `RightShift` (or any state where `window.opened == false`) and a compact draggable `HanamiNearestPlayer` `ScreenGui` appears. It reports, refreshed at ~10 Hz by the shared render bind:
 
 ```
 NEAREST PLAYER
@@ -748,14 +749,14 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
-| `src/21_ui_aiming.lua` | Atlanta setup + **keybind wrapper (None / right-click removal)**, binding helpers, Aiming tab (Target / Ballistics / **classic Wall Pen sliders + recommendation / tap-fire controls / guns-only note / attachment auto-tune column / Manipulation keybind**) | 385 |
+| `src/21_ui_aiming.lua` | Atlanta setup + **keybind wrapper (None / right-click removal)**, binding helpers, Aiming tab (Target / Ballistics / **classic Wall Pen sliders + recommendation / tap-fire controls / guns-only note / attachment auto-tune column / Manipulation keybind**) | 404 |
 | `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **Player/NPC mirror, per-tag labels, vis frame, arrow (player-only), backdrops** | 540 |
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, **Preview Kind / Target / Best ESP controls**, `SA.EspPreview*` API | 270 |
 | `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features (**Best ESP preset + diagnostics, Tahoma layout toggles, player-only tracer/arrow notes, feature keybinds**) / **48 colourpickers** / diagnostics buttons | 310 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + **Bow Mods section (2 toggles + diagnostics) + Gun/Bow Mods feature keybinds** | 49 |
 | `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only debug, bow-mods state, attachment / gun-table prints**) + **nearest-player hidden-menu HUD, controls + diagnostics** | 324 |
 | `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours / **Print Feature Keybinds**), UI init, **full v7.7 unload + preview + nearest-HUD dispose + bow timing restore** | 97 |
-| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 56 |
+| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 57 |
 ## Editing
 
 * Parts share one scope: a column-1 `local` in an earlier part is hoisted and visible in later ones. **Indented** `local`s stay private to their function.
