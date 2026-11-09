@@ -513,8 +513,10 @@ bindToggle(hitSec, "Team Check", "hitboxTeamCheck",
 bindToggle(hitSec, "Alive Only", "hitboxAliveOnly")
 bindToggle(hitSec, "Show Expanded Parts (client only)", "hitboxVisible",
     "LocalTransparencyModifier = 0.55; nobody else sees the tint")
+bindToggle(hitSec, "Expand NPC Hitboxes", "hitboxNpcs",
+    "ON by default: expand live NPC registry models; Team Check applies to players only")
 hitSec:label({ name = "fixed = uniform cube; multiply = original x Scale, capped" })
-hitSec:label({ name = "R6 Torso + R15 UpperTorso / LowerTorso are covered" })
+hitSec:label({ name = "R6 Torso + R15 UpperTorso / LowerTorso; NPC HRP fallback" })
 addButton(hitSec, "Print Hitbox State", function() SA.PrintHitbox() end)
 addButton(hitSec, "Rescan Characters", function()
     local n = SA.HitboxScan()

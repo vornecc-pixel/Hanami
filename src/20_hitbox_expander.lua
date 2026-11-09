@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 20_hitbox_expander.lua — Hitbox Expander v2 (silent, R6/R15)
+-- Hanami / 20_hitbox_expander.lua — Hitbox Expander v2 (players + NPCs)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk;
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
@@ -17,7 +17,11 @@
 --   * Accessory Handle.CanQuery is saved and restored too (the pasted
 --     script left it permanently false).
 --   * `table.clear` is Roblox-only; replaced with a portable clear loop.
---   * teamCheck uses SA.IsTeammate() (FustMates) plus a plr.Team fallback.
+--   * teamCheck uses SA.IsTeammate() (FustMates) plus a plr.Team fallback;
+--     it filters PLAYERS only, never the neutral NPC registry.
+--   * NPC models come from the same live registry used by NPC ESP. A raw
+--     list view avoids a fresh filtered copy every render frame. NPCs with
+--     no UpperTorso / LowerTorso / Torso fall back to HumanoidRootPart.
 --   * maxDist <= 0 means unlimited. visible uses the client-only
 --     LocalTransparencyModifier, so nobody else sees the debug tint.
 -- ────────────────────────────────────────────────────────────────────
@@ -38,6 +42,8 @@ local hbSizeConns = _G.__saHitboxSizeConns or {}
 _G.__saHitboxSizeConns = hbSizeConns
 local hbCharConns = _G.__saHitboxCharConns or {}
 _G.__saHitboxCharConns = hbCharConns
+local hbNpcWatches = _G.__saHitboxNpcWatches or {}
+_G.__saHitboxNpcWatches = hbNpcWatches
 local hbWatchedChar = {}
 local hbScans = 0
 local hbGen = SA.Generation
@@ -47,7 +53,7 @@ local hbGen = SA.Generation
 local hb = {
     enabled = false, target = "Both", mode = "fixed",
     scale = 8, cap = 8, maxDist = 300,
-    teamCheck = true, aliveOnly = true, visible = false,
+    teamCheck = true, aliveOnly = true, visible = false, npcs = true,
     originals = hbOriginals, accessories = hbAccessories,
     sizeConns = hbSizeConns, charConns = hbCharConns,
 }
@@ -65,6 +71,7 @@ local function hbSync()
     hb.teamCheck = CFG.hitboxTeamCheck ~= false
     hb.aliveOnly = CFG.hitboxAliveOnly ~= false
     hb.visible   = CFG.hitboxVisible == true
+    hb.npcs      = CFG.hitboxNpcs ~= false
 end
 
 local function hbClear(t)
@@ -74,6 +81,14 @@ end
 local function hbCount(t)
     local n = 0
     for _ in pairs(t) do n = n + 1 end
+    return n
+end
+
+local function hbCountNpcParts()
+    local n = 0
+    for _, o in pairs(hbOriginals) do
+        if o and o.npcOwner ~= nil then n = n + 1 end
+    end
     return n
 end
 
@@ -133,7 +148,10 @@ local function hbInstallSizeHook(part)
     if okConnect and conn then hbSizeConns[part] = conn end
 end
 
-local function hbApplyToPart(part)
+-- npcOwner is the NPC Model for registry entries and nil for player rigs.
+-- It lets the NPC toggle restore ONLY NPC-owned originals while leaving
+-- player hitboxes expanded.
+local function hbApplyToPart(part, npcOwner)
     if not part or not part.Parent or not part:IsA("BasePart") then return end
     if not hbOriginals[part] then
         hbOriginals[part] = {
@@ -142,8 +160,11 @@ local function hbApplyToPart(part)
             canQuery = part.CanQuery,
             canTouch = part.CanTouch,
             ltm = part.LocalTransparencyModifier,
+            npcOwner = npcOwner,
         }
         hbInstallSizeHook(part)
+    elseif npcOwner ~= nil then
+        hbOriginals[part].npcOwner = npcOwner
     end
     local want = hbComputeTargetSize(part)
     local ok, diff = pcall(function() return (part.Size - want).Magnitude end)
@@ -156,57 +177,92 @@ local function hbApplyToPart(part)
     end)
 end
 
-local function hbSilenceHandle(handle)
+local function hbSilenceHandle(handle, npcOwner)
     if not handle or not handle:IsA("BasePart") then return end
     if not hbAccessories[handle] then
-        hbAccessories[handle] = { canQuery = handle.CanQuery }
+        hbAccessories[handle] = { canQuery = handle.CanQuery, npcOwner = npcOwner }
+    elseif npcOwner ~= nil then
+        hbAccessories[handle].npcOwner = npcOwner
     end
     pcall(function() handle.CanQuery = false end)
 end
 
-local function hbSilenceAccessories(char)
+local function hbSilenceAccessories(char, npcOwner)
     for _, child in ipairs(char:GetChildren()) do
         if child:IsA("Accessory") then
             local handle = child:FindFirstChild("Handle")
-            hbSilenceHandle(handle)
+            hbSilenceHandle(handle, npcOwner)
         end
     end
 end
 
-local function hbApplyToChar(char)
+-- Some NPC rigs expose only Head + HumanoidRootPart. In that case the HRP
+-- is the only expandable torso proxy; never add it to a normal player rig.
+local function hbNpcNeedsRootPart(char)
+    local head = char:FindFirstChild("Head")
+    local hasHead = head ~= nil and head:IsA("BasePart")
+    local hasTorso = false
+    for _, name in ipairs(hbTargets.Torso) do
+        local part = char:FindFirstChild(name)
+        if part and part:IsA("BasePart") then
+            hasTorso = true
+            break
+        end
+    end
+    if hb.target == "Head" then return not hasHead end
+    if hb.target == "Torso" then return not hasTorso end
+    return not hasHead or not hasTorso
+end
+
+local function hbApplyRig(char, npcOwner)
+    local names = hbTargets[hb.target] or hbTargets.Both
+    for _, name in ipairs(names) do
+        local part = char:FindFirstChild(name)
+        if part and part:IsA("BasePart") then hbApplyToPart(part, npcOwner) end
+    end
+    if npcOwner ~= nil and hbNpcNeedsRootPart(char) then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp and hrp:IsA("BasePart") then hbApplyToPart(hrp, npcOwner) end
+    end
+end
+
+local function hbApplyToChar(char, isNpc)
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hum then return end
     if hb.aliveOnly and (tonumber(hum.Health) or 0) <= 0 then return end
     if not hbInRange(char) then return end
-    local names = hbTargets[hb.target] or hbTargets.Both
-    for _, name in ipairs(names) do
-        local part = char:FindFirstChild(name)
-        if part and part:IsA("BasePart") then hbApplyToPart(part) end
-    end
-    hbSilenceAccessories(char)
+    local npcOwner = isNpc and char or nil
+    hbApplyRig(char, npcOwner)
+    hbSilenceAccessories(char, npcOwner)
 end
 
-local function hbWatchChar(plr, char)
-    if hbCharConns[plr] and hbWatchedChar[plr] == char then return end
-    local old = hbCharConns[plr]
+local function hbWatchChar(owner, char, isNpc)
+    if hbCharConns[owner] and hbWatchedChar[owner] == char then return end
+    local old = hbCharConns[owner]
     if old then pcall(old.Disconnect, old) end
-    hbWatchedChar[plr] = char
+    hbWatchedChar[owner] = char
+    local npcOwner = isNpc and char or nil
     local ok, conn = pcall(function()
         return char.ChildAdded:Connect(function(child)
             hbSync()
             if not hb.enabled then return end
-            local names = hbTargets[hb.target] or hbTargets.Both
+            if isNpc and not hb.npcs then return end
             if child:IsA("BasePart") then
-                for _, name in ipairs(names) do
-                    if child.Name == name then hbApplyToPart(child) end
+                if isNpc then
+                    hbApplyToChar(char, true)
+                else
+                    local names = hbTargets[hb.target] or hbTargets.Both
+                    for _, name in ipairs(names) do
+                        if child.Name == name then hbApplyToPart(child) end
+                    end
                 end
             elseif child:IsA("Accessory") then
-                hbSilenceHandle(child:FindFirstChild("Handle"))
+                hbSilenceHandle(child:FindFirstChild("Handle"), npcOwner)
             end
         end)
     end)
-    if ok and conn then hbCharConns[plr] = conn else hbCharConns[plr] = nil end
+    if ok and conn then hbCharConns[owner] = conn else hbCharConns[owner] = nil end
 end
 
 local function hbRestorePart(part)
@@ -230,19 +286,71 @@ local function hbRestorePart(part)
     hbOriginals[part] = nil
 end
 
+local function hbRestoreHandle(handle, o)
+    if handle and o then
+        pcall(function() handle.CanQuery = o.canQuery end)
+    end
+    hbAccessories[handle] = nil
+end
+
+-- Bounded ancestry check: restore parts / handles owned by a removed NPC
+-- even when an original was saved by an older chunk without npcOwner.
+local function hbIsUnder(part, model)
+    local node = part
+    for _ = 1, 16 do
+        if node == model then return true end
+        local ok, parent = pcall(function() return node.Parent end)
+        if not ok or not parent then return false end
+        node = parent
+    end
+    return false
+end
+
+local function hbRestoreNpcOwned(owner)
+    for part, o in pairs(hbOriginals) do
+        if o and ((owner == nil and o.npcOwner ~= nil)
+            or (owner ~= nil and (o.npcOwner == owner or hbIsUnder(part, owner)))) then
+            pcall(hbRestorePart, part)
+        end
+    end
+    for handle, o in pairs(hbAccessories) do
+        if o and ((owner == nil and o.npcOwner ~= nil)
+            or (owner ~= nil and (o.npcOwner == owner or hbIsUnder(handle, owner)))) then
+            pcall(hbRestoreHandle, handle, o)
+        end
+    end
+end
+
+local function hbModelAlive(model)
+    local ok, parent = pcall(function() return model.Parent end)
+    return ok and parent ~= nil
+end
+
+local function hbPruneNpcWatches(seen)
+    for model in pairs(hbNpcWatches) do
+        if not seen[model] or not hbModelAlive(model) then
+            hbRestoreNpcOwned(model)
+            local conn = hbCharConns[model]
+            if conn then pcall(conn.Disconnect, conn) end
+            hbCharConns[model] = nil
+            hbWatchedChar[model] = nil
+            hbNpcWatches[model] = nil
+        end
+    end
+end
+
 function SA.HitboxRestore()
     for part in pairs(hbOriginals) do pcall(hbRestorePart, part) end
     for conn in pairs(hbSizeConns) do
         pcall(conn.Disconnect, conn)
     end
     hbClear(hbSizeConns)
-    for handle, o in pairs(hbAccessories) do
-        if handle and o then pcall(function() handle.CanQuery = o.canQuery end) end
-    end
+    for handle, o in pairs(hbAccessories) do pcall(hbRestoreHandle, handle, o) end
     hbClear(hbAccessories)
     for _, conn in pairs(hbCharConns) do pcall(conn.Disconnect, conn) end
     hbClear(hbCharConns)
     hbClear(hbWatchedChar)
+    hbClear(hbNpcWatches)
     if _G.__saHitboxPlayerRemovingConn then
         pcall(_G.__saHitboxPlayerRemovingConn.Disconnect,
             _G.__saHitboxPlayerRemovingConn)
@@ -269,6 +377,61 @@ local function hbEnsurePlayerRemoving()
     end
 end
 
+-- Prefer the live raw NPC list: the render loop already uses it, and it does
+-- not allocate a filtered copy every frame. GetNpcs() remains a fallback.
+local function hbNpcList()
+    if type(SA.NpcListRaw) == "function" then
+        local ok, list = pcall(SA.NpcListRaw)
+        if ok and type(list) == "table" then return list end
+    end
+    if type(SA.GetNpcs) == "function" then
+        local ok, list = pcall(SA.GetNpcs)
+        if ok and type(list) == "table" then return list end
+    end
+    return nil
+end
+
+-- The registry already classified these models. Keep this guard cheap and
+-- read-only: no SA.IsNpcModel() copy, no raycast, no CanQuery write.
+local function hbNpcValid(model)
+    if not model then return false end
+    local okModel, isModel = pcall(function() return model:IsA("Model") end)
+    if not okModel or not isModel then return false end
+    if not hbModelAlive(model) then return false end
+    if model == lp.Character then return false end
+    local okPlr, plr = pcall(function()
+        return Players:GetPlayerFromCharacter(model)
+    end)
+    if okPlr and plr then return false end
+    local okHum, hum = pcall(function()
+        return model:FindFirstChildOfClass("Humanoid")
+    end)
+    return okHum and hum ~= nil
+end
+
+local function hbScanNpcs()
+    if not hb.npcs then
+        hbRestoreNpcOwned(nil)
+        hbPruneNpcWatches({})
+        return 0
+    end
+    local list = hbNpcList()
+    if not list then return 0 end
+    local seen, applied = {}, 0
+    for _, model in ipairs(list) do
+        if not seen[model] and hbNpcValid(model) then
+            seen[model] = true
+            hbNpcWatches[model] = true
+            local before = hbCount(hbOriginals)
+            hbApplyToChar(model, true)
+            hbWatchChar(model, model, true)
+            applied = applied + (hbCount(hbOriginals) - before)
+        end
+    end
+    hbPruneNpcWatches(seen)
+    return math.max(0, applied)
+end
+
 function SA.HitboxScan()
     hbSync()
     if not hb.enabled or SA.Alive ~= true then return 0 end
@@ -279,18 +442,19 @@ function SA.HitboxScan()
             local char = plr.Character
             if char then
                 local before = hbCount(hbOriginals)
-                hbApplyToChar(char)
-                hbWatchChar(plr, char)
+                hbApplyToChar(char, false)
+                hbWatchChar(plr, char, false)
                 applied = applied + (hbCount(hbOriginals) - before)
             end
         end
     end
+    applied = applied + hbScanNpcs()
     -- Drop entries whose part was destroyed / reparented away.
     for part in pairs(hbOriginals) do
         if not part or not part.Parent then pcall(hbRestorePart, part) end
     end
     hbScans = hbScans + 1
-    return applied
+    return math.max(0, applied)
 end
 
 function SA.HitboxState()
@@ -299,8 +463,10 @@ function SA.HitboxState()
         enabled = hb.enabled, target = hb.target, mode = hb.mode,
         scale = hb.scale, cap = hb.cap, maxDist = hb.maxDist,
         teamCheck = hb.teamCheck, aliveOnly = hb.aliveOnly,
-        visible = hb.visible,
+        visible = hb.visible, npcs = hb.npcs,
         parts = hbCount(hbOriginals),
+        npcParts = hbCountNpcParts(),
+        npcModels = hbCount(hbNpcWatches),
         accessories = hbCount(hbAccessories),
         sizeHooks = hbCount(hbSizeConns),
         charHooks = hbCount(hbCharConns),
@@ -311,11 +477,13 @@ end
 function SA.PrintHitbox()
     local s = SA.HitboxState()
     print(string.format(
-        "[hitbox] enabled=%s target=%s mode=%s scale=%s cap=%s maxDist=%s team=%s alive=%s visible=%s | parts=%d acc=%d sizeHooks=%d charHooks=%d scans=%d",
+        "[hitbox] enabled=%s target=%s mode=%s scale=%s cap=%s maxDist=%s team=%s alive=%s visible=%s npcs=%s | parts=%d npcParts=%d npcModels=%d acc=%d sizeHooks=%d charHooks=%d scans=%d",
         tostring(s.enabled), tostring(s.target), tostring(s.mode),
         tostring(s.scale), tostring(s.cap), tostring(s.maxDist),
         tostring(s.teamCheck), tostring(s.aliveOnly), tostring(s.visible),
-        s.parts, s.accessories, s.sizeHooks, s.charHooks, s.scans))
+        tostring(s.npcs),
+        s.parts, s.npcParts, s.npcModels, s.accessories,
+        s.sizeHooks, s.charHooks, s.scans))
 end
 
 local function hbTick()

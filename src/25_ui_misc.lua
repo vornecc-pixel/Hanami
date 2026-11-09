@@ -410,6 +410,7 @@ function SA.SelfCheck()
         { "force head", "ForceHeadState" },
         { "draw sync", "DrawSyncStats" },
         { "esp perf", "EspPerfState" },
+        { "hitbox", "HitboxState" },
     }
     for _, d in ipairs(diagCalls) do
         local ok = false

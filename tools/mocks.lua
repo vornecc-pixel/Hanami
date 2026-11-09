@@ -860,6 +860,23 @@ local farChar = make_character("FarGuyCharacter", 30, "Pistol")
 local npcChar = make_character("Guard", 20, "AssaultRifle")
 npcChar.Parent = WorkspaceService
 
+-- A second NPC with only Head + HumanoidRootPart exercises the NPC rig
+-- fallback (no UpperTorso / LowerTorso / Torso to expand).
+local npcChar2 = Instance.new("Model")
+npcChar2.Name = "Soldier"
+npcChar2.Parent = WorkspaceService
+local npc2Hrp = Instance.new("Part")
+npc2Hrp.Name = "HumanoidRootPart"
+npc2Hrp.Position = Vector3.new(25, 0, 0)
+npc2Hrp.Parent = npcChar2
+local npc2Head = Instance.new("Part")
+npc2Head.Name = "Head"
+npc2Head.Position = Vector3.new(25, 1.5, 0)
+npc2Head.Parent = npcChar2
+local npc2Hum = Instance.new("Humanoid")
+npc2Hum.Parent = npcChar2
+npcChar2.PrimaryPart = npc2Hrp
+
 local crateModel = Instance.new("Model")
 crateModel.Name = "MilitaryCrate"
 crateModel.Parent = WorkspaceService
@@ -870,7 +887,7 @@ cratePart.Parent = crateModel
 crateModel.PrimaryPart = cratePart
 
 -- Forego the long-lived scan loop: expose one real NPC and one real crate.
-_G.__saNpcList = { npcChar }
+_G.__saNpcList = { npcChar, npcChar2 }
 _G.__saCrateList = { crateModel }
 
 local localPlayer = Instance.new("Model")
@@ -911,6 +928,14 @@ MOCK_HITBOX_HANDLE.CanQuery = true
 MOCK_HITBOX_HANDLE.Parent = MOCK_HITBOX_ACCESSORY
 MOCK_HITBOX_ACCESSORY.Parent = otherChar
 
+MOCK_HITBOX_NPC_ACCESSORY = Instance.new("Accessory")
+MOCK_HITBOX_NPC_ACCESSORY.Name = "NPCHat"
+MOCK_HITBOX_NPC_HANDLE = Instance.new("Part")
+MOCK_HITBOX_NPC_HANDLE.Name = "Handle"
+MOCK_HITBOX_NPC_HANDLE.CanQuery = true
+MOCK_HITBOX_NPC_HANDLE.Parent = MOCK_HITBOX_NPC_ACCESSORY
+MOCK_HITBOX_NPC_ACCESSORY.Parent = npcChar
+
 -- Reset the mock rig between hitbox test cycles / after full unload.
 function mock_hitbox_reset()
     local plrs = Players:GetPlayers()
@@ -936,6 +961,22 @@ function mock_hitbox_reset()
     end
     plrs[1].Team = nil
     MOCK_HITBOX_HANDLE.CanQuery = true
+    MOCK_HITBOX_NPC_HANDLE.CanQuery = true
+    for _, npc in ipairs(_G.__saNpcList or {}) do
+        for _, name in ipairs({ "Head", "UpperTorso", "LowerTorso",
+                                "HumanoidRootPart" }) do
+            local part = npc:FindFirstChild(name)
+            if part then
+                part.Size = Vector3.new(2, 1, 1)
+                part.CanCollide = true
+                part.CanTouch = true
+                part.CanQuery = true
+                part.LocalTransparencyModifier = 0
+            end
+        end
+        local hum = npc:FindFirstChildOfClass("Humanoid")
+        if hum then hum.Health = 100 end
+    end
     if plrs[1].SetAttribute then plrs[1]:SetAttribute("FustMates", nil) end
 end
 

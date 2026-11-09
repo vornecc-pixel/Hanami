@@ -85,7 +85,7 @@ const requiredDist = [
   'SA.PrintCrateFovState', 'SA.PlayerWarningState', 'SA.PrintPlayerWarning',
   'SA.DisposePlayerWarning', 'SA.DisposeFireAssist',
   'SA.HitboxScan', 'SA.HitboxRestore', 'SA.HitboxState', 'SA.PrintHitbox',
-  'fireWallCheck',
+  'hitboxNpcs', 'npcParts', 'npcModels', 'fireWallCheck',
   'SA.DrawSyncFlush', 'SA.DrawSyncPending', 'SA.DrawSyncStats',
   'SA.PrintDrawSyncStats', 'SA.EspDataIntervalFrames', 'SA.EspPerfState',
   'SA.PrintEspPerfState', 'SA.NpcListRaw', 'SA.CrateListRaw',
@@ -112,9 +112,9 @@ const newKeys = [
   'triggerPart', 'triggerUseManip',
   'hitboxEnabled', 'hitboxTarget', 'hitboxMode', 'hitboxScale',
   'hitboxCap', 'hitboxMaxDist', 'hitboxTeamCheck', 'hitboxAliveOnly',
-  'hitboxVisible', 'fireWallCheck', 'espDataRefreshMs',
+  'hitboxVisible', 'hitboxNpcs', 'fireWallCheck', 'espDataRefreshMs',
 ];
-assert(newKeys.length === 53, `expected 53 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 54, `expected 54 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -172,7 +172,7 @@ for (const name of files) {
 const requiredDescriptions = {
   'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean',
     'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
-    'crate fov', 'hitbox', 'esp data refresh'],
+    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching'],
   'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list'],
   'src/02_shared.lua': ['fov', 'pinned', 'npc classifier', 'force head',
@@ -193,16 +193,16 @@ const requiredDescriptions = {
   'src/19_render_loop.lua': ['adaptive', 'fps', 'data refresh', 'raw list'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
     'trigger', 'auto fire', 'wall check', 'force head',
-    'silent-aim independent', 'hitbox'],
-  'src/20_hitbox_expander.lua': ['hitbox', 'r6/r15', 'self-healing',
-    'restore'],
+    'silent-aim independent', 'npc hitbox', 'hitbox'],
+  'src/20_hitbox_expander.lua': ['hitbox', 'players + npcs', 'r6/r15',
+    'npc', 'hrp fallback', 'self-healing', 'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
   'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov'],
   'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup',
     'npc', 'warning', 'fire assist', 'esp data'],
   'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
-    'hitbox', 'draw sync', 'esp perf'],
+    'hitbox state', 'hitbox', 'draw sync', 'esp perf'],
 };
 for (const [name, needles] of Object.entries(requiredDescriptions)) {
   const description = rowByName.get(name).description.toLowerCase();
@@ -263,8 +263,12 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '2,085 assertions',
-  'all 53 new CFG keys',
+  '2,292 assertions',
+  'all 54 new CFG keys',
+  'hitboxNpcs',
+  'Expand NPC Hitboxes',
+  'NPC HRP fallback',
+  'NPC hitbox coverage',
   'SA.ManipNpcState()',
   'Clean ESP',
   'outlines only',

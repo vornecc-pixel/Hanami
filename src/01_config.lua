@@ -355,6 +355,7 @@ local SA_CFG_SHIPPED = {
     hitboxTeamCheck = true,
     hitboxAliveOnly = true,
     hitboxVisible   = false,      -- client-only debug tint
+    hitboxNpcs      = true,       -- expand live NPC registry models too
 
     -- bow mods (GC scan; NOT part of silent aim / manipulation)
     -- Only two features: instant (max) charge and no shot cooldown.
@@ -436,6 +437,7 @@ for k, v in pairs({
     hitboxEnabled = false, hitboxTarget = "Both", hitboxMode = "fixed",
     hitboxScale = 8, hitboxCap = 8, hitboxMaxDist = 300,
     hitboxTeamCheck = true, hitboxAliveOnly = true, hitboxVisible = false,
+    hitboxNpcs = true,
     bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
     configProfile = "default", configName = "default", autoLoadConfig = false,
     keybindMode = "toggle", keybindConflictWarn = true,
@@ -593,6 +595,7 @@ CFG.hitboxMaxDist      = saClampNum(CFG.hitboxMaxDist, 0, 2000, 300)
 CFG.hitboxTeamCheck    = CFG.hitboxTeamCheck ~= false
 CFG.hitboxAliveOnly    = CFG.hitboxAliveOnly ~= false
 CFG.hitboxVisible      = CFG.hitboxVisible == true
+CFG.hitboxNpcs         = CFG.hitboxNpcs ~= false
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

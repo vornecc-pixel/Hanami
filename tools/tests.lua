@@ -140,7 +140,7 @@ local newKeys = {
     "gunDiffOnScan", "gunOverrideString",
     "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
     "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
-    "hitboxVisible", "fireWallCheck", "espDataRefreshMs",
+    "hitboxVisible", "hitboxNpcs", "fireWallCheck", "espDataRefreshMs",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -873,6 +873,10 @@ do
     local lpPlr, otherPlr, farPlr = plrs[1], plrs[2], plrs[3]
     local otherChar = otherPlr.Character
     local farChar = farPlr.Character
+    local npcs = SA.GetNpcs()
+    local npcChar, npcFallback = npcs[1], npcs[2]
+    ok(npcChar ~= nil and npcFallback ~= nil, "two live NPC rigs in registry")
+    local npcHum = npcChar:FindFirstChildOfClass("Humanoid")
     local function part(char, name) return char:FindFirstChild(name) end
     local function resetCfg()
         CFG.hitboxEnabled = false
@@ -884,12 +888,15 @@ do
         CFG.hitboxTeamCheck = true
         CFG.hitboxAliveOnly = true
         CFG.hitboxVisible = false
+        CFG.hitboxNpcs = false  -- keep the player-only baseline counts exact
     end
     local function offFrame()
         CFG.hitboxEnabled = false
         quiet(function() mock_frame(0.016) end)
     end
     resetCfg()
+    CFG.hitboxNpcs = SA.CFG_DEFAULTS.hitboxNpcs == true
+    quiet(function() SA.HitboxScan() end)
     local st = SA.HitboxState()
     eq(st.enabled, false, "hitbox default OFF")
     eq(st.target, "Both", "hitbox default target")
@@ -900,14 +907,20 @@ do
     eq(st.teamCheck, true, "hitbox default teamCheck")
     eq(st.aliveOnly, true, "hitbox default aliveOnly")
     eq(st.visible, false, "hitbox default visible")
+    eq(st.npcs, true, "hitbox NPC expansion default ON")
+    eq(st.npcParts, 0, "no NPC parts while OFF")
+    eq(getgenv().hitbox.npcs, true, "global hitbox mirror exposes NPC toggle")
     eq(st.parts, 0, "no tracked parts while OFF")
     eq(st.accessories, 0, "no tracked accessories while OFF")
     eq(part(otherChar, "Head").Size.X, 2, "head original size while OFF")
     eq(MOCK_HITBOX_HANDLE.CanQuery, true, "accessory handle untouched while OFF")
     eq(SA.HitboxScan(), 0, "OFF scan expands nothing")
     eq(part(otherChar, "Head").Size.X, 2, "OFF scan leaves head alone")
+    eq(part(npcChar, "Head").Size.X, 2, "OFF scan leaves NPC head alone")
+    resetCfg()
 
     -- fixed / Both: both mock enemies get Head + UpperTorso + LowerTorso.
+    -- NPC expansion stays OFF for these player-only baseline tests.
     CFG.hitboxEnabled = true
     local expanded = SA.HitboxScan()
     ok(expanded >= 6, "fixed Both expands six parts: " .. tostring(expanded))
@@ -1042,8 +1055,160 @@ do
     quiet(function() SA.PrintHitbox() end)
     eq(SA.HitboxScan(), 0, "OFF scan returns zero")
 
+    -- ── live NPC models: players stay in scope, NPC rigs join the scan ──
+    offFrame()
     mock_hitbox_reset()
     resetCfg()
+    eq(part(npcChar, "Head").Size.X, 2, "NPC head original size")
+    eq(part(npcFallback, "HumanoidRootPart").Size.X, 2,
+        "NPC fallback HRP original size")
+    eq(MOCK_HITBOX_NPC_HANDLE.CanQuery, true, "NPC accessory untouched while OFF")
+    eq(SA.HitboxState().npcs, false, "NPC toggle OFF for baseline")
+
+    CFG.hitboxNpcs = true
+    CFG.hitboxEnabled = true
+    local withNpcs = SA.HitboxScan()
+    ok(withNpcs >= 11, "players + NPC parts expanded: " .. tostring(withNpcs))
+    eq(part(otherChar, "Head").Size.X, 8,
+        "player hitbox still expands with NPC support ON")
+    eq(part(farChar, "Head").Size.X, 8, "far player hitbox still expands")
+    eq(part(npcChar, "Head").Size.X, 8, "NPC Head expands")
+    eq(part(npcChar, "UpperTorso").Size.X, 8, "NPC UpperTorso expands")
+    eq(part(npcChar, "LowerTorso").Size.X, 8, "NPC LowerTorso expands")
+    eq(part(npcFallback, "Head").Size.X, 8, "NPC fallback Head expands")
+    eq(part(npcFallback, "HumanoidRootPart").Size.X, 8,
+        "NPC HRP fallback expands when no torso exists")
+    eq(part(npcChar, "Head").CanCollide, false, "NPC CanCollide disabled")
+    eq(part(npcChar, "Head").CanTouch, false, "NPC CanTouch disabled")
+    eq(part(npcChar, "Head").CanQuery, true, "NPC CanQuery enabled")
+    eq(MOCK_HITBOX_NPC_HANDLE.CanQuery, false, "NPC accessory Handle silenced")
+    eq(part(npcChar, "Head").LocalTransparencyModifier, 0, "NPC silent by default")
+    st = SA.HitboxState()
+    eq(st.npcs, true, "state reports NPC expansion ON")
+    eq(st.parts, 11, "six player parts + five NPC parts tracked")
+    eq(st.npcParts, 5, "five NPC-owned parts tracked")
+    eq(st.npcModels, 2, "two NPC rigs watched")
+    eq(st.accessories, 2, "player + NPC accessory Handles tracked")
+    eq(st.sizeHooks, 11, "eleven Size self-heal hooks")
+    eq(st.charHooks, 4, "two player + two NPC ChildAdded hooks")
+    part(npcChar, "Head").Size = Vector3.new(1, 1, 1)
+    eq(part(npcChar, "Head").Size.X, 8, "NPC Size revert instantly re-expanded")
+
+    -- NPC target / mode / distance / alive filters use the same controls.
+    offFrame()
+    mock_hitbox_reset()
+    resetCfg()
+    CFG.hitboxNpcs = true
+    CFG.hitboxTarget = "Torso"
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(npcFallback, "Head").Size.X, 2, "Torso mode skips NPC fallback Head")
+    eq(part(npcFallback, "HumanoidRootPart").Size.X, 8,
+        "Torso mode expands NPC HRP fallback")
+
+    offFrame()
+    mock_hitbox_reset()
+    resetCfg()
+    CFG.hitboxNpcs = true
+    CFG.hitboxMode = "multiply"
+    CFG.hitboxScale = 8
+    CFG.hitboxCap = 8
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(npcChar, "Head").Size.X, 8, "NPC multiply cap X")
+    eq(part(npcChar, "Head").Size.Y, 4, "NPC multiply cap Y")
+
+    offFrame()
+    mock_hitbox_reset()
+    resetCfg()
+    CFG.hitboxNpcs = true
+    CFG.hitboxMaxDist = 5
+    otherChar.HumanoidRootPart.Position = Vector3.new(2, 0, 0)
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 8, "near player still expands")
+    eq(part(npcChar, "Head").Size.X, 2, "distant NPC skipped by maxDist")
+
+    offFrame()
+    mock_hitbox_reset()
+    resetCfg()
+    CFG.hitboxNpcs = true
+    lpPlr.Team, otherPlr.Team, farPlr.Team =
+        MOCK_TEAM_RED, MOCK_TEAM_RED, MOCK_TEAM_BLUE
+    CFG.hitboxTeamCheck = true
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 2, "same-Team player still skipped")
+    eq(part(npcChar, "Head").Size.X, 8,
+        "Team Check does not filter neutral NPC models")
+
+    offFrame()
+    mock_hitbox_reset()
+    resetCfg()
+    CFG.hitboxNpcs = true
+    npcHum.Health = 0
+    CFG.hitboxAliveOnly = true
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(npcChar, "Head").Size.X, 2, "dead NPC skipped by aliveOnly")
+    CFG.hitboxAliveOnly = false
+    SA.HitboxScan()
+    eq(part(npcChar, "Head").Size.X, 8, "aliveOnly OFF expands dead NPC")
+
+    -- Turning ONLY the NPC toggle OFF restores NPC originals/hooks while
+    -- player hitboxes stay expanded.
+    offFrame()
+    mock_hitbox_reset()
+    resetCfg()
+    CFG.hitboxNpcs = true
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(npcChar, "Head").Size.X, 8, "NPC expanded before toggle OFF")
+    CFG.hitboxNpcs = false
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 8,
+        "player hitbox survives NPC toggle OFF")
+    eq(part(npcChar, "Head").Size.X, 2, "NPC size restored on toggle OFF")
+    eq(part(npcFallback, "HumanoidRootPart").Size.X, 2,
+        "NPC HRP fallback restored on toggle OFF")
+    eq(MOCK_HITBOX_NPC_HANDLE.CanQuery, true,
+        "NPC accessory restored on toggle OFF")
+    eq(SA.HitboxState().npcParts, 0, "no NPC parts after toggle OFF")
+    eq(SA.HitboxState().npcModels, 0, "no NPC watches after toggle OFF")
+    eq(SA.HitboxState().charHooks, 2, "player hooks survive NPC toggle OFF")
+    part(npcChar, "Head").Size = Vector3.new(3, 3, 3)
+    eq(part(npcChar, "Head").Size.X, 3,
+        "NPC Size hook disconnected on toggle OFF")
+
+    -- Master OFF / full restore still covers both scopes.
+    offFrame()
+    mock_hitbox_reset()
+    CFG.hitboxNpcs = true
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(npcChar, "Head").Size.X, 8, "NPC re-expanded after toggle ON")
+    offFrame()
+    eq(part(otherChar, "Head").Size.X, 2, "player head restored on master OFF")
+    eq(part(npcChar, "Head").Size.X, 2, "NPC head restored on master OFF")
+    eq(part(npcFallback, "HumanoidRootPart").Size.X, 2,
+        "NPC HRP fallback restored on master OFF")
+    eq(MOCK_HITBOX_HANDLE.CanQuery, true, "player accessory restored")
+    eq(MOCK_HITBOX_NPC_HANDLE.CanQuery, true, "NPC accessory restored")
+    st = SA.HitboxState()
+    eq(st.parts, 0, "no tracked parts after NPC-aware restore")
+    eq(st.npcParts, 0, "no NPC parts after NPC-aware restore")
+    eq(st.npcModels, 0, "no NPC models after NPC-aware restore")
+    eq(st.accessories, 0, "no accessories after NPC-aware restore")
+    eq(st.sizeHooks, 0, "no Size hooks after NPC-aware restore")
+    eq(st.charHooks, 0, "no character hooks after NPC-aware restore")
+    part(npcChar, "Head").Size = Vector3.new(4, 4, 4)
+    eq(part(npcChar, "Head").Size.X, 4,
+        "NPC Size hook disconnected after master OFF")
+    quiet(function() SA.PrintHitbox() end)
+
+    mock_hitbox_reset()
+    resetCfg()
+    CFG.hitboxNpcs = SA.CFG_DEFAULTS.hitboxNpcs == true
     quiet(function() SA.HitboxRestore() end)
 end
 
@@ -1330,7 +1495,8 @@ local buttonNames = {
     "Print Full Gun Table", "Print Nearest HUD", "Print Draw Pool",
     "Refresh Nearest HUD", "Print FOV State", "Print Gun Table",
     "Refresh Player Warning", "Print Player Warning",
-    "Print Bow Mods State", "Print Attachments", "Print Manip State (classic)",
+    "Print Bow Mods State", "Print Hitbox State", "Rescan Characters",
+    "Restore Hitboxes", "Print Attachments", "Print Manip State (classic)",
     "Print Silent Aim (v7.7)", "Print Current Target", "Print Prediction",
     "Print ESP Features", "Apply Clean ESP", "Apply Best ESP",
     "Print Why No Target", "Print Draw Backend",
