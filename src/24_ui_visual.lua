@@ -105,3 +105,220 @@ addButton(dbgSec, "Print Current Target", function()
         t.model.Name, t.visible and "VISIBLE" or "BLOCKED",
         tick() - (t.t or 0), t.lastShot and t.lastShot.Name or "never"))
 end)
+
+-- ── NEAREST PLAYER HUD (visible while the menu is hidden) ───────────
+-- When the Atlanta menu is minimised / toggled off with Insert, a small
+-- companion window shows the closest OTHER player, their distance in
+-- metres and the tool they are holding. It is deliberately NOT part of
+-- library.guis, so set_menu_visibility(false) cannot disable it.
+if SA.NearestWindowDispose then pcall(SA.NearestWindowDispose) end
+local saNearest = {}
+_G.__saNearestWindow = saNearest
+
+local function saNearestParent()
+    local parent = nil
+    pcall(function()
+        if typeof(gethui) == "function" then parent = gethui() end
+    end)
+    if not parent then
+        pcall(function() parent = lp:FindFirstChildOfClass("PlayerGui") end)
+    end
+    if not parent then
+        pcall(function() parent = game:GetService("CoreGui") end)
+    end
+    return parent
+end
+
+function SA.NearestWindowDispose()
+    if saNearest.conn then pcall(function() saNearest.conn:Disconnect() end) end
+    if saNearest.gui then pcall(function() saNearest.gui:Destroy() end) end
+    saNearest.gui, saNearest.frame, saNearest.label, saNearest.conn = nil, nil, nil, nil
+    saNearest.built, saNearest.visible = false, false
+    saNearest.reason = "disposed"
+end
+
+local function saNearestBuild()
+    local parent = saNearestParent()
+    if not parent then
+        saNearest.reason = "no PlayerGui / CoreGui / gethui parent"
+        return false
+    end
+    local ok, err = pcall(function()
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "HanamiNearestPlayer"
+        gui.ResetOnSpawn = false
+        gui.IgnoreGuiInset = true
+        gui.DisplayOrder = 997
+        gui.Enabled = false
+        gui.Parent = parent
+
+        local frame = Instance.new("Frame")
+        frame.Name = "Panel"
+        frame.Size = UDim2.new(0, 248, 0, 86)
+        frame.BackgroundColor3 = Color3.fromRGB(16, 18, 26)
+        frame.BackgroundTransparency = 0.12
+        frame.BorderSizePixel = 0
+        frame.Active = true
+        frame.Parent = gui
+        pcall(function() frame.Draggable = true end)
+        local vp = SA.ViewportSize()
+        frame.Position = UDim2.new(0, vp.X < 270 and 4 or 12,
+                                   0, vp.Y < 110 and 4 or 12)
+        pcall(function()
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0.08, 0)
+            corner.Parent = frame
+        end)
+        pcall(function()
+            local stroke = Instance.new("UIStroke")
+            stroke.Color = Color3.fromRGB(90, 110, 160)
+            stroke.Thickness = 1
+            stroke.Transparency = 0.25
+            stroke.Parent = frame
+        end)
+
+        local label = Instance.new("TextLabel")
+        label.Name = "NearestText"
+        label.Size = UDim2.new(1, -16, 1, -16)
+        label.Position = UDim2.new(0, 8, 0, 8)
+        label.BackgroundTransparency = 1
+        label.Text = "NEAREST PLAYER\n—\nwaiting for players…"
+        label.TextColor3 = Color3.fromRGB(230, 235, 255)
+        label.TextStrokeColor3 = Color3.new(0, 0, 0)
+        label.TextStrokeTransparency = 0
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextYAlignment = Enum.TextYAlignment.Top
+        label.TextWrapped = true
+        label.TextSize = 13
+        label.Parent = frame
+        pcall(function() label.TextTruncate = Enum.TextTruncate.AtEnd end)
+        pcall(function() SA.ApplyEspFont(label) end)
+
+        saNearest.gui, saNearest.frame, saNearest.label = gui, frame, label
+        saNearest.built, saNearest.reason = true, "built"
+    end)
+    if not ok then
+        saNearest.reason = "build failed: " .. tostring(err)
+        saNearest.built = false
+        return false
+    end
+    return true
+end
+
+local function saNearestPlayer()
+    local myRoot = SA.PlayerRig(lp.Character)
+    local myPos = myRoot and myRoot.Position or nil
+    if not myPos then
+        pcall(function() myPos = ws.CurrentCamera.CFrame.Position end)
+    end
+    if not myPos then return nil, nil, nil, "no local position" end
+    local ok, players = pcall(function() return Players:GetPlayers() end)
+    if not ok or not players then return nil, nil, nil, "Players:GetPlayers failed" end
+    local best, bestDist = nil, math.huge
+    for _, plr in ipairs(players) do
+        if plr ~= lp then
+            local root = plr.Character and SA.PlayerRig(plr.Character) or nil
+            if root and root.Position then
+                local okD, d = pcall(function()
+                    return (myPos - root.Position).Magnitude
+                end)
+                if okD and d and d < bestDist then
+                    best, bestDist = plr, d
+                end
+            end
+        end
+    end
+    if not best then return nil, nil, nil, "no other player with a rig" end
+    local tool = "None"
+    pcall(function() tool = SA.GetTool(best.Character) end)
+    return best, bestDist, tool, "ok"
+end
+
+local function saNearestTick(_, force)
+    if not SA.Alive then return end
+    local enabled = CFG.nearestWindow == true
+    local menuOpen = window and window.opened
+    local show = enabled and menuOpen == false
+    if not saNearest.gui and (force or (tick() - (saNearest.lastBuild or 0) > 1)) then
+        saNearest.lastBuild = tick()
+        saNearestBuild()
+    end
+    if saNearest.gui then saNearest.gui.Enabled = show end
+    saNearest.enabled, saNearest.menuOpen, saNearest.visible = enabled, menuOpen, show
+    if not enabled then
+        saNearest.reason = "disabled"
+        return
+    end
+    local now = tick()
+    if not force and now - (saNearest.lastUpdate or 0) < 0.1 then return end
+    saNearest.lastUpdate = now
+    local plr, dist, tool, reason = saNearestPlayer()
+    saNearest.lastReason = reason
+    if not plr then
+        saNearest.lastName, saNearest.lastDist = nil, nil
+        saNearest.lastMeters, saNearest.lastTool = nil, nil
+        if saNearest.label then
+            saNearest.label.Text = "NEAREST PLAYER\n—\n" .. tostring(reason)
+        end
+        return
+    end
+    local display = plr.Name
+    pcall(function()
+        if plr.DisplayName and plr.DisplayName ~= "" then
+            display = string.format("%s (@%s)", tostring(plr.DisplayName),
+                                    tostring(plr.Name))
+        end
+    end)
+    local meters = dist / (SA.STUDS_PER_METER or 3.571)
+    saNearest.lastName, saNearest.lastDist = display, dist
+    saNearest.lastMeters, saNearest.lastTool = meters, tostring(tool)
+    if saNearest.label then
+        saNearest.label.Text = string.format(
+            "NEAREST PLAYER\n%s\n%.1f m  ·  [ %s ]",
+            display, meters, tostring(tool))
+    end
+end
+
+function SA.NearestWindowRefresh() saNearestTick(0, true) end
+function SA.NearestWindowSet(on)
+    on = on == true
+    CFG.nearestWindow = on
+    pcall(setFlag, "nearestWindow", on)
+    saNearestTick(0, true)
+end
+function SA.NearestWindowState()
+    return {
+        enabled = CFG.nearestWindow == true,
+        built = saNearest.built == true,
+        visible = saNearest.visible == true,
+        menuOpen = window and window.opened,
+        nearest = saNearest.lastName,
+        studs = saNearest.lastDist,
+        meters = saNearest.lastMeters,
+        tool = saNearest.lastTool,
+        reason = (saNearest.built and (saNearest.lastReason or "ok"))
+            or saNearest.reason or "unknown",
+        lastUpdate = saNearest.lastUpdate or 0,
+    }
+end
+function SA.NearestWindowDiag()
+    local s = SA.NearestWindowState()
+    print("════════════ NEAREST PLAYER HUD ════════════")
+    print("  enabled:", tostring(s.enabled), "| built:", tostring(s.built),
+        "| visible:", tostring(s.visible), "| menu open:", tostring(s.menuOpen))
+    print("  nearest:", tostring(s.nearest or "none"),
+        "| metres:", s.meters and string.format("%.1f m", s.meters) or "n/a",
+        "| studs:", s.studs and string.format("%.1f", s.studs) or "n/a")
+    print("  tool:", tostring(s.tool or "none"), "| reason:", tostring(s.reason))
+    print("══════════════════════════════════════")
+end
+
+bindToggle(dbgSec, "Nearest Player HUD", "nearestWindow",
+    "Shows the closest player + distance in metres + held tool while the menu is hidden / minimised")
+dbgSec:label({ name = "1 m ≈ 3.571 studs (same as ESP distance)" })
+addButton(dbgSec, "Refresh Nearest HUD", function() SA.NearestWindowRefresh() end)
+addButton(dbgSec, "Print Nearest HUD", function() SA.NearestWindowDiag() end)
+
+saNearestBuild()
+saNearestTick(0, true)
+saNearest.conn = bindRender(function(dt) saNearestTick(dt) end)

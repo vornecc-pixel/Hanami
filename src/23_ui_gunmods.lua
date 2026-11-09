@@ -8,7 +8,9 @@
 local gmCol1 = GunTab:column()
 local gmSec = gmCol1:section({ name = "Gun Mods (GC Scan)" })
 
-bindToggle(gmSec, "Enable Gun Mods", "gmEnabled", "Needs getgc + setreadonly")
+local gmToggle = bindToggle(gmSec, "Enable Gun Mods", "gmEnabled", "Needs getgc + setreadonly")
+SA.FeatureKeybind(gmToggle, "Enable Gun Mods", "hn_bind_gmEnabled",
+    Enum.KeyCode.G, "gmEnabled")
 bindToggle(gmSec, "Instant Equip", "gmInstantEquip")
 bindToggle(gmSec, "Instant ADS", "gmInstantAds")
 bindToggle(gmSec, "No Spread", "gmNoSpread")
@@ -27,8 +29,10 @@ bindToggle(gmSec2, "No Kick", "gmNoKick")
 local bowCol = GunTab:column()
 local bowSec = bowCol:section({ name = "Bow Mods (GC Scan)" })
 bowSec:label({ name = "Bows are NOT aimed — silent aim is guns only" })
-bindToggle(bowSec, "Enable Bow Mods", "bowModsEnabled",
+local bowToggle = bindToggle(bowSec, "Enable Bow Mods", "bowModsEnabled",
     "Master switch. Needs getgc + setreadonly; turn this ON before the two mods below")
+SA.FeatureKeybind(bowToggle, "Enable Bow Mods", "hn_bind_bowModsEnabled",
+    Enum.KeyCode.B, "bowModsEnabled")
 bindToggle(bowSec, "Instant Charge (max draw)", "bowInstantCharge",
     "Forces drawStart back 10 s so every shot counts as fully charged")
 bindToggle(bowSec, "No Shot Cooldown", "bowNoCooldown",

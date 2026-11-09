@@ -29,6 +29,12 @@ function SA.GetTool(model)
     if not model then return "None" end
     local tool = model:FindFirstChildOfClass("Tool")
     if tool then return firstAttr(tool, TOOL_ATTRS) or tool.Name end
+    -- Some executors expose only FindFirstChild / GetChildren on models.
+    for _, c in ipairs(model:GetChildren()) do
+        if c:IsA("Tool") then
+            return firstAttr(c, TOOL_ATTRS) or c.Name
+        end
+    end
     for _, n in ipairs(TOOL_CHILDREN) do
         local c = model:FindFirstChild(n)
         if c then
@@ -86,7 +92,7 @@ function SA.ScanEntity(model, hum)
         health    = hum and math.floor(hum.Health) or 0,
         maxHealth = hum and math.floor(hum.MaxHealth) or 0,
         dist      = dist,
-        meters    = math.floor(dist / 3.571),
+        meters    = math.floor(dist / (SA.STUDS_PER_METER or 3.571)),
         visible   = SA.IsVisible(model, pos),
     }
     scanCache[model] = { t = now, info = info }

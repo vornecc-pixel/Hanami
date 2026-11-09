@@ -25,6 +25,8 @@ print(string.format("  bowmod: %s | instant charge %s | no cooldown %s | u10=%d 
     bowInfo.configTables, bowInfo.liveStates))
 print("  manip : classic sliders — 8 peek dirs, 0-300 studs, base peek 4-6")
 print("  esp   : Tahoma text — weapon below box, VIS/WALL + state at corner")
+print("  fx    : tracer + arrows PLAYERS ONLY | feature keys P/N/G/B/M")
+print("  hud   : nearest player (metres + gun) while menu hidden")
 print("  aim   :", CFG.masterEnabled and "on" or "off")
 print("  manip :", CFG.manipulation and "on" or "off")
 print("  esp   :", CFG.espEnabled and "on" or "off")

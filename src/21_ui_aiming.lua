@@ -11,6 +11,150 @@
 local library, themes = loadstring(game:HttpGet(
     "https://raw.githubusercontent.com/i77lhm/Libraries/refs/heads/main/Atlanta/Library.lua"))()
 
+-- ── Atlanta keybind upgrades ────────────────────────────────────────
+-- The stock library already accepts ANY Enum.KeyCode / UserInputType,
+-- but its "Keybinds" panel keeps showing a bind after Escape sets it to
+-- "none", and right-click only opens the mode selector. This wrapper:
+--   * hides the keybind-list row when the key is "none";
+--   * RIGHT-CLICK on the key widget (or its list row) sets it to "none"
+--     and removes/hides it from the list without disabling the feature;
+--   * keeps every real key + mouse button bindable (no whitelist).
+-- It must be installed BEFORE library:window(), so the template's own
+-- "UI Bind" and every feature keybind below get the same behaviour.
+local saKeybindCreate = library.create
+local saKeybindOriginal = library.keybind
+local saKeybindCapture = nil
+
+function library:create(class, props, ...)
+    local inst = saKeybindCreate(self, class, props, ...)
+    if saKeybindCapture and props then
+        -- keybind's little TextButton is 24x14 with empty text
+        if class == "TextButton" and props.Text == ""
+            and props.Size and props.Size.X and props.Size.X.Offset == 24 then
+            saKeybindCapture.button = inst
+        end
+        -- keybind-list row is a TextLabel parented to library.keybind_list
+        if class == "TextLabel" and props.Parent == library.keybind_list then
+            saKeybindCapture.listLbl = inst
+        end
+    end
+    return inst
+end
+
+local function saFindKeybindLabel(name)
+    if not name or not library.keybind_list then return nil end
+    for _, c in ipairs(library.keybind_list:GetChildren()) do
+        if c:IsA("TextLabel") and string.find(c.Text, name, 1, true) then
+            return c
+        end
+    end
+    return nil
+end
+
+function library:keybind(opts)
+    saKeybindCapture = {}
+    local ok, cfg = pcall(saKeybindOriginal, self, opts)
+    local cap = saKeybindCapture
+    saKeybindCapture = nil
+    if not ok then error(cfg, 0) end
+
+    local listLbl = cap.listLbl or saFindKeybindLabel(opts and opts.name)
+    local origSet = cfg.set
+
+    local function refreshList()
+        listLbl = listLbl or saFindKeybindLabel(opts and opts.name)
+        if not listLbl then return end
+        local isNone = cfg.key == "none"
+            or tostring(cfg.key):find("none", 1, true) ~= nil
+        -- "none" / inactive binds must vanish from the Keybinds panel.
+        listLbl.Visible = (cfg.active == true) and not isNone
+    end
+
+    cfg.set = function(input, ...)
+        origSet(input, ...)
+        refreshList()
+    end
+    -- Config loading and quick actions go through config_flags, so make
+    -- sure they hit the wrapper rather than the stock setter.
+    library.config_flags[cfg.flag] = cfg.set
+
+    local function clearBind()
+        -- Escape is Atlanta's built-in "none" token; this keeps the
+        -- feature in its current ON/OFF state instead of turning it off.
+        pcall(function() cfg.set(Enum.KeyCode.Escape) end)
+        cfg.key = "none"
+        cfg.key_name = "none"
+        cfg.open = false
+        if cfg.set_visible then pcall(cfg.set_visible, false) end
+        -- Atlanta's own MouseButton2Click opens the mode selector. Our
+        -- handler may run BEFORE it, so defer one more close to make sure
+        -- right-click leaves the selector closed regardless of ordering.
+        pcall(function()
+            task.defer(function()
+                cfg.open = false
+                if cfg.set_visible then pcall(cfg.set_visible, false) end
+            end)
+        end)
+        refreshList()
+    end
+
+    cfg.__saButton = cap.button
+    cfg.__saListLbl = listLbl
+    cfg.__saClear = clearBind
+
+    if cap.button then
+        pcall(function()
+            cap.button.MouseButton2Click:Connect(function() clearBind() end)
+        end)
+    end
+    if listLbl then
+        -- TextLabel has no MouseButton2Click; InputBegan catches RMB.
+        -- TextLabels are passive by default, so Active must be ON for the
+        -- Keybinds panel row to receive mouse input at all.
+        pcall(function() listLbl.Active = true end)
+        pcall(function()
+            listLbl.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton2 then
+                    clearBind()
+                end
+            end)
+        end)
+    end
+    refreshList()
+    return cfg
+end
+
+SA.FeatureBinds = SA.FeatureBinds or {}
+function SA.FeatureKeybind(obj, name, flag, key, cfgKey)
+    if not obj or not obj.keybind then return nil end
+    local bind = obj:keybind({
+        name = name, flag = flag, key = key, mode = "toggle",
+        default = CFG[cfgKey] == true,
+        callback = function(active)
+            if not SA.Alive then return end
+            local on = active == true
+            obj.enabled = on        -- same sync as setToggle(), without a
+            pcall(function() obj.set(on) end) -- forward dependency on it
+        end,
+    })
+    SA.FeatureBinds[flag] = bind
+    return bind
+end
+function SA.FeatureBindDiag()
+    print("════════════ FEATURE KEYBINDS ════════════")
+    for flag, cfg in pairs(SA.FeatureBinds) do
+        local kn = cfg.key_name or tostring(cfg.key)
+        print(string.format("  %-26s key=%-14s mode=%-6s active=%s",
+            flag, tostring(kn), tostring(cfg.mode), tostring(cfg.active)))
+    end
+    print("  right-click a key widget / list row = None + remove from list")
+    print("══════════════════════════════════════")
+end
+function SA.FeatureBindClear(flag)
+    local cfg = SA.FeatureBinds[flag]
+    if cfg and cfg.__saClear then cfg.__saClear() end
+end
+
 local dim2 = UDim2.new
 
 local window = library:window({
@@ -80,12 +224,13 @@ local masterSec, gunSec = aimCol:multi_section({ names = { "Silent Aim", "Gun" }
 
 local masterToggle = bindToggle(masterSec, "Enabled", "masterEnabled",
     "Master switch for the camera sandwich")
-masterToggle:keybind({
+local masterBind = masterToggle:keybind({
     name = "Toggle Aim", flag = "hn_master_bind",
     key = Enum.KeyCode.RightShift, mode = "toggle",
     default = CFG.masterEnabled,
     callback = function(active) setToggle(masterToggle, active) end,
 })
+SA.FeatureBinds["hn_master_bind"] = masterBind
 
 local hitChanceSlider, cooldownSlider = nil, nil  -- assigned in column 2
 local presetDropdown = masterSec:dropdown({
@@ -164,8 +309,10 @@ end)
 -- CLASSIC manip sliders are back. Every bound is a real, functional
 -- range: 0-300 studs, base peek 4-6 only, and the four remaining sliders
 -- all feed the resolver in 05_manipulation.lua (no dead "adaptive cap").
-bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
+local manipToggle = bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
     "Best all-round: ON, Wall Check OFF, Range 75, Peek 4, Parts 3, Budget 64, Hysteresis 5, Max Delta 6, FOV ~150")
+SA.FeatureKeybind(manipToggle, "Enable Manipulation", "hn_bind_manipulation",
+    Enum.KeyCode.M, "manipulation")
 bindSlider(manipSec, "Range (studs)", "manipDist", 0, 300, 1, "")
 bindSlider(manipSec, "Base Peek Offset", "manipPeek", 4, 6, 0.5, "")
 bindSlider(manipSec, "Max CanQuery Parts", "manipMaxParts", 0, 8, 1, "")

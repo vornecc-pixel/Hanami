@@ -14,6 +14,8 @@ local espEnabledToggle = playerSec:toggle({
     callback = function(v) if v then enableESP() else disableESP() end end,
 })
 library.config_flags["hn_espEnabled"] = function(v) setToggle(espEnabledToggle, v) end
+SA.FeatureKeybind(espEnabledToggle, "Enable Player ESP", "hn_bind_espEnabled",
+    Enum.KeyCode.P, "espEnabled")
 
 bindToggle(playerSec, "Visibility Check", "espVisibleCheck",
     "GREEN = clear line of sight, RED = behind a wall. Both colours are pickable in Colours -> Player")
@@ -48,6 +50,8 @@ local npcEspEnabledToggle = npcSec:toggle({
     callback = function(v) if v then enableNpcESP() else disableNpcESP() end end,
 })
 library.config_flags["hn_npcEspEnabled"] = function(v) setToggle(npcEspEnabledToggle, v) end
+SA.FeatureKeybind(npcEspEnabledToggle, "Enable NPC ESP", "hn_bind_npcEspEnabled",
+    Enum.KeyCode.N, "npcEspEnabled")
 
 bindToggle(npcSec, "Visibility Check", "npcVisibleCheck",
     "Uses the NPC green/red colourpickers in Colours -> NPC")
@@ -118,8 +122,10 @@ bindToggle(featSec, "Chams Fill", "espShowFill")
 bindToggle(featSec, "Chams Outline", "espShowOutline")
 bindToggle(featSec, "Skeleton (bones)", "espShowSkeleton")
 bindToggle(featSec, "Head Dot", "espShowHeadDot")
-bindToggle(featSec, "Tracer Lines", "espShowTracer")
-bindToggle(featSec, "Off-screen Arrows", "espShowOffscreen")
+bindToggle(featSec, "Tracer Lines", "espShowTracer",
+    "PLAYERS ONLY — line from Mouse / Center / Bottom to each player")
+bindToggle(featSec, "Off-screen Arrows", "espShowOffscreen",
+    "PLAYERS ONLY — FOV / screen-edge arrow pointing at off-screen players")
 bindToggle(featSec, "Highlight Aim Target", "espHighlightTarget",
     "The entity silent aim is currently choosing is painted with the Target colour")
 bindToggle(featSec, "Rainbow Mode", "espRainbow")

@@ -35,7 +35,7 @@ local function refreshNpcESP()
                 o.nameLbl.TextColor3 = col
                 if CFG.npcShowDist then
                     o.distLbl.Visible = true
-                    o.distLbl.Text = string.format("[%dm]", math.floor(dist / 3.571))
+                    o.distLbl.Text = string.format("[%dm]", math.floor(dist / (SA.STUDS_PER_METER or 3.571)))
                 else o.distLbl.Visible = false end
 
                 -- Structured text shared with the player layout: weapon
@@ -55,7 +55,7 @@ local function refreshNpcESP()
                 end
                 o.tx = {
                     name   = CFG.npcShowName and ("[NPC] " .. model.Name) or nil,
-                    dist   = CFG.npcShowDist and string.format("%dm", math.floor(dist / 3.571)) or nil,
+                    dist   = CFG.npcShowDist and string.format("%dm", math.floor(dist / (SA.STUDS_PER_METER or 3.571))) or nil,
                     weapon = CFG.npcShowTool and tostring(info.tool) or nil,
                     tags   = tags,
                 }

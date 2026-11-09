@@ -274,7 +274,11 @@ local function drawEntity(cam, o, opt)
     if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
     local outsideFov = dir.Magnitude > fovR
 
-    if CFG.espShowTracer then
+    -- Tracer lines + off-screen arrows are PLAYER-ONLY. NPC and crate
+    -- entities never create these drawings, so turning the toggles ON
+    -- cannot clutter the world with extra lines/arrows.
+    local playerOnly = (p == "player")
+    if CFG.espShowTracer and playerOnly then
         local l = getDraw(o, "tracer", "Line")
         if l then
             l.From = opt.origin
@@ -284,7 +288,8 @@ local function drawEntity(cam, o, opt)
         end
     end
 
-    if CFG.espShowOffscreen and (not onScr or (CFG.espArrowFOV and outsideFov)) then
+    if CFG.espShowOffscreen and playerOnly
+        and (not onScr or (CFG.espArrowFOV and outsideFov)) then
         local tri = getDraw(o, "arrow", "Triangle")
         if tri then
             pcall(function()

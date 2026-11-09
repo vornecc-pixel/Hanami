@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **35 short files** (`src/`, largest is 537 lines) plus a short **loader**.
+The original 1,300-line script is split into **35 short files** (`src/`, largest is 540 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -22,6 +22,9 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **Five feature keybinds + None / right-click removal** | Aiming / ESP / Gun Mods | See [Feature keybinds](#feature-keybinds). **P** Player ESP, **N** NPC ESP, **G** Gun Mods, **B** Bow Mods, **M** Manipulation, plus the existing **RightShift** aim and **Insert** UI bind. Any keyboard key or mouse button can be bound; press **Escape** or **right-click** the key widget / Keybinds row to set **None** and remove it from the list without turning the feature off. |
+| **Nearest-player HUD while the menu is hidden** | Visual → Debug | See [Nearest player HUD](#nearest-player-hud). A separate draggable window appears when you minimise / toggle off the Atlanta menu (Insert) and shows the closest player's **username**, **distance in metres** (1 m ≈ 3.571 studs) and **held gun/tool**. It is deliberately outside `library.guis`, so hiding the menu cannot disable it. |
+| **Tracer lines + off-screen arrows are player-only** | ESP → ESP Features | See [New ESP visuals](#new-esp-visuals-all-in-esp--esp-features). The shared toggles stay ON for players but NPC / crate ESP and the NPC ESP Preview never create those drawings. |
 | **Every gun's attributes updated (20 guns)** | Aiming → Ballistics | See [Ballistic prediction](#ballistic-prediction). All 20 guns now carry `mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `recoil`, `rate`, `auto`, `s2Damage`, `scope`, `headGuard`, `shellReload`, `rocket`, `huntOnly` / `duelOnly` plus the new **Arena Rifle** (`duel_rifle` / `duel_ammo`) and the named `Falloff` table. **Print Gun Table** dumps all of them; **Sync Gun Defs (GC)** now refreshes every numeric field from the live game. |
 | **Prediction auto-tunes for attachments** | Aiming → Attachments (Auto) | See [Attachments & auto prediction tuning](#attachments--auto-prediction-tuning). All 12 attachments are auto-detected off the equipped tool; a silencer re-tunes bullet speed (and therefore lead + drop), sights/grips fold aim-time into the one latency term, and the solver adds a refinement pass and stops on convergence. No manual toggle needed — slot overrides are provided as a fallback. |
 | **Silent aim / manipulation are guns only** | Aiming → Gun | See [Bow mods](#bow-mods-instant-charge--no-cooldown). The bow Shoot remote hook, bow gun specs, arrow prediction and draw/hold state are gone; `saLockActive()` bails out while any bow is equipped. |
@@ -40,8 +43,8 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **FOV circle actually shows** | Visual → FOV Circle / Snapline | `SA.NewDraw` falls back to real Roblox GUI Frames when the executor has no usable `Drawing` API; no longer gated on aim being ON; transparency slider now means what it says (0 % = solid). ON by default. |
 | **Auto Ping Lead** | Aiming → Ballistics | Reads live `lp:GetNetworkPing()` (or `Stats.Network.ServerStatsItem["Data Ping"]`), smooths it, and feeds it into the ballistic solver. `Ping Scale` × ping + `Extra Ping Offset (ms)` = total extra lead. Old manual-only `Extra Lead` is now an offset on top. |
 | **No stray crate Highlight** | ESP → Crate ESP | `Crate Chams Highlight` is **OFF** by default. Classification now requires a container-like Model/BasePart with a real crate signal, and the `Highlight` is bound to the crate's own anchor part only — never a whole folder of scenery. |
-| **Skeleton / Head Dot / Tracer / arrows work** | ESP → ESP Features | All `Drawing.new` calls now go through the compatibility layer, and skeleton + head dot also render on crate ESP (a spine and a top marker). |
-| **Off-screen arrows follow FOV** | ESP → ESP Features → Arrows Follow FOV | Arrows sit on the FOV circle perimeter using the **same centre and radius** as the drawn circle; change `Aim / Circle Radius` and the arrows move with it. Also points at on-screen targets *outside* the aim cone. |
+| **Skeleton / Head Dot / Tracer / arrows work** | ESP → ESP Features | All `Drawing.new` calls now go through the compatibility layer, and skeleton + head dot also render on crate ESP (a spine and a top marker). **Tracer lines + off-screen arrows are PLAYER-ONLY** — NPCs and crates never draw them. |
+| **Off-screen arrows follow FOV (PLAYERS ONLY)** | ESP → ESP Features → Arrows Follow FOV | Arrows sit on the FOV circle perimeter using the **same centre and radius** as the drawn circle; change `Aim / Circle Radius` and the arrows move with it. Also points at on-screen targets *outside* the aim cone. Player ESP only. |
 | **48 colourpickers** | ESP → Colours | One clearly-labelled picker for **every** drawn element (players, NPCs, crates, snapline, FOV, lead, target). All write into one shared `ESP_COLORS` table that survives re-execution. |
 | **Customizable visibility colours** | ESP → Colours · Player / NPC | Green (clear LOS) / red (blocked) are now obvious labelled pickers, not tiny swatches buried on unrelated toggles. They paint an outer frame, a visibility dot and the `VIS` / `WALL` tag even when per-element colours are on. |
 | **Crate diagnostics** | ESP → Crate ESP | **Print Crate Names (debug)** lists every container-ish instance with its class, classified kind and parent, so the exact names your game uses can be found. |
@@ -96,7 +99,7 @@ The loose classifier accepted *any* instance with an `Opened` / `Looted` attribu
 
 ### 5. Off-screen arrows follow the FOV
 
-`src/10_fov_circle.lua` exposes `SA.FovCenter()` (mouse location, with a screen-centre fallback). `src/18_esp_fx_frame.lua` computes `fovR = clamp(CFG.fov, 20, half the smaller viewport side)` once per frame and passes `fovCenter` / `fovRadius` into every `drawEntity` call. `src/18_esp_fx_draw.lua` places the arrow at `centre + dir.Unit × fovR`, scales the triangle with `fovR`, clamps the tracer there too, and also shows the arrow for on-screen targets that are outside the aim cone. Turn `Arrows Follow FOV` OFF to get the old screen-edge behaviour.
+`src/10_fov_circle.lua` exposes `SA.FovCenter()` (mouse location, with a screen-centre fallback). `src/18_esp_fx_frame.lua` computes `fovR = clamp(CFG.fov, 20, half the smaller viewport side)` once per frame and passes `fovCenter` / `fovRadius` into every `drawEntity` call. `src/18_esp_fx_draw.lua` places the arrow at `centre + dir.Unit × fovR`, scales the triangle with `fovR`, clamps the tracer there too, and also shows the arrow for on-screen targets that are outside the aim cone. Both the tracer and the arrow are gated on `opt.pal == "player"`, so **NPCs and crates never draw them**. Turn `Arrows Follow FOV` OFF to get the old screen-edge behaviour.
 
 ### 6. All ESP text scales from one slider
 
@@ -327,8 +330,8 @@ The dynamic **visible / hidden** colour always paints an outer frame around the 
 | Chams Fill / Outline | `Highlight` fill and outline | ON / OFF |
 | Skeleton (bones) | 6 R6/R15-friendly segments; crates get a spine + crossbar | OFF |
 | Head Dot | filled circle on `Head` (or the top-centre of a crate) | OFF |
-| Tracer Lines | line from Mouse / Center / Bottom to each target | OFF |
-| Off-screen Arrows | triangle on the FOV circle perimeter pointing at off-targets | OFF |
+| Tracer Lines (**PLAYERS ONLY**) | line from Mouse / Center / Bottom to each **player** | OFF |
+| Off-screen Arrows (**PLAYERS ONLY**) | triangle on the FOV circle perimeter pointing at off-screen **players** | OFF |
 | Arrows Follow FOV | arrows share the FOV circle centre / radius | ON |
 | **Text Size** | one slider for **all** ESP text (name, distance, weapon, tags) | 11 px |
 | Show Health % / Text Outline | `HP: NN%` tag / label stroke | OFF / ON |
@@ -648,7 +651,52 @@ The preview also gained the overlays the real ESP already had: a padded **visibi
 
 **Fixed colour regressions** in `drawEntity()`: crate names keep their kind colour (`keepNameColor`) instead of falling back to the player name picker, crate state tags use `crateState` / `crateOpened`, and NPC archetype colours paint the name and state tag even with the new screen-space Tahoma labels.
 
-`SA.ApplyBestEsp()`, `SA.EspFeatureDiag()`, `CFG.espPreviewKind` (`"Player"`), `CFG.espPreviewTarget` (`false`) are the new API / config keys; both are backfilled for older saved configs, and the preview kind / speed are clamped on every load so a stale saved value cannot put the mirror into an invalid pipeline.
+`SA.ApplyBestEsp()`, `SA.EspFeatureDiag()`, `SA.FeatureBindDiag()`, `SA.NearestWindowState()` and `CFG.espPreviewKind` (`"Player"`), `CFG.espPreviewTarget` (`false`), `CFG.nearestWindow` (`true`) are the new API / config keys; all are backfilled for older saved configs, and the preview kind / speed are clamped on every load so a stale saved value cannot put the mirror into an invalid pipeline. `SA.STUDS_PER_METER = 3.571` is the single studs→metres factor used by the ESP distance labels and the nearest-player HUD.
+
+## Feature keybinds
+
+Every feature master switch now has its own keybind, and the two keybinds that already existed keep working:
+
+| Feature | Widget | Default key | Flag |
+|---|---|---|---|
+| Enable Player ESP | ESP → Player ESP → Enabled | `P` | `hn_bind_espEnabled` |
+| Enable NPC ESP | ESP → NPC ESP → Enabled | `N` | `hn_bind_npcEspEnabled` |
+| Enable Gun Mods | Gun Mods → Gun Mods (GC Scan) → Enable Gun Mods | `G` | `hn_bind_gmEnabled` |
+| Enable Bow Mods | Gun Mods → Bow Mods (GC Scan) → Enable Bow Mods | `B` | `hn_bind_bowModsEnabled` |
+| Enable Manipulation | Aiming → Wall Penetration → Enabled (FOV-aware) | `M` | `hn_bind_manipulation` |
+| Toggle Aim (existing) | Aiming → Master | `RightShift` | `hn_master_bind` |
+| UI Bind (Atlanta built-in) | Settings → Other → UI Bind | `Insert` | library-managed |
+
+`SA.FeatureKeybind()` attaches the bind to the **same toggle** the menu uses, so pressing the key, clicking the toggle, loading a config and the **Disable All** quick action all stay in sync. `SA.FeatureBindDiag()` prints every flag / key / mode / active state; `SA.FeatureBindClear(flag)` clears one programmatically. **Print Feature Keybinds** is in Misc → Quick Actions.
+
+### None / right-click removal
+
+Atlanta already maps `Escape` to `"none"`, but its Keybinds panel leaves the row behind and `MouseButton2Click` only opens the mode selector. `src/21_ui_aiming.lua` wraps `library:keybind` **before** `library:window()` is created, so the built-in UI bind and all six feature binds get the same upgrade:
+
+* left-click / `MouseButton1Down` rebinding accepts **every** `Enum.KeyCode` and `Enum.UserInputType` (no whitelist — F-keys, numpad, mouse buttons, etc.).
+* setting a bind to `"none"` (Escape or right-click) does **not** change the feature's ON/OFF state; it just detaches the key.
+* **right-click the little key widget on the toggle**, or **right-click its row in the Keybinds panel**, and the bind becomes `none`, its list row is hidden and removed, and the mode selector stays closed (a deferred close handles Roblox event ordering).
+* inactive / `none` rows are hidden from the Keybinds panel. Rebinding any key brings the row back.
+
+The wrapper captures Atlanta's 24×14 `TextButton` and the `TextLabel` parented to `library.keybind_list` via a temporary `library:create` hook; the panel rows are made `Active` so `InputBegan` can see `MouseButton2`. No remote library file is modified — the behaviour is patched in Hanami's own chunk. `library.config_flags[flag]` is rewired to the wrapped setter, so saved configs and quick actions use it too.
+
+## Nearest player HUD
+
+Toggle the Atlanta menu off with `Insert` (or any state where `window.opened == false`) and a compact draggable `HanamiNearestPlayer` `ScreenGui` appears. It reports, refreshed at ~10 Hz by the shared render bind:
+
+```
+NEAREST PLAYER
+Nearest Display (@NearestGuy)
+2.8 m  ·  [ assault_rifle ]
+```
+
+* **username** — `DisplayName (@Name)` when a display name exists, otherwise `Name`.
+* **distance in metres** — Roblox studs divided by `SA.STUDS_PER_METER = 3.571` (1 m ≈ 3.571 studs, the same conversion the Player / NPC / crate ESP distance labels already used). Both `%.1f m` here and the ESP `[NNm]` labels now read the one shared constant.
+* **held gun** — `SA.GetTool(character)` resolves an equipped `Tool` / `ItemId` / `Weapon` attribute / weapon container. The scanner also gained a `GetChildren()` fallback for executors that don't expose `FindFirstChildOfClass("Tool")`.
+
+The HUD is created with `Instance.new("ScreenGui")` directly, **not** `library:create`, so `window.set_menu_visibility(false)` cannot sweep it into `library.guis` and disable it. It is parented to `gethui()` with a `PlayerGui` / `CoreGui` fallback, uses `SA.ApplyEspFont()` for Tahoma-or-`ArialBold` text, and is torn down by `SA.NearestWindowDispose()` on re-execute and **Unload Everything**.
+
+Controls: **Visual → Debug → Nearest Player HUD** (default ON), **Refresh Nearest HUD**, **Print Nearest HUD**. `SA.NearestWindowState()` / `SA.NearestWindowDiag()` / `SA.NearestWindowSet(on)` / `SA.NearestWindowRefresh()` are the diagnostics API. New config key: `CFG.nearestWindow` (`true`, backfilled).
 
 ## How the loader works
 
@@ -673,12 +721,12 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps**), `SA` state, `bindRender`, **48-colour palette** | 423 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD**), `SA` state + **shared metres factor**, `bindRender`, **48-colour palette** | 431 |
 | `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, **screen-space Tahoma `Text` draw**, no-op fallback, draw diagnostics | 413 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
 | `src/03_entity_scan.lua` | NPC registry handler + **guarded** LOS visibility cache | 97 |
-| `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
+| `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump (**Tool child fallback + shared metres**) | 137 |
 | `src/05_manipulation.lua` | **Manipulation (classic sliders, guns only)**: shared RaycastParams, 8-direction peek, fixed 4–6 peek, clamped functional sliders, target-aware filter, reused CanQuery entries | 231 |
 | `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp; no bow state) + snap cooldown | 56 |
 | `src/07_gun_specs.lua` | **all 20 guns + every attribute** (mag / spread / ads / move / reload / recoil / s2 / scope / tags), ammo, damage, alt ammo, 8 named falloffs, ranges + **name-only bow gate** | 326 |
@@ -695,19 +743,19 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/16_esp_crates_registry.lua` | live crate registry, **crate-state debug**, walker diagnostics | 113 |
 | `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, structured `o.tx` text, highlight gate) + events | 90 |
 | `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry | 128 |
-| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text (name / dist / weapon / corner tags), **NPC archetype / crate kind colours**, boxes, chams, skeleton, tracers, FOV arrows, fade | 301 |
+| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text (name / dist / weapon / corner tags), **NPC archetype / crate kind colours**, boxes, chams, skeleton, tracers, FOV arrows, fade | 306 |
 | `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with **per-player error isolation** | 141 |
 | `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
-| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **classic Wall Pen sliders + recommendation / tap-fire controls / guns-only note / attachment auto-tune column**) | 238 |
-| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **Player/NPC mirror, per-tag labels, vis frame, arrow, backdrops** | 537 |
+| `src/21_ui_aiming.lua` | Atlanta setup + **keybind wrapper (None / right-click removal)**, binding helpers, Aiming tab (Target / Ballistics / **classic Wall Pen sliders + recommendation / tap-fire controls / guns-only note / attachment auto-tune column / Manipulation keybind**) | 385 |
+| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **Player/NPC mirror, per-tag labels, vis frame, arrow (player-only), backdrops** | 540 |
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, **Preview Kind / Target / Best ESP controls**, `SA.EspPreview*` API | 270 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features (**Best ESP preset + diagnostics, Tahoma layout toggles**) / **48 colourpickers** / diagnostics buttons | 304 |
-| `src/23_ui_gunmods.lua` | Gun Mods tab + **Bow Mods section (2 toggles + diagnostics)** | 45 |
-| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only debug, bow-mods state, attachment / gun-table prints**) | 107 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose + bow timing restore** | 91 |
-| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 54 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features (**Best ESP preset + diagnostics, Tahoma layout toggles, player-only tracer/arrow notes, feature keybinds**) / **48 colourpickers** / diagnostics buttons | 310 |
+| `src/23_ui_gunmods.lua` | Gun Mods tab + **Bow Mods section (2 toggles + diagnostics) + Gun/Bow Mods feature keybinds** | 49 |
+| `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only debug, bow-mods state, attachment / gun-table prints**) + **nearest-player hidden-menu HUD, controls + diagnostics** | 324 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours / **Print Feature Keybinds**), UI init, **full v7.7 unload + preview + nearest-HUD dispose + bow timing restore** | 97 |
+| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 56 |
 ## Editing
 
 * Parts share one scope: a column-1 `local` in an earlier part is hoisted and visible in later ones. **Indented** `local`s stay private to their function.

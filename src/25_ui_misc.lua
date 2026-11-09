@@ -11,6 +11,7 @@ infoSec:label({ name = "@abusegpt — full suite" })
 infoSec:label({ name = "Aim + Wall Pen + Player/NPC/Crate ESP + Gun Mods" })
 infoSec:label({ name = "Toggle key: RightShift (silent aim)" })
 infoSec:label({ name = "Menu key: Insert | UI: Atlanta library" })
+infoSec:label({ name = "Feature keys: P/N/G/B/M · right-click = None" })
 infoSec:label({ name = "ESP: green = visible, red = behind wall" })
 infoSec:label({ name = "ESP -> Colours: a picker for EVERY element" })
 infoSec:label({ name = "Crates: fuzzy detection + live registry" })
@@ -50,6 +51,10 @@ addButton(actSec, "Toggle Manip", function()
     print("[sa] manip:", CFG.manipulation and "on" or "off")
 end)
 
+addButton(actSec, "Print Feature Keybinds", function()
+    SA.FeatureBindDiag()
+end)
+
 addButton(actSec, "Reset ESP Colours", function()
     for k, v in pairs(ESP_DEFAULT_COLORS) do
         local setter = library.config_flags["hn_col_" .. k]
@@ -69,6 +74,7 @@ addButton(actSec, "Unload Everything", function()
     if SA.BowModsRestore then pcall(SA.BowModsRestore) end
     disableESP(); disableNpcESP(); disableCrateESP()
     if SA.EspPreviewDispose then pcall(SA.EspPreviewDispose) end
+    if SA.NearestWindowDispose then pcall(SA.NearestWindowDispose) end
     RunService:UnbindFromRenderStep(snapName)
     RunService:UnbindFromRenderStep(restoreName)
     -- leave no snapped camera and no disabled CanQuery parts

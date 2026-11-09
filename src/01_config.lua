@@ -27,6 +27,9 @@ local SA = _G.__saShared or {}
 _G.__saShared = SA
 SA.Target = SA.Target or {}   -- current aim-preview target, written by 11_snapline
 SA.Alive  = true              -- set false by "Unload Everything" to stop scanners
+-- The ESP labels and the nearest-player HUD both convert Roblox studs to
+-- metres with the same factor (1 m ≈ 3.571 studs).
+SA.STUDS_PER_METER = 3.571
 -- Re-executing the loader bumps the generation: old scanner loops exit and
 -- the new chunk starts exactly one replacement loop.
 SA.Generation = (SA.Generation or 0) + 1
@@ -297,6 +300,9 @@ local CFG = _G.__saCFG or {
     -- Target" paints it with the global target colour.
     espPreviewKind   = "Player",   -- "Player" / "NPC"
     espPreviewTarget = false,
+    -- Small HUD that appears when the Atlanta menu is hidden / minimised.
+    -- Reports the nearest player, their distance in metres and held tool.
+    nearestWindow    = true,
 
     -- gun mods
     gmEnabled      = false,
@@ -353,6 +359,7 @@ for k, v in pairs({
     espTagSide = true, espTagBackdrop = true,
     espPreview = true, espPreviewSpin = true, espPreviewSpeed = 25,
     espPreviewKind = "Player", espPreviewTarget = false,
+    nearestWindow = true,
     npcUseTypeColors = false,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
@@ -417,6 +424,7 @@ CFG.manipMaxPeek      = nil
 CFG.espPreviewSpeed  = saClampNum(CFG.espPreviewSpeed, 0, 90, 25)
 CFG.espPreviewKind   = (CFG.espPreviewKind == "NPC") and "NPC" or "Player"
 CFG.espPreviewTarget = CFG.espPreviewTarget == true
+CFG.nearestWindow    = CFG.nearestWindow ~= false  -- HUD defaults ON
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

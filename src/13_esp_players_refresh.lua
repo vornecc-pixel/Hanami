@@ -59,7 +59,7 @@ local function refreshOnePlayer(plr, o, cam)
     o.nameLbl.TextColor3 = col
     if CFG.espShowDist then
         o.distLbl.Visible = true
-        o.distLbl.Text = string.format("[%dm]", math.floor(dist / 3.571))
+        o.distLbl.Text = string.format("[%dm]", math.floor(dist / (SA.STUDS_PER_METER or 3.571)))
     else o.distLbl.Visible = false end
 
     -- ── Structured text for the new screen-space Tahoma layout ───────
@@ -83,7 +83,7 @@ local function refreshOnePlayer(plr, o, cam)
     end
     o.tx = {
         name   = CFG.espShowName and plr.Name or nil,
-        dist   = CFG.espShowDist and string.format("%dm", math.floor(dist / 3.571)) or nil,
+        dist   = CFG.espShowDist and string.format("%dm", math.floor(dist / (SA.STUDS_PER_METER or 3.571))) or nil,
         weapon = CFG.espShowTool and tostring(info.tool) or nil,
         tags   = tags,
     }

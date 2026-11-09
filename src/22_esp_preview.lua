@@ -515,12 +515,15 @@ local function pvApplyStyle()
         pcall(function() l.BackgroundTransparency = fade end)
     end
 
-    ui.tracer.Visible = CFG.espShowTracer == true
+    -- Tracers / off-screen arrows are PLAYER-ONLY in the real ESP, so the
+    -- NPC preview must not show them either.
+    local playerOnly = not isNpc
+    ui.tracer.Visible = CFG.espShowTracer == true and playerOnly
     ui.tracer.BackgroundColor3 = col("Tracer")
     ui.tracer.Position = UDim2new(CFG.espTracerOrigin == "Mouse" and 0.32 or 0.5, 0, 1, 0)
     pcall(function() ui.tracer.BackgroundTransparency = fade end)
 
-    ui.arrow.Visible = CFG.espShowOffscreen == true
+    ui.arrow.Visible = CFG.espShowOffscreen == true and playerOnly
     ui.arrow.BackgroundColor3 = col("Offscreen")
     pcall(function() ui.arrow.BackgroundTransparency = fade end)
 
