@@ -338,8 +338,6 @@ local SA_CFG_SHIPPED = {
     gmNoRecoil     = false,
     gmNoSway       = false,
     gmNoKick       = false,
-    -- Standalone full-scope hipfire no recoil (own GC scan + restore).
-    hipfireNoRecoil = false,
 
     -- Hitbox Expander v2 (silent, self-healing, R6/R15)
     hitboxEnabled   = false,
@@ -428,7 +426,7 @@ for k, v in pairs({
     npcUseTypeColors = false,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
-    gmNoSway = false, gmNoKick = false, hipfireNoRecoil = false,
+    gmNoSway = false, gmNoKick = false,
     hitboxEnabled = false, hitboxTarget = "Both", hitboxMode = "fixed",
     hitboxScale = 8, hitboxCap = 8, hitboxMaxDist = 300,
     hitboxTeamCheck = true, hitboxAliveOnly = true, hitboxVisible = false,
@@ -576,7 +574,6 @@ CFG.perfMaxEntities    = saClampNum(CFG.perfMaxEntities, 5, 100, 40)
 CFG.perfShowFps        = CFG.perfShowFps == true
 CFG.gunDiffOnScan      = CFG.gunDiffOnScan == true
 CFG.gunOverrideString  = tostring(CFG.gunOverrideString or "")
-CFG.hipfireNoRecoil    = CFG.hipfireNoRecoil == true
 CFG.hitboxEnabled      = CFG.hitboxEnabled == true
 CFG.hitboxTarget       = ({ Head=true, Torso=true, Both=true })
                          [CFG.hitboxTarget] and CFG.hitboxTarget or "Both"

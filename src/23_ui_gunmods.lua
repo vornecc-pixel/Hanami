@@ -23,26 +23,6 @@ bindToggle(gmSec2, "No Recoil", "gmNoRecoil")
 bindToggle(gmSec2, "No Sway", "gmNoSway")
 bindToggle(gmSec2, "No Kick", "gmNoKick")
 
--- ── HIPFIRE NO RECOIL (standalone, reversible) ──────────────────────
--- Full supplied scope: live camera climb / gun kick / spread bloom, plus
--- def spread / bloom / climb / shake / recover constants. There is NO ADS
--- check: it is enforced whenever the toggle is ON.
-local hnrSec = gmCol2:section({ name = "Hipfire No Recoil" })
-bindToggle(hnrSec, "Enable Hipfire No Recoil", "hipfireNoRecoil",
-    "Always ON when enabled (no ADS check): zeroes recoil, kick, bloom and gun-def spread")
-hnrSec:label({ name = "Def originals are saved and restored on OFF / unload" })
-addButton(hnrSec, "Print Hipfire No Recoil", function()
-    SA.PrintHipfireNoRecoil()
-end)
-addButton(hnrSec, "Rescan Live + Defs", function()
-    local live, defs = SA.HipfireNoRecoilScan()
-    print("[hipfire] rescan:", live, "live states,", defs, "gun defs")
-end)
-addButton(hnrSec, "Restore Def Tables", function()
-    SA.HipfireNoRecoilRestore()
-    print("[hipfire] saved def originals restored")
-end)
-
 -- ── BOW MODS (ONLY instant charge + no cooldown) ────────────────────
 -- Bows are excluded from silent aim / manipulation; these two toggles
 -- only change the bow's own charge / cooldown timing.

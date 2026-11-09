@@ -418,29 +418,8 @@ function getconnections(ev)
     for i, c in ipairs(ev._connections) do out[i] = c end
     return out
 end
--- Stable GC tables for the Hipfire No Recoil regression tests. They are
--- globals so the same table identity survives repeated getgc() calls and
--- the three loader re-executions in tools/run.js.
-MOCK_HIP_LIVE = {
-    recoil = 3, recoilYaw = 1, RecoilPend = 2, RecoilYawPend = 1,
-    shakeUntil = 10, shakeStrength = 5, BasePitch = 0.2, CamBound = true,
-    kick = 2, kickV = 1, kickBack = 1, kickPitch = 1, kickRoll = 1,
-    BoltKick = 1, SpreadPx = 12,
-}
-MOCK_HIP_LIVE2 = { SpreadPx = 8, equipAt = 1 }
-MOCK_HIP_DEF = {
-    spread = 2, adsSpread = 0.5, moveSpread = 1, MOVE_SPREAD = 1,
-    AirSpread = 2, AdsMoveMult = 2, AimRun = 0.5,
-    VisualBloom = 1, RecoilClimb = 4, RecoilRecover = 5,
-    ShakeMax = 3, ShakeDur = 0.4, rate = 0.2,
-}
-MOCK_HIP_DEF_LATE = {
-    spread = 6, adsSpread = 1.5, VisualBloom = 2, RecoilClimb = 8,
-    ShakeMax = 4, rate = 0.35,
-}
-MOCK_HIP_EXTRA = {}
 function getgc()
-    local objects = {
+    return {
         { GUNS = {
             assault_rifle = { speed = 1400 },
             proto_railgun = { name = "Proto Railgun", speed = 2100, mag = 5,
@@ -448,10 +427,7 @@ function getgc()
                               adsSpread = 0.1, moveSpread = 1, reload = 3,
                               pellets = 1, damageMult = 1, s2Damage = 80 },
         } },
-        MOCK_HIP_LIVE, MOCK_HIP_LIVE2, MOCK_HIP_DEF,
     }
-    for _, t in ipairs(MOCK_HIP_EXTRA) do objects[#objects + 1] = t end
-    return objects
 end
 
 Drawing = {

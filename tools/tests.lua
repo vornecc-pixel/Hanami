@@ -137,7 +137,7 @@ local newKeys = {
     "espOnlyAimTarget", "espTeamMode", "espShowLiveCount", "targetPriority",
     "fovPreset", "targetBoneMode", "espPreviewSource", "espPreviewCompare",
     "perfMode", "perfEspRebuildMs", "perfMaxEntities", "perfShowFps",
-    "gunDiffOnScan", "gunOverrideString", "hipfireNoRecoil",
+    "gunDiffOnScan", "gunOverrideString",
     "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
     "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
     "hitboxVisible",
@@ -744,132 +744,6 @@ MOCK_TOOL_ACTIVATE_FAIL = false
 MOCK_MOUSE_FAIL = false
 pcall(function() ws.CurrentCamera.CFrame = CFrame.new(0, 3, 0) end)
 
--- ── Hipfire No Recoil: full live scope + reversible def patches ──────
-do
-    quiet(function() SA.HipfireNoRecoilRestore() end)
-    local function hipReset()
-        MOCK_HIP_LIVE.recoil = 3; MOCK_HIP_LIVE.recoilYaw = 1
-        MOCK_HIP_LIVE.RecoilPend = 2; MOCK_HIP_LIVE.RecoilYawPend = 1
-        MOCK_HIP_LIVE.shakeUntil = 10; MOCK_HIP_LIVE.shakeStrength = 5
-        MOCK_HIP_LIVE.BasePitch = 0.2; MOCK_HIP_LIVE.CamBound = true
-        MOCK_HIP_LIVE.kick = 2; MOCK_HIP_LIVE.kickV = 1
-        MOCK_HIP_LIVE.kickBack = 1; MOCK_HIP_LIVE.kickPitch = 1
-        MOCK_HIP_LIVE.kickRoll = 1; MOCK_HIP_LIVE.BoltKick = 1
-        MOCK_HIP_LIVE.SpreadPx = 12
-        MOCK_HIP_LIVE2.SpreadPx = 8; MOCK_HIP_LIVE2.equipAt = 1
-        MOCK_HIP_DEF.spread = 2; MOCK_HIP_DEF.adsSpread = 0.5
-        MOCK_HIP_DEF.moveSpread = 1; MOCK_HIP_DEF.MOVE_SPREAD = 1
-        MOCK_HIP_DEF.AirSpread = 2; MOCK_HIP_DEF.AdsMoveMult = 2
-        MOCK_HIP_DEF.AimRun = 0.5; MOCK_HIP_DEF.VisualBloom = 1
-        MOCK_HIP_DEF.RecoilClimb = 4; MOCK_HIP_DEF.RecoilRecover = 5
-        MOCK_HIP_DEF.ShakeMax = 3; MOCK_HIP_DEF.ShakeDur = 0.4
-        MOCK_HIP_DEF_LATE.spread = 6; MOCK_HIP_DEF_LATE.adsSpread = 1.5
-        MOCK_HIP_DEF_LATE.VisualBloom = 2; MOCK_HIP_DEF_LATE.RecoilClimb = 8
-        MOCK_HIP_DEF_LATE.ShakeMax = 4
-        MOCK_HIP_EXTRA = {}
-    end
-    hipReset()
-    eq(CFG.hipfireNoRecoil, false, "hipfire no recoil default OFF")
-    eq(SA.HipfireNoRecoilState().enabled, false, "hipfire state disabled")
-    eq(SA.HipfireNoRecoilState().alwaysOn, true, "no ADS gate reported")
-    eq(SA.HipfireNoRecoilState().patched, 0, "no defs patched while OFF")
-    eq(MOCK_HIP_DEF.spread, 2, "def original untouched while OFF")
-
-    -- A scan while OFF must not patch anything.
-    SA.HipfireNoRecoilScan()
-    eq(MOCK_HIP_DEF.spread, 2, "OFF scan leaves def alone")
-    eq(MOCK_HIP_LIVE.recoil, 3, "OFF scan leaves live state alone")
-
-    CFG.hipfireNoRecoil = true
-    local liveN, defN = SA.HipfireNoRecoilScan()
-    ok(liveN >= 2, "scan found live camera / kick states: " .. tostring(liveN))
-    ok(defN >= 1, "scan found gun def tables: " .. tostring(defN))
-    local st = SA.HipfireNoRecoilState()
-    eq(st.enabled, true, "hipfire enabled state")
-    eq(st.gc, true, "getgc capability")
-    eq(st.readonly, true, "setreadonly capability")
-    ok(st.patched >= 1, "at least one def saved for restore")
-    ok(st.scans >= 2, "rescan counter increments")
-
-    -- Every supplied def field is patched (only fields present are written).
-    eq(MOCK_HIP_DEF.spread, 0, "def spread zeroed")
-    eq(MOCK_HIP_DEF.adsSpread, 0, "def adsSpread zeroed")
-    eq(MOCK_HIP_DEF.moveSpread, 0, "def moveSpread zeroed")
-    eq(MOCK_HIP_DEF.MOVE_SPREAD, 0, "def MOVE_SPREAD zeroed")
-    eq(MOCK_HIP_DEF.AirSpread, 0, "def AirSpread zeroed")
-    eq(MOCK_HIP_DEF.AdsMoveMult, 1, "def AdsMoveMult neutralised")
-    eq(MOCK_HIP_DEF.AimRun, 1, "def AimRun neutralised")
-    eq(MOCK_HIP_DEF.VisualBloom, 0, "def VisualBloom zeroed")
-    eq(MOCK_HIP_DEF.RecoilClimb, 0, "def RecoilClimb zeroed")
-    eq(MOCK_HIP_DEF.RecoilRecover, 999, "def RecoilRecover maxed")
-    eq(MOCK_HIP_DEF.ShakeMax, 0, "def ShakeMax zeroed")
-    eq(MOCK_HIP_DEF.ShakeDur, 0, "def ShakeDur zeroed")
-
-    -- Per-frame enforcer: camera climb, gun kick, bloom and structural fields.
-    quiet(function() mock_frame(0.016) end)
-    eq(MOCK_HIP_LIVE.recoil, 0, "live recoil zeroed")
-    eq(MOCK_HIP_LIVE.recoilYaw, 0, "live recoilYaw zeroed")
-    eq(MOCK_HIP_LIVE.RecoilPend, 0, "live RecoilPend zeroed")
-    eq(MOCK_HIP_LIVE.RecoilYawPend, 0, "live RecoilYawPend zeroed")
-    eq(MOCK_HIP_LIVE.shakeUntil, 0, "live shakeUntil zeroed")
-    eq(MOCK_HIP_LIVE.shakeStrength, 0, "live shakeStrength zeroed")
-    eq(MOCK_HIP_LIVE.kick, 0, "live kick zeroed")
-    eq(MOCK_HIP_LIVE.kickV, 0, "live kickV zeroed")
-    eq(MOCK_HIP_LIVE.kickBack, 0, "live kickBack zeroed")
-    eq(MOCK_HIP_LIVE.kickPitch, 0, "live kickPitch zeroed")
-    eq(MOCK_HIP_LIVE.kickRoll, 0, "live kickRoll zeroed")
-    eq(MOCK_HIP_LIVE.BoltKick, 0, "live BoltKick zeroed")
-    eq(MOCK_HIP_LIVE.SpreadPx, 0, "live SpreadPx zeroed")
-    eq(MOCK_HIP_LIVE.BasePitch, nil, "live BasePitch cleared")
-    eq(MOCK_HIP_LIVE.CamBound, false, "live CamBound cleared")
-    eq(MOCK_HIP_LIVE2.SpreadPx, 0, "SpreadPx/equipAt live fallback zeroed")
-    eq(MOCK_HIP_LIVE2.equipAt, 1, "fallback state does not invent fields")
-
-    -- New weapons that load later are discovered by a rescan and patched.
-    MOCK_HIP_EXTRA[#MOCK_HIP_EXTRA + 1] = MOCK_HIP_DEF_LATE
-    SA.HipfireNoRecoilScan()
-    eq(MOCK_HIP_DEF_LATE.spread, 0, "late gun def spread zeroed")
-    eq(MOCK_HIP_DEF_LATE.RecoilClimb, 0, "late gun def climb zeroed")
-    ok(SA.HipfireNoRecoilState().patched >= 2, "late def saved for restore")
-    quiet(function() SA.PrintHipfireNoRecoil() end)
-
-    -- Toggle OFF restores every original instead of leaving rawset damage.
-    CFG.hipfireNoRecoil = false
-    quiet(function() mock_frame(0.016) end)
-    eq(MOCK_HIP_DEF.spread, 2, "def spread restored")
-    eq(MOCK_HIP_DEF.adsSpread, 0.5, "def adsSpread restored")
-    eq(MOCK_HIP_DEF.moveSpread, 1, "def moveSpread restored")
-    eq(MOCK_HIP_DEF.MOVE_SPREAD, 1, "def MOVE_SPREAD restored")
-    eq(MOCK_HIP_DEF.AirSpread, 2, "def AirSpread restored")
-    eq(MOCK_HIP_DEF.AdsMoveMult, 2, "def AdsMoveMult restored")
-    eq(MOCK_HIP_DEF.AimRun, 0.5, "def AimRun restored")
-    eq(MOCK_HIP_DEF.VisualBloom, 1, "def VisualBloom restored")
-    eq(MOCK_HIP_DEF.RecoilClimb, 4, "def RecoilClimb restored")
-    eq(MOCK_HIP_DEF.RecoilRecover, 5, "def RecoilRecover restored")
-    eq(MOCK_HIP_DEF.ShakeMax, 3, "def ShakeMax restored")
-    eq(MOCK_HIP_DEF.ShakeDur, 0.4, "def ShakeDur restored")
-    eq(MOCK_HIP_DEF_LATE.spread, 6, "late def spread restored")
-    eq(MOCK_HIP_DEF_LATE.RecoilClimb, 8, "late def climb restored")
-    eq(MOCK_HIP_LIVE.BasePitch, 0.2, "live BasePitch restored")
-    eq(MOCK_HIP_LIVE.CamBound, true, "live CamBound restored")
-    eq(SA.HipfireNoRecoilState().patched, 0, "no saved originals after restore")
-
-    -- A fresh ON cycle must save the CURRENT value, not an already-zeroed
-    -- one (the re-execute bug the _G saved table guards against).
-    MOCK_HIP_DEF.spread = 7
-    CFG.hipfireNoRecoil = true
-    SA.HipfireNoRecoilScan()
-    eq(MOCK_HIP_DEF.spread, 0, "second ON cycle patches again")
-    CFG.hipfireNoRecoil = false
-    quiet(function() SA.HipfireNoRecoilRestore() end)
-    eq(MOCK_HIP_DEF.spread, 7, "second cycle saved the live original")
-    eq(SA.HipfireNoRecoilState().enabled, false, "final hipfire state OFF")
-
-    hipReset()
-    CFG.hipfireNoRecoil = false
-    quiet(function() SA.HipfireNoRecoilRestore() end)
-end
-
 -- ── Hitbox Expander v2: silent, self-healing, reversible ───────────
 do
     quiet(function() SA.HitboxRestore() end)
@@ -1324,11 +1198,7 @@ if run == 1 then
     LAST_GENERATION = SA.Generation
 else
     LAST_GENERATION = SA.Generation
-    -- Full unload must restore defs / hitboxes even while toggles are ON.
-    MOCK_HIP_DEF.spread = 11
-    CFG.hipfireNoRecoil = true
-    SA.HipfireNoRecoilScan()
-    eq(MOCK_HIP_DEF.spread, 0, "full unload: hipfire def patched before unload")
+    -- Full unload must restore hitboxes even while the toggle is ON.
     quiet(function() SA.HitboxRestore() end)
     mock_hitbox_reset()
     CFG.hitboxEnabled = true
@@ -1342,7 +1212,6 @@ else
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 8,
         "full unload: hitbox expanded before unload")
     local unloaded, why = SA.FullUnload()
-    eq(MOCK_HIP_DEF.spread, 11, "full unload restores hipfire def originals")
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 2,
         "full unload restores hitbox originals")
     ok(unloaded == true, "full unload: " .. tostring(why))

@@ -84,8 +84,6 @@ const requiredDist = [
   'SA.FireAssistState', 'SA.PrintFireAssist', 'SA.CrateFovState',
   'SA.PrintCrateFovState', 'SA.PlayerWarningState', 'SA.PrintPlayerWarning',
   'SA.DisposePlayerWarning', 'SA.DisposeFireAssist',
-  'SA.HipfireNoRecoilScan', 'SA.HipfireNoRecoilRestore',
-  'SA.HipfireNoRecoilState', 'SA.PrintHipfireNoRecoil',
   'SA.HitboxScan', 'SA.HitboxRestore', 'SA.HitboxState', 'SA.PrintHitbox',
   'pvFindSourceModel', 'pvCloneModel', 'pvBuildOverlays', 'pvApplyStyleTo',
 ];
@@ -107,12 +105,12 @@ const newKeys = [
   'gunDiffOnScan', 'gunOverrideString', 'showManipPopup', 'espCleanMode',
   'manipNpcs', 'crateFovAware', 'showPlayerWarning', 'forceHead',
   'triggerbot', 'autoFire', 'triggerHeadOnly', 'triggerRandomPart',
-  'triggerPart', 'triggerUseManip', 'hipfireNoRecoil',
+  'triggerPart', 'triggerUseManip',
   'hitboxEnabled', 'hitboxTarget', 'hitboxMode', 'hitboxScale',
   'hitboxCap', 'hitboxMaxDist', 'hitboxTeamCheck', 'hitboxAliveOnly',
   'hitboxVisible',
 ];
-assert(newKeys.length === 52, `expected 52 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 51, `expected 51 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -170,7 +168,7 @@ for (const name of files) {
 const requiredDescriptions = {
   'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean',
     'npc manipulation', 'trigger', 'warning', 'force head', 'crate fov',
-    'hipfire', 'hitbox'],
+    'hitbox'],
   'src/02_shared.lua': ['fov', 'pinned', 'npc classifier', 'force head',
     'trigger bone', 'vis'],
   'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist'],
@@ -182,18 +180,15 @@ const requiredDescriptions = {
   'src/19_render_loop.lua': ['adaptive', 'fps'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
     'trigger', 'auto fire', 'force head', 'silent-aim independent', 'hitbox'],
-  'src/20_hipfire_no_recoil.lua': ['hipfire', 'recoil', 'bloom',
-    'reversible', 'restore'],
   'src/20_hitbox_expander.lua': ['hitbox', 'r6/r15', 'self-healing',
     'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
   'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov'],
-  'src/23_ui_gunmods.lua': ['gun mods', 'bow mods', 'hipfire', 'restore'],
   'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup',
     'npc', 'warning', 'fire assist'],
   'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
-    'hipfire', 'hitbox'],
+    'hitbox'],
 };
 for (const [name, needles] of Object.entries(requiredDescriptions)) {
   const description = rowByName.get(name).description.toLowerCase();
@@ -229,13 +224,6 @@ const requiredDocs = [
   'silent-aim independent',
   '### Silent aim Force Head',
   'Force Head (Silent Aim)',
-  '### Hipfire No Recoil',
-  'Enable Hipfire No Recoil',
-  'SA.HipfireNoRecoilState()',
-  'SA.HipfireNoRecoilRestore()',
-  'SA.PrintHipfireNoRecoil()',
-  'always-on',
-  'reversible',
   '### Hitbox Expander v2',
   'Enable Hitbox Expander',
   'SA.HitboxState()',
@@ -249,8 +237,8 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '2,110 assertions',
-  'all 52 new CFG keys',
+  '1,896 assertions',
+  'all 51 new CFG keys',
   'SA.ManipNpcState()',
   'Clean ESP',
   'outlines only',
