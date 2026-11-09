@@ -53,6 +53,7 @@ local PARTS = {
     "19_render_loop.lua",
     "20_bow_mods.lua",
     "20_gun_mods.lua",
+    "20_hipfire_no_recoil.lua",
     "21_ui_aiming.lua",
     "22_esp_preview.lua",
     "22_esp_preview_setup.lua",

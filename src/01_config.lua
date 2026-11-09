@@ -338,6 +338,8 @@ local SA_CFG_SHIPPED = {
     gmNoRecoil     = false,
     gmNoSway       = false,
     gmNoKick       = false,
+    -- Standalone full-scope hipfire no recoil (own GC scan + restore).
+    hipfireNoRecoil = false,
 
     -- bow mods (GC scan; NOT part of silent aim / manipulation)
     -- Only two features: instant (max) charge and no shot cooldown.
@@ -415,7 +417,7 @@ for k, v in pairs({
     npcUseTypeColors = false,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
-    gmNoSway = false, gmNoKick = false,
+    gmNoSway = false, gmNoKick = false, hipfireNoRecoil = false,
     bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
     configProfile = "default", configName = "default", autoLoadConfig = false,
     keybindMode = "toggle", keybindConflictWarn = true,
@@ -560,6 +562,7 @@ CFG.perfMaxEntities    = saClampNum(CFG.perfMaxEntities, 5, 100, 40)
 CFG.perfShowFps        = CFG.perfShowFps == true
 CFG.gunDiffOnScan      = CFG.gunDiffOnScan == true
 CFG.gunOverrideString  = tostring(CFG.gunOverrideString or "")
+CFG.hipfireNoRecoil    = CFG.hipfireNoRecoil == true
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range
