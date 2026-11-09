@@ -40,8 +40,39 @@ local function fadeAmount(dist, maxDist)
     return math.clamp((dist - start) / span, 0, 0.85)
 end
 
+-- Per-frame draw usage marks. The old FX pass hid EVERY pooled draw and
+-- prebuilt line at the start of each entity, then re-showed the same ones.
+-- That produced a hide -> show write pair per draw per frame. Now a draw is
+-- hidden only when it was not used in the current ApplyEspFx frame.
+local function fxFrame()
+    return SA.EspFxFrame or 0
+end
+
+local function markFx(o, key)
+    if not o then return end
+    local used = o.fxUsed
+    if not used then used = {}; o.fxUsed = used end
+    used[key] = fxFrame()
+end
+
+local function markLegacyLine(o, key)
+    if not o then return end
+    local used = o.linesUsed
+    if not used then used = {}; o.linesUsed = used end
+    used[key] = fxFrame()
+end
+
+local function markHighlight(o)
+    if o then o.highlightFrame = fxFrame() end
+end
+
+local function startFxFrame(o)
+    if o then o.fxFrame = fxFrame() end
+end
+
 local function getDraw(o, key, kind)
     if not o.fx then o.fx = {} end
+    markFx(o, key)
     local d = o.fx[key]
     if not d then
         d = SA.DrawPoolTake and SA.DrawPoolTake(kind) or nil
@@ -60,18 +91,70 @@ local function getDraw(o, key, kind)
     return d
 end
 
+local function instCache(o)
+    if not o then return nil end
+    if not o.instApplied then o.instApplied = {} end
+    return o.instApplied
+end
+
 local function hideLegacyFx(o)
     if not o then return end
+    local cache = instCache(o)
     if o.lines then
-        for _, d in pairs(o.lines) do pcall(function() d.Visible = false end) end
+        for _, d in pairs(o.lines) do
+            if SA.ApplyInstProp then
+                pcall(SA.ApplyInstProp, cache, d, "Visible", false)
+            else
+                pcall(function() d.Visible = false end)
+            end
+        end
     end
-    if o.highlight then pcall(function() o.highlight.Enabled = false end) end
+    if o.highlight then
+        if SA.ApplyInstProp then
+            pcall(SA.ApplyInstProp, cache, o.highlight, "Enabled", false)
+        else
+            pcall(function() o.highlight.Enabled = false end)
+        end
+    end
 end
 
 local function hideFx(o)
     if not o then return end
-    if o.fx then for _, d in pairs(o.fx) do d.Visible = false end end
+    o.fxFrame = fxFrame() - 1
+    o.highlightFrame = fxFrame() - 1
+    if o.fx then
+        for _, d in pairs(o.fx) do
+            pcall(function() d.Visible = false end)
+        end
+    end
     hideLegacyFx(o)
+end
+
+local function hideUnusedFx(o)
+    if not o then return end
+    local frame = o.fxFrame or fxFrame()
+    local cache = instCache(o)
+    local used = o.fxUsed or {}
+    if o.fx then
+        for key, d in pairs(o.fx) do
+            if used[key] ~= frame then
+                pcall(function()
+                    if d.Visible ~= false then d.Visible = false end
+                end)
+            end
+        end
+    end
+    local lused = o.linesUsed or {}
+    if o.lines then
+        for key, d in pairs(o.lines) do
+            if lused[key] ~= frame and SA.ApplyInstProp then
+                pcall(SA.ApplyInstProp, cache, d, "Visible", false)
+            end
+        end
+    end
+    if o.highlight and o.highlightFrame ~= frame and SA.ApplyInstProp then
+        pcall(SA.ApplyInstProp, cache, o.highlight, "Enabled", false)
+    end
 end
 
 function SA.DisposeEspFx(o)
@@ -80,6 +163,11 @@ function SA.DisposeEspFx(o)
         if SA.RecycleDraw then pcall(SA.RecycleDraw, d) else removeDrawing(d) end
     end
     o.fx = nil
+    o.fxUsed = nil
+    o.linesUsed = nil
+    o.fxFrame = nil
+    o.highlightFrame = nil
+    o.instApplied = nil
 end
 
 local function findPart(model, names)

@@ -32,13 +32,18 @@ local MAX_ATTEMPTS = 10
 local renderFrame = 0
 local renderErrAt, renderErrCount = 0, 0
 
--- ── BETTER: Performance Mode ────────────────────────────────────────
+-- ── BETTER: Performance Mode + 60 FPS frame budget ──────────────────
 -- Adaptive build pacing (only new ESP objects are built every N ms),
 -- a hard cap on objects styled per frame, and a rolling FPS estimate.
 -- Geometry styling still runs every frame; name / weapon / state text and
 -- the legacy BillboardGui lines are refreshed at the user's data interval.
+-- When a RenderStepped frame is already slower than 60 FPS, new builds and
+-- data refreshes are spread out so ESP does not add another spike on top.
 local perfFrames, perfFps, perfWindow = 0, 0, tick()
-local perfLastBuild = 0
+local ESP_TARGET_FPS = 60
+local ESP_TARGET_MS = 1000 / ESP_TARGET_FPS
+local espLastDt = 1 / ESP_TARGET_FPS
+local espDataAccum, espBuildAccum = 0, 0
 
 -- ADAPTIVE rebuild pacing: when FPS drops, spread new-ESP builds over
 -- a longer window; when the game is smooth, stay at the user's fast rate.
@@ -64,6 +69,53 @@ function SA.EspDataIntervalFrames()
     return math.clamp(math.floor(ms * 60 / 1000 + 0.5), 1, 30)
 end
 
+function SA.EspFrameBudget()
+    local dtMs = math.max(tonumber(espLastDt) or 1 / ESP_TARGET_FPS, 0) * 1000
+    local over = dtMs > ESP_TARGET_MS * 1.1
+    local dataMs = math.clamp(tonumber(CFG.espDataRefreshMs) or 100, 16, 500)
+    local adaptiveDataMs = dataMs
+    if over then
+        adaptiveDataMs = math.min(math.max(dataMs * 1.5, dtMs * 3), 250)
+    end
+    local buildMs = 0
+    if CFG.perfMode == true then
+        buildMs = SA.PerfEffectiveRebuildMs()
+    elseif over then
+        buildMs = math.min(math.max(ESP_TARGET_MS * 2, dtMs * 2), 100)
+    end
+    local p = SA.EspPerf or {}
+    return {
+        targetFps = ESP_TARGET_FPS,
+        targetMs = ESP_TARGET_MS,
+        lastDtMs = dtMs,
+        overBudget = over,
+        dataIntervalMs = dataMs,
+        adaptiveDataIntervalMs = adaptiveDataMs,
+        buildIntervalMs = buildMs,
+        dataAccumMs = espDataAccum,
+        buildAccumMs = espBuildAccum,
+        budgetSkips = p.budgetSkips or 0,
+        buildSkips = p.buildSkips or 0,
+    }
+end
+
+function SA.EspFrameBudgetReset()
+    espLastDt = 1 / ESP_TARGET_FPS
+    espDataAccum, espBuildAccum = 0, 0
+    local p = SA.EspPerf or {}
+    p.budgetSkips, p.buildSkips = 0, 0
+    return true
+end
+
+function SA.PrintEspFrameBudget()
+    local b = SA.EspFrameBudget()
+    print(string.format(
+        "[esp fps] target %d fps (%.1f ms) | frame %.1f ms | over budget=%s | data %.0f->%.0f ms | builds %.0f ms | skips %d/%d",
+        b.targetFps, b.targetMs, b.lastDtMs, tostring(b.overBudget),
+        b.dataIntervalMs, b.adaptiveDataIntervalMs, b.buildIntervalMs,
+        b.budgetSkips, b.buildSkips))
+end
+
 function SA.EspPerfState()
     local p = SA.EspPerf or {}
     local fx = p.fxPasses or 0
@@ -72,8 +124,11 @@ function SA.EspPerfState()
         fxPasses = fx,
         dataRefreshes = data,
         dataSkips = p.dataSkips or 0,
+        budgetSkips = p.budgetSkips or 0,
+        buildSkips = p.buildSkips or 0,
         dataIntervalFrames = SA.EspDataIntervalFrames(),
         refreshRatio = fx > 0 and data / fx or 0,
+        frameBudget = SA.EspFrameBudget(),
         drawSync = SA.DrawSyncStats and SA.DrawSyncStats() or nil,
     }
 end
@@ -82,9 +137,16 @@ function SA.PrintEspPerfState()
     local s = SA.EspPerfState()
     print("[esp fps] fx passes", s.fxPasses, "| data refreshes", s.dataRefreshes,
         "| skips", s.dataSkips, "| interval", s.dataIntervalFrames, "frames")
+    local b = s.frameBudget or SA.EspFrameBudget()
+    print(string.format(
+        "[esp fps] target %d fps | frame %.1f ms | over budget=%s | data %.0f ms | builds %.0f ms",
+        b.targetFps, b.lastDtMs, tostring(b.overBudget),
+        b.adaptiveDataIntervalMs, b.buildIntervalMs))
     if s.drawSync then
         print("[esp fps] draw sync writes", s.drawSync.writes,
-            "| flushes", s.drawSync.flushes, "| saved", s.drawSync.saved)
+            "| flushes", s.drawSync.flushes, "| saved", s.drawSync.saved,
+            "| instance", s.drawSync.instanceWrites,
+            "| skipped", s.drawSync.instanceSkips)
     end
 end
 
@@ -99,6 +161,7 @@ function SA.PerfState()
         effectiveEntityCap = SA.PerfEffectiveEntityCap(),
         dataRefreshMs = CFG.espDataRefreshMs,
         dataIntervalFrames = SA.EspDataIntervalFrames(),
+        frameBudget = SA.EspFrameBudget(),
         pool = SA.DrawPoolStats and SA.DrawPoolStats() or nil,
         visible = SA.EspPassStats and SA.EspPassStats() or nil,
         esp = SA.EspPerfState(),
@@ -151,17 +214,34 @@ bindRender(function(dt)
         perfFps = perfFrames / math.max(now - perfWindow, 0.001)
         perfFrames, perfWindow = 0, now
     end
-    -- In Performance Mode, building new ESP objects is paced. A fresh
-    -- character still appears within one rebuild window.
-    local buildOk = true
-    if CFG.perfMode then
-        local targetMs = SA.PerfEffectiveRebuildMs()
-        buildOk = (now - perfLastBuild) >= targetMs / 1000
-        if buildOk then perfLastBuild = now end
-    end
-    local dataDue = (renderFrame % SA.EspDataIntervalFrames()) == 0
-    local didDataRefresh = false
     SA.EspPerf = SA.EspPerf or { fxPasses = 0, dataRefreshes = 0, dataSkips = 0 }
+
+    -- Time-based 60 FPS budget: a frame already over ~16.7 ms must not also
+    -- build new ESP objects or refresh every text label. Box geometry still
+    -- runs every frame, so the visible boxes never freeze.
+    local dtSec = tonumber(dt) or 1 / ESP_TARGET_FPS
+    if dtSec <= 0 then dtSec = 1 / ESP_TARGET_FPS end
+    espLastDt = dtSec
+    local dtMs = dtSec * 1000
+    espDataAccum = espDataAccum + dtMs
+    espBuildAccum = espBuildAccum + dtMs
+    local budget = SA.EspFrameBudget()
+    local dataDue = espDataAccum >= budget.adaptiveDataIntervalMs
+    if dataDue then espDataAccum = 0 end
+    local buildOk = true
+    if budget.buildIntervalMs > 0 then
+        buildOk = espBuildAccum >= budget.buildIntervalMs
+    else
+        espBuildAccum = 0
+    end
+    if buildOk then espBuildAccum = 0 end
+    if not buildOk then
+        SA.EspPerf.buildSkips = (SA.EspPerf.buildSkips or 0) + 1
+    end
+    if budget.overBudget and not dataDue then
+        SA.EspPerf.budgetSkips = (SA.EspPerf.budgetSkips or 0) + 1
+    end
+    local didDataRefresh = false
 
     renderGuard("players", function()
         if not CFG.espEnabled then return end
@@ -175,7 +255,11 @@ bindRender(function(dt)
             built = buildBatch(Players:GetPlayers(), espObjects,
                 function(p) return p == lp end, buildESP)
         end
-        if dataDue or built > 0 then refreshESP(); didDataRefresh = true end
+        if dataDue or built > 0 then
+            refreshESP()
+            didDataRefresh = true
+            espDataAccum = 0
+        end
     end)
 
     renderGuard("npcs", function()
@@ -190,7 +274,11 @@ bindRender(function(dt)
                 return not (ok and hum)
             end, buildNpc)
         end
-        if dataDue or built > 0 then refreshNpcESP(); didDataRefresh = true end
+        if dataDue or built > 0 then
+            refreshNpcESP()
+            didDataRefresh = true
+            espDataAccum = 0
+        end
     end)
 
     renderGuard("crates", function()
@@ -200,7 +288,9 @@ bindRender(function(dt)
             built = buildBatch(SA.CrateListRaw(), crateObjects,
                 function(d) return not (d and d.Parent) end, buildCrate)
         end
-        if renderFrame % 3 == 0 or built > 0 then refreshCrateESP() end
+        if (renderFrame % 3 == 0 and not budget.overBudget) or built > 0 then
+            refreshCrateESP()
+        end
     end)
 
     if didDataRefresh then

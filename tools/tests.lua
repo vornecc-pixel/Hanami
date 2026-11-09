@@ -1424,6 +1424,23 @@ eq(SA.EspDataIntervalFrames(), 6, "100 ms refresh is 6 frames at 60 fps")
 eq(SA.NpcListRaw(), _G.__saNpcList, "NPC raw list avoids per-frame copy")
 eq(SA.CrateListRaw(), _G.__saCrateList, "crate raw list avoids per-frame copy")
 
+-- A 60 FPS frame budget is active even with Performance Mode OFF. A slow
+-- frame stretches text refresh and paces new ESP builds instead of adding
+-- more work on top of an already expensive frame.
+local budget0 = SA.EspFrameBudget()
+eq(budget0.targetFps, 60, "ESP frame budget targets 60 FPS")
+near(budget0.targetMs, 1000 / 60, 0.001, "16.7 ms ESP frame budget")
+eq(budget0.overBudget, false, "60 FPS frame is within budget")
+quiet(function() mock_frame(0.033) end)
+local budget1 = SA.EspFrameBudget()
+eq(budget1.overBudget, true, "30 FPS frame is over ESP budget")
+ok(budget1.adaptiveDataIntervalMs > budget1.dataIntervalMs,
+    "over-budget frame stretches ESP data refresh")
+ok(budget1.buildIntervalMs > 0, "over-budget frame paces new ESP builds")
+quiet(function() SA.PrintEspFrameBudget() end)
+SA.EspFrameBudgetReset()
+eq(SA.EspFrameBudget().overBudget, false, "frame budget reset returns to 60 FPS")
+
 -- One GUI proxy with four property changes must sync exactly once, and
 -- only after the render-step flush. This is the stutter fix for the
 -- ScreenGui fallback backend.
@@ -1449,6 +1466,8 @@ local sync2 = SA.DrawSyncStats()
 ok(sync2.flushes - sync1.flushes >= 1, "one proxy sync recorded")
 ok(sync2.writes - sync0.writes > sync2.flushes - sync0.flushes,
     "fewer GUI syncs than property writes")
+ok(type(sync2.instanceWrites) == "number", "per-property instance writes tracked")
+ok(type(sync2.instanceSkips) == "number", "per-property instance skips tracked")
 batchDraw.Remove()
 quiet(function() SA.PrintDrawSyncStats() end)
 
@@ -1481,6 +1500,27 @@ ok(perf1.dataSkips - perf0.dataSkips > 0, "data refresh frames are skipped")
 ok(MOCK_W2V_CALLS <= 12 * (count(espObjects) * 4 + 4),
     "WorldToViewportPoint calls bounded by throttled refresh")
 ok(type(perf1.drawSync) == "table", "ESP FPS state exposes draw sync stats")
+ok(type(perf1.frameBudget) == "table", "ESP FPS state exposes frame budget")
+ok(perf1.frameBudget.targetFps == 60, "frame budget stays 60 FPS with perfMode OFF")
+
+-- Per-property instance caching + per-frame usage marks: with a static
+-- camera / rig and no text refresh due, a repeated ESP frame must write
+-- zero Roblox Instance / proxy properties instead of rewriting everything.
+SA.EspFrameBudgetReset()
+frameTimes(2)
+SA.DrawSyncReset()
+SA.EspFrameBudgetReset()
+frameTimes(1)
+local inst0 = SA.DrawSyncStats()
+frameTimes(1)
+local inst1 = SA.DrawSyncStats()
+eq(inst1.instanceWrites - inst0.instanceWrites, 0,
+    "unchanged ESP frame writes zero Instance properties")
+ok(inst1.instanceSkips - inst0.instanceSkips > 0,
+    "unchanged ESP properties are skipped")
+eq(inst1.writes - inst0.writes, 0,
+    "unchanged ESP frame writes zero draw properties")
+
 quiet(function() SA.PrintEspPerfState() end)
 quiet(function() SA.ResetToDefaults() end)
 
@@ -1489,7 +1529,8 @@ local buttonNames = {
     "Print Feature Keybinds", "Print Profiles", "Run Config Round-Trip Test",
     "Run Self-Check", "Show Self-Check Panel", "Hide Self-Check Panel",
     "Print Config Coverage", "Print Draw Write Failures",
-    "Print Performance State", "Print ESP FPS State", "Print Live ESP Counts", "Print Live Gun Diff",
+    "Print Performance State", "Print ESP FPS State", "Print ESP Frame Budget",
+    "Print Live ESP Counts", "Print Live Gun Diff",
     "Print All Keybinds", "Print Conflicts", "Set All: Hold",
     "Set All: Toggle", "Print Override Help", "Sync Gun Defs + Diff",
     "Print Full Gun Table", "Print Nearest HUD", "Print Draw Pool",

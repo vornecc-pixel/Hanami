@@ -6,13 +6,80 @@
 
 -- ────────────────────────────────────────────────────────────────────
 -- Generic per-entity styling
+--
+-- FPS pass 2: the old drawEntity() created three closures and several
+-- temporary segment / label tables for EVERY entity EVERY frame, then hid
+-- and re-showed every draw. Helpers are now hoisted, lines are written
+-- directly, and per-frame usage marks hide only unused draws. 02_drawing
+-- also skips unchanged Roblox Instance / GUI-proxy property writes.
 -- ────────────────────────────────────────────────────────────────────
-local function drawEntity(cam, o, opt)
-    hideFx(o)
-    -- o.bb.Enabled is a legacy BillboardGui flag that the throttled data
-    -- refresh may not have raised yet. The FX pass owns visibility now.
-    if not opt.enabled then return end
 
+local BOX_KEYS = { "top", "bottom", "left", "right" }
+
+local function fxColor(p, base, seed, suffix)
+    local key = p .. suffix
+    if ESP_COLORS[key] == nil then key = "player" .. suffix end
+    return pick(key, base, seed)
+end
+
+local function fxTextWidth(ts, text)
+    return math.max(46, #tostring(text or "") * ts * 0.62 + 14)
+end
+
+local function showText(o, key, text, x, y, w, h, anchor, align, size,
+                        color, backdrop, outline, t, onScreen)
+    if not text or text == "" or not onScreen then return end
+    local d = getDraw(o, key, "Text")
+    if not d then return end
+    d.Text = tostring(text)
+    d.Color = color
+    d.Transparency = t
+    d.TextSize = size
+    d.Size = Vector2.new(w, h)
+    d.Position = Vector2.new(x, y)
+    d.Anchor = anchor
+    d.Align = align
+    d.Outline = outline
+    d.Backdrop = backdrop == true
+    d.ZIndex = 3
+    d.Visible = true
+end
+
+local function setFxLine(o, key, x1, y1, x2, y2, color, t, thick, legacy)
+    local l
+    if legacy and o.lines then
+        l = o.lines[key]
+        if l then
+            markLegacyLine(o, key)
+            if not o.instApplied then o.instApplied = {} end
+            SA.ApplyInstProp(o.instApplied, l, "Visible", true)
+        end
+    else
+        l = getDraw(o, key, "Line")
+    end
+    if not l then return end
+    l.From = Vector2.new(x1, y1)
+    l.To = Vector2.new(x2, y2)
+    l.Color = color
+    l.Transparency = t
+    l.Thickness = thick
+    l.Visible = true
+end
+
+local function hideLegacyLabels(o)
+    if not o.instApplied then o.instApplied = {} end
+    local cache = o.instApplied
+    if o.nameLbl then SA.ApplyInstProp(cache, o.nameLbl, "Visible", false) end
+    if o.distLbl then SA.ApplyInstProp(cache, o.distLbl, "Visible", false) end
+    if o.infoLbl then SA.ApplyInstProp(cache, o.infoLbl, "Visible", false) end
+    if o.stateLbl then SA.ApplyInstProp(cache, o.stateLbl, "Visible", false) end
+    if o.bb then
+        SA.ApplyInstProp(cache, o.bb, "Size", UDim2.fromOffset(220, 1))
+        SA.ApplyInstProp(cache, o.bb, "StudsOffset", Vector3.new(0, 0, 0))
+    end
+end
+
+local function drawEntityInner(cam, o, opt)
     local p         = opt.pal
     local base      = opt.base
     local seed      = opt.seed
@@ -23,9 +90,7 @@ local function drawEntity(cam, o, opt)
 
     -- CLEAN ESP: the screenshot-style dark pills / filled chams covered
     -- the whole top of the screen. When clean mode is ON (default), force
-    -- thin outlines + text stroke and ignore the busy saved values. The
-    -- user can disable this one toggle in ESP -> ESP Features to restore
-    -- every individual widget's own setting.
+    -- thin outlines + text stroke and ignore the busy saved values.
     local cleanEsp   = CFG.espCleanMode ~= false
     local backdrop   = (not cleanEsp) and CFG.espTagBackdrop == true
     local showBox    = cleanEsp or CFG.espShowBox == true
@@ -34,25 +99,19 @@ local function drawEntity(cam, o, opt)
     local showOutline= cleanEsp or CFG.espShowOutline == true
     local textOutline= cleanEsp or CFG.espTextOutline == true
 
-    -- ONE FOV reference for off-screen arrows AND the new crate ESP mode.
+    -- ONE FOV reference for off-screen arrows AND the crate ESP mode.
     local px, onScr = screenPoint(cam, g.raw, g.ok)
     local fovC = opt.fovCenter or Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
     local fovR = math.max(opt.fovRadius or 150, 20)
     local dir = px - fovC
     if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
     local outsideFov = dir.Magnitude > fovR
-    local crateFov = opt.pal == "crate" and CFG.crateFovAware ~= false
+    local crateFov = p == "crate" and CFG.crateFovAware ~= false
     local crateInsideFov = onScr and not outsideFov
 
-    -- crates only define a few palette keys; fall back to the shared
-    -- player<Element> picker so skeleton / head dot / health aren't white
-    local function col(suffix)
-        local key = p .. suffix
-        if ESP_COLORS[key] == nil then key = "player" .. suffix end
-        return pick(key, base, seed)
-    end
-
-    local boxCol, fillCol, outlineCol = col("Box"), col("Fill"), col("Outline")
+    local boxCol = fxColor(p, base, seed, "Box")
+    local fillCol = fxColor(p, base, seed, "Fill")
+    local outlineCol = fxColor(p, base, seed, "Outline")
     if opt.typeColor and not CFG.espRainbow then
         boxCol, fillCol, outlineCol = opt.typeColor, opt.typeColor, opt.typeColor
     end
@@ -60,25 +119,13 @@ local function drawEntity(cam, o, opt)
         boxCol, fillCol, outlineCol = espC("target"), espC("target"), espC("target")
     end
 
-    -- ── SCREEN-SPACE TAHOMA TEXT ─────────────────────────────────────
-    -- The old build stacked name / distance / "W: ... | S: ... | WALL"
-    -- in a BillboardGui above the head, so the weapon could only ever be
-    -- at the top. Every label is now a TextLabel in the shared ScreenGui
-    -- overlay, anchored to the box geometry:
-    --     name     -> centred ABOVE the box
-    --     distance -> just LEFT of the top-left corner
-    --     weapon   -> centred BELOW the box   (the requested layout)
-    --     VIS/WALL, state, HP -> stacked RIGHT of the top-right corner
-    -- The world-anchored labels stay as the fallback data source and are
-    -- hidden, so nothing is rendered twice.
     local ts      = math.clamp(CFG.espTextSize or 11, 6, 30)
     local rowH    = math.floor(ts + 3)
     local outline = textOutline
-    local tx      = o.tx or {}
-
-    -- Read label visibility BEFORE hiding them: the refreshes rewrite
-    -- those flags every frame, so a hidden label still has fresh text.
-    if not o.tx then
+    local tx = o.tx
+    if not tx then
+        tx = o.txFallback
+        if not tx then tx = {}; o.txFallback = tx end
         if o.nameLbl and o.nameLbl.Visible then tx.name = o.nameLbl.Text end
         if o.distLbl and o.distLbl.Visible then tx.dist = o.distLbl.Text end
         if o.stateLbl and o.stateLbl.Visible then
@@ -87,64 +134,30 @@ local function drawEntity(cam, o, opt)
             tx.tags = { { text = o.infoLbl.Text, kind = "info" } }
         end
     end
-    for _, lbl in ipairs({ o.nameLbl, o.distLbl, o.infoLbl, o.stateLbl }) do
-        if lbl then lbl.Visible = false end
-    end
-    if o.bb then
-        o.bb.Size = UDim2.fromOffset(220, 1)
-        o.bb.StudsOffset = Vector3.new(0, 0, 0)
-    end
+
+    -- Read label visibility BEFORE hiding them: the refreshes rewrite
+    -- those flags, so a hidden label still has fresh text.
+    hideLegacyLabels(o)
 
     -- Most entities are behind the camera or outside the viewport. With
-    -- tracers / arrows / crate FOV dots OFF there is nothing to draw for
-    -- them, so return before any per-element styling or screen maths.
-    -- hideFx() already hid the pooled draws, legacy box lines and chams.
+    -- tracers / arrows / crate FOV dots OFF there is nothing to draw.
     local playerOnly = (p == "player")
     local crateDot = crateFov and not crateInsideFov
     local offscreenVisual = (playerOnly and (CFG.espShowTracer or CFG.espShowOffscreen))
         or crateDot
     if not g.onScreen and not offscreenVisual then return end
 
-    -- ONE text-size slider still controls every ESP label (players, NPCs,
-    -- crates, side tags and the weapon badge); rowH keeps them apart.
-    local function textWidth(s)
-        return math.max(46, #tostring(s) * ts * 0.62 + 14)
-    end
-    local function showText(key, text, x, y, w, h, anchor, align, size, color, backdrop)
-        if not text or text == "" or not g.onScreen then return end
-        local d = getDraw(o, key, "Text")
-        if not d then return end
-        d.Text = tostring(text)
-        d.Color = color
-        d.Transparency = t
-        d.TextSize = size
-        d.Size = Vector2.new(w, h)
-        d.Position = Vector2.new(x, y)
-        d.Anchor = anchor
-        d.Align = align
-        d.Outline = outline
-        d.Backdrop = backdrop == true
-        d.ZIndex = 3
-        d.Visible = true
-    end
-
-    -- Screen-space text must honour the SAME palette overrides the old
-    -- BillboardGui labels did: crates keep their kind colour on the name,
-    -- and NPC archetype colours paint the name + state tag. Request 16's
-    -- text rewrite accidentally dropped both (col("Name") always fell
-    -- back to the plain playerName picker).
-    local nameCol = col("Name")
+    local nameCol = fxColor(p, base, seed, "Name")
     if opt.keepNameColor then
         nameCol = opt.base
     elseif opt.typeColor and not CFG.espRainbow then
         nameCol = opt.typeColor
     end
-
     local cx = g.x + g.w / 2
+    local cache = o.instApplied
 
     -- FOV-AWARE CRATE ESP: outside the aim circle draw ONLY a dot; inside
-    -- the circle draw name + distance and an outline-only Highlight. No
-    -- box, corner segments, state tag, fill, skeleton or visibility dot.
+    -- the circle draw name + distance and an outline-only Highlight.
     if crateFov then
         local counts = SA.CrateFovCount
         if not counts then
@@ -162,140 +175,172 @@ local function drawEntity(cam, o, opt)
                 dot.Visible = true
                 counts.dots = counts.dots + 1
             end
-            if o.highlight then pcall(function() o.highlight.Enabled = false end) end
+            if o.highlight then
+                SA.ApplyInstProp(cache, o.highlight, "Enabled", false)
+            end
             return
         end
         counts.inside = counts.inside + 1
-        showText("txName", tx.name, cx, g.y - 4,
-            textWidth(tx.name or ""), rowH + 2,
-            Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false)
-        showText("txDist", tx.dist, cx, g.y + g.h + 4,
-            textWidth(tx.dist or ""), rowH,
+        showText(o, "txName", tx.name, cx, g.y - 4,
+            fxTextWidth(ts, tx.name), rowH + 2,
+            Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false,
+            outline, t, g.onScreen)
+        showText(o, "txDist", tx.dist, cx, g.y + g.h + 4,
+            fxTextWidth(ts, tx.dist), rowH,
             Vector2.new(0.5, 0), "Center", math.max(ts - 2, 6),
-            col("Distance"), false)
+            fxColor(p, base, seed, "Distance"), false,
+            outline, t, g.onScreen)
         if o.highlight then
-            local okHighlight = pcall(function()
-                o.highlight.Enabled = true
-                o.highlight.FillColor = base
-                o.highlight.OutlineColor = base
-                o.highlight.FillTransparency = 1
-                o.highlight.OutlineTransparency = math.clamp(t, 0, 1)
-            end)
-            if okHighlight then counts.highlights = counts.highlights + 1 end
+            markHighlight(o)
+            SA.ApplyInstProp(cache, o.highlight, "Enabled", true)
+            SA.ApplyInstProp(cache, o.highlight, "FillColor", base)
+            SA.ApplyInstProp(cache, o.highlight, "OutlineColor", base)
+            SA.ApplyInstProp(cache, o.highlight, "FillTransparency", 1)
+            SA.ApplyInstProp(cache, o.highlight, "OutlineTransparency",
+                math.clamp(t, 0, 1))
+            counts.highlights = counts.highlights + 1
         end
         return
     end
 
-    showText("txName", tx.name, cx, g.y - 4,
-        textWidth(tx.name or ""), rowH + 2,
-        Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false)
-    showText("txDist", tx.dist, g.x - 7, g.y,
-        textWidth(tx.dist or ""), rowH,
-        Vector2.new(1, 0), "Right", math.max(ts - 2, 6), col("Distance"), false)
-    showText("txWeapon", tx.weapon and ("[ " .. tx.weapon .. " ]") or nil,
-        cx, g.y + g.h + 4, textWidth(tx.weapon or "") + 16, rowH,
-        Vector2.new(0.5, 0), "Center", ts, col("Info"), backdrop)
+    showText(o, "txName", tx.name, cx, g.y - 4,
+        fxTextWidth(ts, tx.name), rowH + 2,
+        Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false,
+        outline, t, g.onScreen)
+    showText(o, "txDist", tx.dist, g.x - 7, g.y,
+        fxTextWidth(ts, tx.dist), rowH,
+        Vector2.new(1, 0), "Right", math.max(ts - 2, 6),
+        fxColor(p, base, seed, "Distance"), false,
+        outline, t, g.onScreen)
+    showText(o, "txWeapon", tx.weapon and ("[ " .. tx.weapon .. " ]") or nil,
+        cx, g.y + g.h + 4, fxTextWidth(ts, tx.weapon) + 16, rowH,
+        Vector2.new(0.5, 0), "Center", ts,
+        fxColor(p, base, seed, "Info"), backdrop,
+        outline, t, g.onScreen)
 
     local tags = tx.tags or {}
     for i, tag in ipairs(tags) do
-        local tagColor = col("Info")
-        if opt.pal == "crate" and tag.kind == "state" then
+        local tagColor = fxColor(p, base, seed, "Info")
+        if p == "crate" and tag.kind == "state" then
             tagColor = opt.opened and espC("crateOpened") or espC("crateState")
         elseif tag.kind == "vis" then
-            -- WALL / VIS is ALWAYS the dynamic green/red visibility pick
-            tagColor = opt.checkVisible and opt.visColor or col("Info")
+            tagColor = opt.checkVisible and opt.visColor or tagColor
         elseif tag.kind == "state" and opt.typeColor and not CFG.espRainbow then
             tagColor = opt.typeColor
         end
         local side = CFG.espTagSide ~= false
-        showText("txTag" .. i, tag.text,
+        showText(o, "txTag" .. i, tag.text,
             side and (g.x + g.w + 7) or cx,
             side and (g.y + (i - 1) * rowH)
                 or (g.y + g.h + 4 + rowH + (i - 1) * rowH),
-            textWidth(tag.text), rowH,
+            fxTextWidth(ts, tag.text), rowH,
             side and Vector2.new(0, 0) or Vector2.new(0.5, 0),
             side and "Left" or "Center", ts, tagColor,
-            backdrop)
+            backdrop, outline, t, g.onScreen)
     end
 
     -- chams
     if o.highlight then
-        o.highlight.Enabled = g.onScreen and (showOutline or showFill)
-        o.highlight.FillColor = fillCol
-        o.highlight.OutlineColor = outlineCol
-        o.highlight.FillTransparency = showFill and math.clamp(0.7 + t, 0, 1) or 1
-        o.highlight.OutlineTransparency = showOutline and math.clamp(t, 0, 1) or 1
+        markHighlight(o)
+        SA.ApplyInstProp(cache, o.highlight, "Enabled",
+            g.onScreen and (showOutline or showFill))
+        SA.ApplyInstProp(cache, o.highlight, "FillColor", fillCol)
+        SA.ApplyInstProp(cache, o.highlight, "OutlineColor", outlineCol)
+        SA.ApplyInstProp(cache, o.highlight, "FillTransparency",
+            showFill and math.clamp(0.7 + t, 0, 1) or 1)
+        SA.ApplyInstProp(cache, o.highlight, "OutlineTransparency",
+            showOutline and math.clamp(t, 0, 1) or 1)
     end
 
-    -- box: reuse the 4 prebuilt lines for full boxes, lazily create the
-    -- 8 corner segments (or a crate's own 4 lines) when needed
-    local prebuilt = o.lines and { "top", "bottom", "left", "right" } or nil
+    -- box: direct segment writes avoid 4–8 nested temporary tables per
+    -- entity per frame. Prebuilt legacy lines are marked as used; pooled
+    -- fallback lines are marked by getDraw().
     if showBox and g.onScreen then
-        if prebuilt and not cornerBox then
-            for _, k in ipairs(prebuilt) do
-                local l = o.lines[k]
-                l.Color = boxCol; l.Transparency = t; l.Thickness = thick
-                l.Visible = true
-            end
+        local x, y, w, h = g.x, g.y, g.w, g.h
+        if o.lines and not cornerBox then
+            setFxLine(o, "top", x, y, x + w, y, boxCol, t, thick, true)
+            setFxLine(o, "bottom", x, y + h, x + w, y + h, boxCol, t, thick, true)
+            setFxLine(o, "left", x, y, x, y + h, boxCol, t, thick, true)
+            setFxLine(o, "right", x + w, y, x + w, y + h, boxCol, t, thick, true)
         else
-            if prebuilt then for _, k in ipairs(prebuilt) do o.lines[k].Visible = false end end
-            for i, s in ipairs(boxSegments(g, cornerBox)) do
-                local l = getDraw(o, "box" .. i, "Line")
-                if l then
-                    l.From = Vector2.new(s[1], s[2]); l.To = Vector2.new(s[3], s[4])
-                    l.Color = boxCol; l.Transparency = t; l.Thickness = thick
-                    l.Visible = true
+            if o.lines then
+                for _, k in ipairs(BOX_KEYS) do
+                    local l = o.lines[k]
+                    if l then SA.ApplyInstProp(cache, l, "Visible", false) end
                 end
             end
+            if cornerBox then
+                local s = math.min(w, h) * 0.3
+                setFxLine(o, "box1", x, y, x + s, y, boxCol, t, thick, false)
+                setFxLine(o, "box2", x, y, x, y + s, boxCol, t, thick, false)
+                setFxLine(o, "box3", x + w, y, x + w - s, y, boxCol, t, thick, false)
+                setFxLine(o, "box4", x + w, y, x + w, y + s, boxCol, t, thick, false)
+                setFxLine(o, "box5", x, y + h, x + s, y + h, boxCol, t, thick, false)
+                setFxLine(o, "box6", x, y + h, x, y + h - s, boxCol, t, thick, false)
+                setFxLine(o, "box7", x + w, y + h, x + w - s, y + h, boxCol, t, thick, false)
+                setFxLine(o, "box8", x + w, y + h, x + w, y + h - s, boxCol, t, thick, false)
+            else
+                setFxLine(o, "box1", x, y, x + w, y, boxCol, t, thick, false)
+                setFxLine(o, "box2", x, y + h, x + w, y + h, boxCol, t, thick, false)
+                setFxLine(o, "box3", x, y, x, y + h, boxCol, t, thick, false)
+                setFxLine(o, "box4", x + w, y, x + w, y + h, boxCol, t, thick, false)
+            end
         end
-    elseif prebuilt then
-        for _, k in ipairs(prebuilt) do o.lines[k].Visible = false end
+    elseif o.lines then
+        for _, k in ipairs(BOX_KEYS) do
+            local l = o.lines[k]
+            if l then SA.ApplyInstProp(cache, l, "Visible", false) end
+        end
     end
 
     -- visibility frame: a larger outline painted with the user's
-    -- green/red pick. This keeps the visible-check colours unmistakable
-    -- even when every element is using its own per-element colour.
+    -- green/red pick.
     if opt.checkVisible and showBox and g.onScreen then
         local pad = 3
-        local frame = boxSegments({ x = g.x - pad, y = g.y - pad,
-                                    w = g.w + pad * 2, h = g.h + pad * 2 }, false)
-        for i, s in ipairs(frame) do
-            local l = getDraw(o, "visframe" .. i, "Line")
-            if l then
-                l.From = Vector2.new(s[1], s[2]); l.To = Vector2.new(s[3], s[4])
-                l.Color = opt.visColor; l.Transparency = t
-                l.Thickness = thick; l.Visible = true
-            end
-        end
+        local x, y = g.x - pad, g.y - pad
+        local w, h = g.w + pad * 2, g.h + pad * 2
+        setFxLine(o, "visframe1", x, y, x + w, y, opt.visColor, t, thick, false)
+        setFxLine(o, "visframe2", x, y + h, x + w, y + h, opt.visColor, t, thick, false)
+        setFxLine(o, "visframe3", x, y, x, y + h, opt.visColor, t, thick, false)
+        setFxLine(o, "visframe4", x + w, y, x + w, y + h, opt.visColor, t, thick, false)
     end
 
-    -- health bar gradient (high / low colours are both pickable)
+    -- health bar gradient
     if o.lines then
         local showHp = CFG.espShowHealth and g.onScreen
-        o.lines.hpBg.Visible = showHp
-        o.lines.hpFill.Visible = showHp
-        if showHp then
+        local hpBg, hpFill = o.lines.hpBg, o.lines.hpFill
+        if hpBg then
+            if showHp then markLegacyLine(o, "hpBg") end
+            SA.ApplyInstProp(cache, hpBg, "Visible", showHp)
+        end
+        if hpFill then
+            if showHp then markLegacyLine(o, "hpFill") end
+            SA.ApplyInstProp(cache, hpFill, "Visible", showHp)
+        end
+        if showHp and hpBg and hpFill then
             local hi, lo = espC(p .. "HealthHigh"), espC(p .. "HealthLow")
-            o.lines.hpBg.Color = Color3.fromRGB(20, 20, 20)
-            o.lines.hpBg.Transparency = t
-            o.lines.hpFill.Color = CFG.espRainbow and rainbowColor(seed)
-                or lo:Lerp(hi, math.clamp(opt.ratio or 1, 0, 1))
-            o.lines.hpFill.Transparency = t
+            SA.ApplyInstProp(cache, hpBg, "Color", Color3.fromRGB(20, 20, 20))
+            SA.ApplyInstProp(cache, hpBg, "Transparency", t)
+            SA.ApplyInstProp(cache, hpFill, "Color",
+                CFG.espRainbow and rainbowColor(seed)
+                or lo:Lerp(hi, math.clamp(opt.ratio or 1, 0, 1)))
+            SA.ApplyInstProp(cache, hpFill, "Transparency", t)
         end
     end
 
-    -- small dot beside the box: ALWAYS shows the visibility colour even in
-    -- per-element mode, so the user's green/red pick never disappears
+    -- small visibility dot beside the box
     if g.onScreen and showBox then
         local d = getDraw(o, "visdot", "Circle")
         if d then
-            d.Position = Vector2.new(g.x - 6, g.y - 6); d.Radius = 3
-            d.Color = opt.visColor; d.Transparency = t; d.Visible = true
+            d.Position = Vector2.new(g.x - 6, g.y - 6)
+            d.Radius = 3
+            d.Color = opt.visColor
+            d.Transparency = t
+            d.Visible = true
         end
     end
 
-    -- bones + head dot — now ALSO work on crates (a spine + a top marker
-    -- instead of limbs), so these features are visible with only Crate ESP on
+    -- bones + head dot (crates get a spine + top marker)
     if CFG.espShowSkeleton or CFG.espShowHeadDot then
         if CFG.espShowSkeleton then
             if opt.model then
@@ -306,26 +351,21 @@ local function drawEntity(cam, o, opt)
                         local va, oka = cam:WorldToViewportPoint(a.Position)
                         local vb, okb = cam:WorldToViewportPoint(b.Position)
                         if oka and okb and va.Z > 0 and vb.Z > 0 then
-                            l.From = Vector2.new(va.X, va.Y); l.To = Vector2.new(vb.X, vb.Y)
-                            l.Color = col("Skeleton"); l.Transparency = t
-                            l.Thickness = thick; l.Visible = true
+                            l.From = Vector2.new(va.X, va.Y)
+                            l.To = Vector2.new(vb.X, vb.Y)
+                            l.Color = fxColor(p, base, seed, "Skeleton")
+                            l.Transparency = t
+                            l.Thickness = thick
+                            l.Visible = true
                         end
                     end
                 end
             elseif g.onScreen then
-                local cx = g.x + g.w / 2
-                local segs = {
-                    { Vector2.new(cx, g.y), Vector2.new(cx, g.y + g.h) },
-                    { Vector2.new(g.x, g.y + g.h / 2), Vector2.new(g.x + g.w, g.y + g.h / 2) },
-                }
-                for i, s in ipairs(segs) do
-                    local l = getDraw(o, "csk" .. i, "Line")
-                    if l then
-                        l.From, l.To = s[1], s[2]
-                        l.Color = col("Skeleton"); l.Transparency = t
-                        l.Thickness = thick; l.Visible = true
-                    end
-                end
+                local spineColor = fxColor(p, base, seed, "Skeleton")
+                setFxLine(o, "csk1", cx, g.y, cx, g.y + g.h,
+                    spineColor, t, thick, false)
+                setFxLine(o, "csk2", g.x, g.y + g.h / 2,
+                    g.x + g.w, g.y + g.h / 2, spineColor, t, thick, false)
             end
         end
         if CFG.espShowHeadDot then
@@ -337,34 +377,31 @@ local function drawEntity(cam, o, opt)
                     if ok and v.Z > 0 then hx, hy = v.X, v.Y end
                 end
             elseif g.onScreen then
-                hx, hy = g.x + g.w / 2, g.y
+                hx, hy = cx, g.y
             end
             if hx then
                 local d = getDraw(o, "headdot", "Circle")
                 if d then
-                    d.Position = Vector2.new(hx, hy); d.Radius = 4
-                    d.Color = col("HeadDot"); d.Transparency = t; d.Visible = true
+                    d.Position = Vector2.new(hx, hy)
+                    d.Radius = 4
+                    d.Color = fxColor(p, base, seed, "HeadDot")
+                    d.Transparency = t
+                    d.Visible = true
                 end
             end
         end
     end
 
-    -- tracer + off-screen arrow
-    -- With "Arrows Follow FOV" the arrow sits ON the FOV circle perimeter
-    -- (radius = SA.FovRadius(), centre = SA.AimPoint() — both shared with the circle),
-    -- and it is also shown for targets that are on-screen but outside the
-    -- aim cone. Change the FOV radius and the arrows move with it.
-    -- Tracer lines + off-screen arrows are PLAYER-ONLY. NPC and crate
-    -- entities never create these drawings, so turning the toggles ON
-    -- cannot clutter the world with extra lines/arrows.
-    local playerOnly = (p == "player")
+    -- tracer + off-screen arrow (PLAYER-ONLY)
     if CFG.espShowTracer and playerOnly then
         local l = getDraw(o, "tracer", "Line")
         if l then
             l.From = opt.origin
             l.To = (CFG.espArrowFOV and not onScr) and (fovC + dir.Unit * fovR) or px
-            l.Color = col("Tracer"); l.Transparency = t
-            l.Thickness = thick; l.Visible = true
+            l.Color = fxColor(p, base, seed, "Tracer")
+            l.Transparency = t
+            l.Thickness = thick
+            l.Visible = true
         end
     end
 
@@ -375,12 +412,22 @@ local function drawEntity(cam, o, opt)
             pcall(function()
                 local anchorAt = CFG.espArrowFOV and (fovC + dir.Unit * fovR) or px
                 local a = SA.Atan2(dir.Y, dir.X)
-                local r = math.clamp(fovR * 0.035, 7, 16)  -- scales with the FOV
+                local r = math.clamp(fovR * 0.035, 7, 16)
                 tri.PointA = anchorAt + Vector2.new(math.cos(a), math.sin(a)) * r
                 tri.PointB = anchorAt + Vector2.new(math.cos(a + 2.4), math.sin(a + 2.4)) * r
                 tri.PointC = anchorAt + Vector2.new(math.cos(a - 2.4), math.sin(a - 2.4)) * r
-                tri.Color = col("Offscreen"); tri.Transparency = t; tri.Visible = true
+                tri.Color = fxColor(p, base, seed, "Offscreen")
+                tri.Transparency = t
+                tri.Visible = true
             end)
         end
     end
+end
+
+local function drawEntity(cam, o, opt)
+    if not opt or not opt.enabled then hideFx(o); return end
+    startFxFrame(o)
+    local ok, err = pcall(drawEntityInner, cam, o, opt)
+    pcall(hideUnusedFx, o)
+    if not ok then error(err, 0) end
 end

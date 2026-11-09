@@ -40,6 +40,74 @@ local drawWriteFailures, drawLastWriteError = 0, "none"
 -- ever reaches the Instance.
 local drawPending = setmetatable({}, { __mode = "k" })
 local drawSyncWrites, drawSyncFlushes, drawSyncBatches = 0, 0, 0
+local drawSyncInstWrites, drawSyncInstSkips = 0, 0
+
+-- Compare Roblox datatypes by value. Fengari mocks expose them as tables;
+-- real Luau userdata already compares equal with `==`, with a pcall field
+-- fallback for Vector / Color values that are equal but distinct objects.
+local function drawSameUDim(a, b)
+    if a == b then return true end
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    return (a.Scale or 0) == (b.Scale or 0)
+        and (a.Offset or 0) == (b.Offset or 0)
+end
+
+local function drawSame(a, b)
+    if a == b then return true end
+    local ta, tb = type(a), type(b)
+    if ta ~= tb then return false end
+    if ta == "table" then
+        local kind = a.__kind
+        if kind == "Vector2" or kind == "Vector3" then
+            return a.X == b.X and a.Y == b.Y
+                and (a.Z or 0) == (b.Z or 0)
+        elseif kind == "Color3" then
+            return a.R == b.R and a.G == b.G and a.B == b.B
+        elseif kind == "UDim2" then
+            return drawSameUDim(a.X, b.X) and drawSameUDim(a.Y, b.Y)
+        elseif kind == "UDim" then
+            return drawSameUDim(a, b)
+        end
+        return false
+    elseif ta == "userdata" then
+        -- Roblox Vector2 has no Z property; indexing it directly can throw.
+        -- Compare X/Y first, then treat a missing Z as zero.
+        local okXY, sameXY = pcall(function()
+            return a.X == b.X and a.Y == b.Y
+        end)
+        if okXY and sameXY then
+            local okAZ, z1 = pcall(function() return a.Z end)
+            local okBZ, z2 = pcall(function() return b.Z end)
+            local za = (okAZ and z1 ~= nil) and z1 or 0
+            local zb = (okBZ and z2 ~= nil) and z2 or 0
+            if za == zb then return true end
+        end
+        local okCol, sameCol = pcall(function()
+            return a.R == b.R and a.G == b.G and a.B == b.B
+        end)
+        if okCol and sameCol then return true end
+    end
+    return false
+end
+
+-- A coalesced proxy flush used to rewrite EVERY Roblox Instance property
+-- even when only Position changed. Track the last applied value per actual
+-- property so static Color / Text / ZIndex / Thickness writes are skipped.
+local function applyDrawProp(applied, inst, prop, value)
+    if drawSame(applied[prop], value) then
+        drawSyncInstSkips = drawSyncInstSkips + 1
+        return false
+    end
+    local ok, err = pcall(function() inst[prop] = value end)
+    if not ok then
+        drawWriteFailures = drawWriteFailures + 1
+        drawLastWriteError = tostring(err)
+        return false
+    end
+    applied[prop] = value
+    drawSyncInstWrites = drawSyncInstWrites + 1
+    return true
+end
 
 function SA.DrawSyncFlush()
     local n = 0
@@ -68,7 +136,27 @@ function SA.DrawSyncStats()
         batches = drawSyncBatches,
         pending = SA.DrawSyncPending(),
         saved = math.max(drawSyncWrites - drawSyncFlushes, 0),
+        instanceWrites = drawSyncInstWrites,
+        instanceSkips = drawSyncInstSkips,
+        instanceSaved = drawSyncInstSkips,
     }
+end
+
+function SA.DrawSyncReset()
+    for proxy in pairs(drawPending) do drawPending[proxy] = nil end
+    drawSyncWrites, drawSyncFlushes, drawSyncBatches = 0, 0, 0
+    drawSyncInstWrites, drawSyncInstSkips = 0, 0
+    return true
+end
+
+-- The same per-property write skip is available for ESP legacy labels /
+-- BillboardGuis / Highlights, which are real Instances rather than proxies.
+-- One cache bucket per Instance keeps identical property names separate.
+function SA.ApplyInstProp(cache, inst, prop, value)
+    if type(cache) ~= "table" or not inst then return false end
+    local byInst = cache[inst]
+    if not byInst then byInst = {}; cache[inst] = byInst end
+    return applyDrawProp(byInst, inst, prop, value)
 end
 
 function SA.PrintDrawSyncStats()
@@ -76,6 +164,9 @@ function SA.PrintDrawSyncStats()
     print("[draw sync] writes", s.writes, "| flushes", s.flushes,
         "| batches", s.batches, "| pending", s.pending,
         "| saved", s.saved)
+    print("[draw sync] instance writes", s.instanceWrites,
+        "| skipped unchanged", s.instanceSkips,
+        "| saved", s.instanceSaved)
 end
 
 local function flushDrawProxy(d)
@@ -213,34 +304,44 @@ local function fallbackDraw(kind)
         PointC = Vector2.new(0, 0),
     }
 
+    local applied = {}
     local function sync()
-        frame.Visible = st.Visible == true
-        frame.BackgroundColor3 = st.Color
-        frame.ZIndex = st.ZIndex or 1
+        applyDrawProp(applied, frame, "Visible", st.Visible == true)
+        applyDrawProp(applied, frame, "BackgroundColor3", st.Color)
+        applyDrawProp(applied, frame, "ZIndex", st.ZIndex or 1)
         local a = math.clamp(st.Transparency or 0, 0, 1)
         if kind == "Line" then
             local d = st.To - st.From
             local len = math.max(d.Magnitude, 0.01)
-            frame.AnchorPoint = Vector2.new(0.5, 0.5)
-            frame.Size = UDim2.fromOffset(len, math.max(st.Thickness or 1, 1))
-            frame.Position = UDim2.fromOffset((st.From.X + st.To.X) / 2,
-                                              (st.From.Y + st.To.Y) / 2)
-            frame.Rotation = math.deg(SA.Atan2(d.Y, d.X))
-            frame.BackgroundTransparency = a
+            applyDrawProp(applied, frame, "AnchorPoint", Vector2.new(0.5, 0.5))
+            applyDrawProp(applied, frame, "Size",
+                UDim2.fromOffset(len, math.max(st.Thickness or 1, 1)))
+            applyDrawProp(applied, frame, "Position",
+                UDim2.fromOffset((st.From.X + st.To.X) / 2,
+                                 (st.From.Y + st.To.Y) / 2))
+            applyDrawProp(applied, frame, "Rotation",
+                math.deg(SA.Atan2(d.Y, d.X)))
+            applyDrawProp(applied, frame, "BackgroundTransparency", a)
         elseif kind == "Circle" then
             local r = math.max(st.Radius or 1, 1)
-            frame.AnchorPoint = Vector2.new(0.5, 0.5)
-            frame.Size = UDim2.fromOffset(r * 2, r * 2)
-            frame.Position = UDim2.fromOffset(st.Position.X, st.Position.Y)
-            frame.Rotation = 0
-            stroke.Enabled = not st.Filled
+            applyDrawProp(applied, frame, "AnchorPoint", Vector2.new(0.5, 0.5))
+            applyDrawProp(applied, frame, "Size", UDim2.fromOffset(r * 2, r * 2))
+            applyDrawProp(applied, frame, "Position",
+                UDim2.fromOffset(st.Position.X, st.Position.Y))
+            applyDrawProp(applied, frame, "Rotation", 0)
+            if stroke then
+                applyDrawProp(applied, stroke, "Enabled", not st.Filled)
+            end
             if st.Filled then
-                frame.BackgroundTransparency = a
+                applyDrawProp(applied, frame, "BackgroundTransparency", a)
             else
-                frame.BackgroundTransparency = 1
-                stroke.Color = st.Color
-                stroke.Thickness = math.max(st.Thickness or 1, 1)
-                stroke.Transparency = a
+                applyDrawProp(applied, frame, "BackgroundTransparency", 1)
+                if stroke then
+                    applyDrawProp(applied, stroke, "Color", st.Color)
+                    applyDrawProp(applied, stroke, "Thickness",
+                        math.max(st.Thickness or 1, 1))
+                    applyDrawProp(applied, stroke, "Transparency", a)
+                end
             end
         elseif kind == "Triangle" then
             -- rotated square (diamond) so arrows are visible on executors
@@ -248,13 +349,14 @@ local function fallbackDraw(kind)
             local cx = (st.PointA.X + st.PointB.X + st.PointC.X) / 3
             local cy = (st.PointA.Y + st.PointB.Y + st.PointC.Y) / 3
             local size = math.max((st.PointA - st.PointB).Magnitude, 6)
-            frame.AnchorPoint = Vector2.new(0.5, 0.5)
-            frame.Size = UDim2.fromOffset(size, size)
-            frame.Position = UDim2.fromOffset(cx, cy)
-            frame.Rotation = 45
-            frame.BackgroundTransparency = st.Filled and a or 1
+            applyDrawProp(applied, frame, "AnchorPoint", Vector2.new(0.5, 0.5))
+            applyDrawProp(applied, frame, "Size", UDim2.fromOffset(size, size))
+            applyDrawProp(applied, frame, "Position", UDim2.fromOffset(cx, cy))
+            applyDrawProp(applied, frame, "Rotation", 45)
+            applyDrawProp(applied, frame, "BackgroundTransparency",
+                st.Filled and a or 1)
         else
-            frame.BackgroundTransparency = a
+            applyDrawProp(applied, frame, "BackgroundTransparency", a)
         end
     end
 
@@ -287,7 +389,7 @@ local function fallbackDraw(kind)
             return st[k]
         end,
         __newindex = function(_, k, v)
-            if st[k] == v then return end
+            if drawSame(st[k], v) then return end
             st[k] = v
             drawSyncWrites = drawSyncWrites + 1
             syncPending = true
@@ -369,26 +471,30 @@ local function textDraw()
         Outline = true, Backdrop = false,
     }
 
+    local applied = {}
     local function sync()
-        lbl.Visible = st.Visible == true
-        lbl.Text = st.Text or ""
-        lbl.TextColor3 = st.Color
-        lbl.TextTransparency = math.clamp(st.Transparency or 0, 0, 1)
-        lbl.TextSize = math.clamp(st.TextSize or 12, 6, 40)
-        lbl.TextStrokeTransparency = st.Outline and 0 or 1
-        lbl.ZIndex = st.ZIndex or 2
-        lbl.Size = UDim2.fromOffset(st.Size.X, st.Size.Y)
-        lbl.Position = UDim2.fromOffset(st.Position.X, st.Position.Y)
-        pcall(function() lbl.AnchorPoint = st.Anchor end)
-        pcall(function()
-            local a = st.Align
-            lbl.TextXAlignment = (a == "Left" and Enum.TextXAlignment.Left)
-                or (a == "Right" and Enum.TextXAlignment.Right)
-                or Enum.TextXAlignment.Center
-        end)
-        pcall(function()
-            lbl.BackgroundTransparency = st.Backdrop and 0.55 or 1
-        end)
+        applyDrawProp(applied, lbl, "Visible", st.Visible == true)
+        applyDrawProp(applied, lbl, "Text", st.Text or "")
+        applyDrawProp(applied, lbl, "TextColor3", st.Color)
+        applyDrawProp(applied, lbl, "TextTransparency",
+            math.clamp(st.Transparency or 0, 0, 1))
+        applyDrawProp(applied, lbl, "TextSize",
+            math.clamp(st.TextSize or 12, 6, 40))
+        applyDrawProp(applied, lbl, "TextStrokeTransparency",
+            st.Outline and 0 or 1)
+        applyDrawProp(applied, lbl, "ZIndex", st.ZIndex or 2)
+        applyDrawProp(applied, lbl, "Size",
+            UDim2.fromOffset(st.Size.X, st.Size.Y))
+        applyDrawProp(applied, lbl, "Position",
+            UDim2.fromOffset(st.Position.X, st.Position.Y))
+        applyDrawProp(applied, lbl, "AnchorPoint", st.Anchor)
+        local a = st.Align
+        local align = (a == "Left" and Enum.TextXAlignment.Left)
+            or (a == "Right" and Enum.TextXAlignment.Right)
+            or Enum.TextXAlignment.Center
+        applyDrawProp(applied, lbl, "TextXAlignment", align)
+        applyDrawProp(applied, lbl, "BackgroundTransparency",
+            st.Backdrop and 0.55 or 1)
     end
 
     local proxy = {}
@@ -420,7 +526,7 @@ local function textDraw()
             return st[k]
         end,
         __newindex = function(_, k, v)
-            if st[k] == v then return end
+            if drawSame(st[k], v) then return end
             st[k] = v
             drawSyncWrites = drawSyncWrites + 1
             syncPending = true
@@ -553,6 +659,8 @@ function SA.DrawDiag()
         "proxies=" .. tostring(proxyCount),
         "sync=" .. tostring(drawSyncWrites) .. "->" .. tostring(drawSyncFlushes)
             .. " (saved " .. tostring(math.max(drawSyncWrites - drawSyncFlushes, 0)) .. ")",
+        "instance=" .. tostring(drawSyncInstWrites) .. " writes / "
+            .. tostring(drawSyncInstSkips) .. " skipped",
         "writeFailures=" .. tostring(drawWriteFailures),
         "lastWrite=" .. drawLastWriteError,
         "last=" .. drawLastError,
