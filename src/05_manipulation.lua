@@ -354,7 +354,10 @@ do
         return nil
     end
 
-    function SA.ManipPossible(modelOverride)
+    -- allowNoAim = true is used by Triggerbot / Auto Fire. Those features
+    -- are deliberately independent of the silent-aim master/gun toggles;
+    -- the manipulation READY line check itself is still identical.
+    function SA.ManipPossible(modelOverride, allowNoAim)
         local info = {
             enabled = CFG.manipulation == true,
             aim = CFG.masterEnabled == true and CFG.gunEnabled == true,
@@ -362,8 +365,9 @@ do
             npc = false,
             npcEnabled = CFG.manipNpcs ~= false,
             targetingNpcs = CFG.targetNpcs == true,
+            allowNoAim = allowNoAim == true,
         }
-        if not info.aim then
+        if not info.aim and allowNoAim ~= true then
             return false, "aim master / gun silent aim OFF", info
         end
         if not info.enabled then

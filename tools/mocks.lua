@@ -723,9 +723,19 @@ MOCK_MANIP_BLOCKED = false
 MOCK_FIRE_TOOL = 0
 MOCK_FIRE_MOUSE = 0
 MOCK_FIRE_MOUSE_RELEASES = 0
+MOCK_FIRE_MOUSE_CLICKS = 0
+MOCK_MOUSE_FAIL = false
 MOCK_TOOL_ACTIVATE_FAIL = false
-function mouse1press() MOCK_FIRE_MOUSE = MOCK_FIRE_MOUSE + 1 end
+function mouse1click()
+    if MOCK_MOUSE_FAIL then error("mock mouse1click failed") end
+    MOCK_FIRE_MOUSE_CLICKS = MOCK_FIRE_MOUSE_CLICKS + 1
+end
+function mouse1press()
+    if MOCK_MOUSE_FAIL then error("mock mouse1press failed") end
+    MOCK_FIRE_MOUSE = MOCK_FIRE_MOUSE + 1
+end
 function mouse1release()
+    if MOCK_MOUSE_FAIL then error("mock mouse1release failed") end
     MOCK_FIRE_MOUSE_RELEASES = MOCK_FIRE_MOUSE_RELEASES + 1
 end
 MOCK_MANIP_WALL = Instance.new("Part")

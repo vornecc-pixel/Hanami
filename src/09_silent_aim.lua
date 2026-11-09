@@ -381,14 +381,15 @@ end
 -- TRIGGERBOT / AUTO FIRE (guns only, both OFF by default)
 -- Triggerbot needs a valid FOV target and can pick Head / a random hit
 -- part / a specific part. Auto Fire clicks continuously with no target
--- requirement. Both temporarily snap the camera to the selected aim point
--- for one Tool:Activate() / mouse1press click, then restore it. The
--- read-only manipulation probe gates shots when Manipulation Support is ON.
+-- requirement. Both are INDEPENDENT of the silent-aim master/gun toggles;
+-- only SA.Alive and the guns-only bow gate apply. Mouse input is tried
+-- first because many games do not fire from Tool:Activate(). The read-only
+-- manipulation probe gates shots when Manipulation Support is ON.
 -- ══════════════════════════════════════════════════════════════════
 if SA.DisposeFireAssist then pcall(SA.DisposeFireAssist) end
 local saFireAssist = _G.__saFireAssist or {
     last = 0, shots = 0, reason = "idle", backend = "none",
-    target = nil, part = nil, conn = nil,
+    target = nil, part = nil, visible = false, conn = nil,
 }
 _G.__saFireAssist = saFireAssist
 
@@ -398,23 +399,32 @@ function SA.DisposeFireAssist()
     saFireAssist.reason = "disposed"
     saFireAssist.backend = "none"
     saFireAssist.target, saFireAssist.part = nil, nil
+    saFireAssist.visible = false
 end
 
 function SA.FireOnce()
+    -- PREFER real mouse input. Tool:Activate() succeeds on many games but
+    -- never reaches their fire remote, which made a VIS target in FOV look
+    -- like triggerbot / auto fire were doing nothing.
+    local click = executorFn("mouse1click")
+    if click then
+        local okClick = pcall(click)
+        if okClick then return true, "mouse1click" end
+    end
+    local press = executorFn("mouse1press")
+    local release = executorFn("mouse1release")
+    if press and release then
+        local okPress = pcall(press)
+        if okPress then
+            pcall(release)
+            return true, "mouse"
+        end
+    end
     local tool = nil
     pcall(function() tool = SA.GetEquippedGun().tool end)
     if tool then
         local okTool = pcall(function() tool:Activate() end)
         if okTool then return true, "tool" end
-    end
-    local press = executorFn("mouse1press")
-    local release = executorFn("mouse1release")
-    if press then
-        local okMouse = pcall(function()
-            press()
-            if release then release() end
-        end)
-        if okMouse then return true, "mouse" end
     end
     return false, "no fire backend"
 end
@@ -428,10 +438,8 @@ function SA.FireAssistTick(force)
         saFireAssist.reason = "disabled"
         return false
     end
-    if not saLockActive() then
-        saFireAssist.reason = "aim master / gun silent aim OFF"
-        return false
-    end
+    -- Fire assist must NOT require the silent-aim master / gun toggles.
+    -- A visible player in FOV should trigger it even with silent aim OFF.
     if type(SA.IsEquippedBow) == "function" and SA.IsEquippedBow() then
         saFireAssist.reason = "bow equipped (guns only)"
         return false
@@ -448,9 +456,11 @@ function SA.FireAssistTick(force)
     local needTarget = CFG.triggerbot == true
     local target = needTarget and SA.TriggerTarget() or nil
     if needTarget and not target then
-        saFireAssist.reason = "no trigger target in FOV"
+        saFireAssist.reason = "no VIS trigger target in FOV"
+        saFireAssist.visible = false
         return false
     end
+    saFireAssist.visible = target and target.visible ~= false or false
     local aim = target and target.pos or nil
     if target and CFG.prediction and type(SA.Predict) == "function" then
         local okPred, predicted = pcall(SA.Predict, origin, aim, target.model)
@@ -461,8 +471,10 @@ function SA.FireAssistTick(force)
             saFireAssist.reason = "manipulation OFF (support enabled)"
             return false
         end
+        -- allowNoAim = true: the manipulation line check stays, but the
+        -- fire assist does not inherit silent aim's master/gun gate.
         local okProbe, possible, why = pcall(SA.ManipPossible,
-            target and target.model or nil)
+            target and target.model or nil, true)
         if not okProbe or not possible then
             saFireAssist.reason = "manip blocked: " .. tostring(why or "probe error")
             return false
@@ -486,6 +498,7 @@ function SA.FireAssistTick(force)
         saFireAssist.shots = (saFireAssist.shots or 0) + 1
         saFireAssist.target = target and target.name or nil
         saFireAssist.part = target and target.part or nil
+        saFireAssist.visible = target and target.visible ~= false or false
         saFireAssist.reason = "fired via " .. tostring(backend)
         return true
     end
@@ -507,6 +520,8 @@ function SA.FireAssistState()
         shots = saFireAssist.shots or 0,
         reason = saFireAssist.reason,
         backend = saFireAssist.backend,
+        silentAimIndependent = true,
+        visible = saFireAssist.visible == true,
         target = saFireAssist.target,
         partUsed = saFireAssist.part,
         last = saFireAssist.last or 0,
@@ -523,6 +538,8 @@ function SA.PrintFireAssist()
     print("  manip support:", tostring(s.manipSupport), "| force head:",
         tostring(s.forceHead), "| resolved aim bone:", tostring(s.resolvedAimBone))
     print("  reason:", tostring(s.reason), "| backend:", tostring(s.backend))
+    print("  VIS:", tostring(s.visible), "| silent-aim independent:",
+        tostring(s.silentAimIndependent))
     print("  target:", tostring(s.target or "none"), "| part used:",
         tostring(s.partUsed or "none"))
     print("=========================================")

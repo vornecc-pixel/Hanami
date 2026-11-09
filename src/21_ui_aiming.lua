@@ -329,7 +329,7 @@ gunSec:label({ name = "Silent aim + manipulation: GUNS ONLY (bows skipped)" })
 -- Triggerbot + Auto Fire. Part modes are independent of silent aim's
 -- Force Head / Target Bone settings; manipulation support is a strict gate.
 bindToggle(triggerSec, "Triggerbot", "triggerbot",
-    "Click only when a valid target is inside the FOV circle; uses the selected hit part")
+    "Click only when a valid target is inside the FOV circle; Wall Check ON requires the same VIS LOS tag as ESP")
 bindToggle(triggerSec, "Auto Fire", "autoFire",
     "Continuous ~12.5 Hz clicks while ON; no target required. Respects gun cooldown")
 bindToggle(triggerSec, "Head Only", "triggerHeadOnly",
@@ -343,7 +343,8 @@ bindDropdown(triggerSec, "Hit Part", "triggerPart", {
 bindToggle(triggerSec, "Manipulation Support", "triggerUseManip",
     "Require manipulation ON and a READY read-only SA.ManipPossible() probe before firing")
 triggerSec:label({ name = "Random wins over Head Only; Hit Part is used when both are OFF" })
-triggerSec:label({ name = "Backend: Tool:Activate(), then mouse1press/release fallback" })
+triggerSec:label({ name = "Works with Silent Aim master / gun toggles OFF (guns only)" })
+triggerSec:label({ name = "Backend: mouse1click / mouse1press, then Tool:Activate fallback" })
 addButton(triggerSec, "Print Fire Assist", function() SA.PrintFireAssist() end)
 
 -- ── AIMING : column 2 (Target / Ballistics / Wall Penetration) ──────

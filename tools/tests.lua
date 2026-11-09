@@ -534,6 +534,8 @@ local savedDistance = CFG.distance
 local savedHitChance = CFG.hitChance
 local savedCooldown = CFG.gunCooldown
 local savedManip = CFG.manipulation
+local savedMasterEnabled = CFG.masterEnabled
+local savedGunEnabled = CFG.gunEnabled
 local savedTriggerbot = CFG.triggerbot
 local savedAutoFire = CFG.autoFire
 local savedHeadOnly = CFG.triggerHeadOnly
@@ -601,7 +603,7 @@ CFG.fovCenterMode = "Mouse"
 CFG.fov = 150
 CFG.targetNpcs = false
 CFG.teamCheck = false
-CFG.wallCheck = false
+CFG.wallCheck = true
 CFG.prediction = false
 CFG.distance = 0
 CFG.hitChance = 100
@@ -632,29 +634,43 @@ local triggerTarget = SA.TriggerTarget()
 ok(triggerTarget ~= nil, "triggerbot FOV target found")
 eq(triggerTarget.model, otherModel, "triggerbot target model")
 eq(triggerTarget.part, "Head", "triggerbot uses Head Only part")
+eq(triggerTarget.visible, true, "VIS player in FOV passes trigger LOS")
 
 MOCK_FIRE_TOOL = 0
+MOCK_FIRE_MOUSE_CLICKS = 0
+MOCK_MOUSE_FAIL = false
 MOCK_FIRE_MOUSE = 0
 local okDirectFire, directBackend = SA.FireOnce()
-eq(okDirectFire, true, "direct Tool:Activate fire")
-eq(directBackend, "tool", "direct fire uses Tool backend")
-ok(MOCK_FIRE_TOOL >= 1, "Tool:Activate backend called")
-local shotsBefore = SA.FireAssistState().shots
+eq(okDirectFire, true, "direct mouse1click fire")
+eq(directBackend, "mouse1click", "mouse1click is primary backend")
+ok(MOCK_FIRE_MOUSE_CLICKS >= 1, "mouse1click backend called")
+eq(MOCK_FIRE_TOOL, 0, "Tool:Activate not used when mouse input works")
+
+-- Regression: a VIS player in FOV must fire even with silent aim OFF.
+CFG.masterEnabled = false
+CFG.gunEnabled = false
 CFG.triggerbot = true
-eq(SA.FireAssistTick(true), true, "triggerbot fires on FOV target")
+CFG.autoFire = false
+CFG.triggerUseManip = false
+CFG.manipulation = false
+CFG.wallCheck = true
+local shotsBefore = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), true, "VIS FOV triggerbot fires with silent aim OFF")
 local afterTrigger = SA.FireAssistState()
 eq(afterTrigger.shots, shotsBefore + 1, "triggerbot shot count")
-eq(afterTrigger.backend, "tool", "triggerbot Tool backend")
+eq(afterTrigger.backend, "mouse1click", "triggerbot mouse backend")
 eq(afterTrigger.partUsed, "Head", "triggerbot used Head part")
+eq(afterTrigger.visible, true, "triggerbot reports VIS target")
+eq(afterTrigger.silentAimIndependent, true, "fire assist independent of silent aim")
 contains(afterTrigger.reason, "fired", "triggerbot success reason")
 
+-- Manipulation Support must also work without the silent-aim master/gun gate.
 CFG.triggerUseManip = true
-CFG.manipulation = false
-eq(SA.FireAssistTick(true), false, "manip support blocks when manipulation OFF")
-contains(SA.FireAssistState().reason, "manipulation OFF", "manip support reason")
 CFG.manipulation = true
 MOCK_MANIP_BLOCKED = false
-eq(SA.FireAssistTick(true), true, "manip support allows READY probe")
+local okNoAimProbe, noAimReason = SA.ManipPossible(otherModel, true)
+eq(okNoAimProbe, true, "manip probe allowNoAim with silent aim OFF: " .. tostring(noAimReason))
+eq(SA.FireAssistTick(true), true, "manip support fires with silent aim OFF")
 contains(SA.FireAssistState().reason, "fired", "manip support fired")
 quiet(function() SA.PrintFireAssist() end)
 
@@ -668,13 +684,29 @@ eq(SA.FireAssistTick(true), true, "auto fire continuous click 2")
 eq(SA.FireAssistState().shots, shotsBeforeAuto + 2, "auto fire shot count")
 eq(SA.FireAssistState().target, nil, "auto fire needs no target")
 
+-- Backend fallbacks: mouse1press/release when mouse1click is absent,
+-- Tool:Activate when all mouse helpers fail, and clean no-backend failure.
+local savedMouse1Click = mouse1click
+_G.mouse1click = nil
 local mouseBefore = MOCK_FIRE_MOUSE
-MOCK_TOOL_ACTIVATE_FAIL = true
-local okFallback, fallbackBackend = SA.FireOnce()
-eq(okFallback, true, "mouse fallback fires")
-eq(fallbackBackend, "mouse", "mouse1press fallback backend")
+local okPressFallback, pressBackend = SA.FireOnce()
+eq(okPressFallback, true, "mouse1press fallback fires")
+eq(pressBackend, "mouse", "mouse1press/release backend")
 ok(MOCK_FIRE_MOUSE > mouseBefore, "mouse1press fallback called")
+_G.mouse1click = savedMouse1Click
+MOCK_MOUSE_FAIL = true
 MOCK_TOOL_ACTIVATE_FAIL = false
+local toolBefore = MOCK_FIRE_TOOL
+local okToolFallback, toolBackend = SA.FireOnce()
+eq(okToolFallback, true, "Tool:Activate fallback fires")
+eq(toolBackend, "tool", "Tool:Activate fallback backend")
+ok(MOCK_FIRE_TOOL > toolBefore, "Tool:Activate fallback called")
+MOCK_TOOL_ACTIVATE_FAIL = true
+local okNoBackend, noBackend = SA.FireOnce()
+eq(okNoBackend, false, "no fire backend fails cleanly")
+eq(noBackend, "no fire backend", "no-backend reason")
+MOCK_TOOL_ACTIVATE_FAIL = false
+MOCK_MOUSE_FAIL = false
 
 -- Restore shipped defaults / earlier test state.
 UserInputService.GetMouseLocation = nil
@@ -695,6 +727,8 @@ CFG.distance = savedDistance
 CFG.hitChance = savedHitChance
 CFG.gunCooldown = savedCooldown
 CFG.manipulation = savedManip
+CFG.masterEnabled = savedMasterEnabled
+CFG.gunEnabled = savedGunEnabled
 CFG.triggerbot = savedTriggerbot
 CFG.autoFire = savedAutoFire
 CFG.triggerHeadOnly = savedHeadOnly
@@ -704,6 +738,7 @@ CFG.triggerUseManip = savedManipSupport
 CFG.perfMode = savedPerfMode
 MOCK_MANIP_BLOCKED = false
 MOCK_TOOL_ACTIVATE_FAIL = false
+MOCK_MOUSE_FAIL = false
 pcall(function() ws.CurrentCamera.CFrame = CFrame.new(0, 3, 0) end)
 
 -- ── top-N HUD / performance overlay ─────────────────────────────────

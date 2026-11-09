@@ -335,12 +335,28 @@ function SA.TriggerTarget()
     local best = pickBestTarget(camera, SA.AimPoint(), origin, true, SA.TriggerBonePart)
     if not best or not best.bone then return nil end
     local pos = best.bone.Position
-    if CFG.wallCheck and CFG.triggerUseManip ~= true
-        and not checkWall(origin, pos, best.model) then return nil end
+    -- Use the SAME tolerant LOS helper the ESP "VIS" tag uses. The old
+    -- strict checkWall() rejected a visible target when the ray clipped a
+    -- hat / accessory near the hit point, so a player marked VIS in FOV
+    -- could still produce "no trigger target".
+    -- Always report the ESP VIS state; only Gate on it when Wall Check is
+    -- ON and Manipulation Support is OFF. This keeps diagnostics honest
+    -- without blocking wall-pen users who leave Wall Check OFF.
+    local visible = true
+    if type(SA.IsVisible) == "function" then
+        local okVis, vis = pcall(SA.IsVisible, best.model, pos)
+        if okVis then visible = vis ~= false end
+    elseif CFG.wallCheck and CFG.triggerUseManip ~= true then
+        visible = checkWall(origin, pos, best.model)
+    end
+    if CFG.wallCheck and CFG.triggerUseManip ~= true and not visible then
+        return nil
+    end
     return {
         model = best.model, bone = best.bone, pos = pos,
         name = best.model and best.model.Name or "?",
         part = best.bone and best.bone.Name or "?",
+        visible = visible,
     }
 end
 
