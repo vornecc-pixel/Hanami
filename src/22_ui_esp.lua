@@ -143,6 +143,79 @@ bindToggle(featSec, "Tag Backdrops", "espTagBackdrop",
 featSec:label({ name = "Name above · Weapon below · Flags at corner" })
 featSec:label({ name = "Font: " .. tostring(SA.ESP_FONT_NAME) })
 
+-- ── BEST ESP PRESET (Players + NPCs) ────────────────────────────────
+-- The curated "best" set: every feature that makes an ESP readable and
+-- informative, without the two that deliberately wash colours out
+-- (Rainbow) or hide distant boxes (Distance Fade). Applied through the
+-- Atlanta flags so all widgets stay in sync, and mirrored into CFG as a
+-- safety net for any flag a library build never registered.
+local BEST_ESP = {
+    -- Player ESP
+    espEnabled = true, espVisibleCheck = true, espShowName = true,
+    espShowDist = true, espShowHealth = true, espShowTool = true,
+    espShowState = true,
+    -- NPC ESP
+    npcEspEnabled = true, npcVisibleCheck = true, npcShowName = true,
+    npcShowDist = true, npcShowHealth = true, npcShowTool = true,
+    npcShowState = true, npcUseTypeColors = true,
+    -- Shared visual features
+    espPerElementColors = true, espShowBox = true, espCornerBox = true,
+    espShowFill = true, espShowOutline = false, espShowSkeleton = true,
+    espShowHeadDot = true, espShowTracer = true, espShowOffscreen = true,
+    espHighlightTarget = true, espRainbow = false, espFade = false,
+    espArrowFOV = true, espShowHealthText = true, espTextOutline = true,
+    espTagSide = true, espTagBackdrop = true, espPreview = true,
+}
+
+function SA.ApplyBestEsp()
+    for k, v in pairs(BEST_ESP) do
+        pcall(setFlag, k, v)
+        CFG[k] = v
+    end
+    -- Re-open the floating preview so the result is visible immediately.
+    if SA.EspPreviewSet then pcall(SA.EspPreviewSet, true) end
+    print("[esp] Best ESP applied (Player + NPC): 15 visual features ON")
+end
+
+function SA.EspFeatureDiag()
+    print("════════════ ESP FEATURES ════════════")
+    local groups = {
+        { "PLAYER", { "espEnabled", "espVisibleCheck", "espShowName",
+            "espShowDist", "espShowHealth", "espShowTool", "espShowState" } },
+        { "NPC", { "npcEspEnabled", "npcVisibleCheck", "npcShowName",
+            "npcShowDist", "npcShowHealth", "npcShowTool", "npcShowState",
+            "npcUseTypeColors" } },
+        { "SHARED", { "espPerElementColors", "espShowBox", "espCornerBox",
+            "espShowFill", "espShowOutline", "espShowSkeleton", "espShowHeadDot",
+            "espShowTracer", "espShowOffscreen", "espHighlightTarget",
+            "espRainbow", "espFade", "espArrowFOV", "espShowHealthText",
+            "espTextOutline", "espTagSide", "espTagBackdrop" } },
+    }
+    for _, g in ipairs(groups) do
+        local bits = {}
+        for _, k in ipairs(g[2]) do
+            bits[#bits + 1] = k .. "=" .. tostring(CFG[k])
+        end
+        print(string.format("[%-6s] %s", g[1], table.concat(bits, " | ")))
+    end
+    local missing = {}
+    for k in pairs(BEST_ESP) do
+        if not library.config_flags["hn_" .. k] then
+            missing[#missing + 1] = k
+        end
+    end
+    table.sort(missing)
+    print("unbound UI flags:", #missing == 0 and "none (all functional)"
+        or table.concat(missing, ", "))
+    print("preview kind:", tostring(CFG.espPreviewKind),
+        "| target sim:", tostring(CFG.espPreviewTarget))
+    print("══════════════════════════════════════")
+end
+
+featSec:label({ name = "── BEST ESP · PLAYERS + NPCS ──" })
+addButton(featSec, "Apply Best ESP", function() SA.ApplyBestEsp() end)
+addButton(featSec, "Print ESP Features", function() SA.EspFeatureDiag() end)
+
 -- ── ESP : column 3 — one colourpicker for EVERY drawn element ────────
 -- Atlanta labels expose a `right_holder`, so each labelled row can carry
 -- its own colourpicker without a dummy toggle. `cfg.set` fires on build,

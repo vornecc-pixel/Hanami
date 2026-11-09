@@ -93,10 +93,22 @@ local function drawEntity(cam, o, opt)
         d.Visible = true
     end
 
+    -- Screen-space text must honour the SAME palette overrides the old
+    -- BillboardGui labels did: crates keep their kind colour on the name,
+    -- and NPC archetype colours paint the name + state tag. Request 16's
+    -- text rewrite accidentally dropped both (col("Name") always fell
+    -- back to the plain playerName picker).
+    local nameCol = col("Name")
+    if opt.keepNameColor then
+        nameCol = opt.base
+    elseif opt.typeColor and not CFG.espRainbow then
+        nameCol = opt.typeColor
+    end
+
     local cx = g.x + g.w / 2
     showText("txName", tx.name, cx, g.y - 4,
         textWidth(tx.name or ""), rowH + 2,
-        Vector2.new(0.5, 1), "Center", ts + 1, col("Name"), false)
+        Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false)
     showText("txDist", tx.dist, g.x - 7, g.y,
         textWidth(tx.dist or ""), rowH,
         Vector2.new(1, 0), "Right", math.max(ts - 2, 6), col("Distance"), false)
@@ -107,11 +119,13 @@ local function drawEntity(cam, o, opt)
     local tags = tx.tags or {}
     for i, tag in ipairs(tags) do
         local tagColor = col("Info")
-        if tag.kind == "vis" then
+        if opt.pal == "crate" and tag.kind == "state" then
+            tagColor = opt.opened and espC("crateOpened") or espC("crateState")
+        elseif tag.kind == "vis" then
             -- WALL / VIS is ALWAYS the dynamic green/red visibility pick
             tagColor = opt.checkVisible and opt.visColor or col("Info")
-        elseif tag.kind == "state" and opt.opened then
-            tagColor = espC("crateOpened")
+        elseif tag.kind == "state" and opt.typeColor and not CFG.espRainbow then
+            tagColor = opt.typeColor
         end
         local side = CFG.espTagSide ~= false
         showText("txTag" .. i, tag.text,

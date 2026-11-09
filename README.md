@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **35 short files** (`src/`, largest is 417 lines) plus a short **loader**.
+The original 1,300-line script is split into **35 short files** (`src/`, largest is 537 lines) plus a short **loader**.
 
 ## Load it (one line)
 
@@ -26,7 +26,8 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **Prediction auto-tunes for attachments** | Aiming → Attachments (Auto) | See [Attachments & auto prediction tuning](#attachments--auto-prediction-tuning). All 12 attachments are auto-detected off the equipped tool; a silencer re-tunes bullet speed (and therefore lead + drop), sights/grips fold aim-time into the one latency term, and the solver adds a refinement pass and stops on convergence. No manual toggle needed — slot overrides are provided as a fallback. |
 | **Silent aim / manipulation are guns only** | Aiming → Gun | See [Bow mods](#bow-mods-instant-charge--no-cooldown). The bow Shoot remote hook, bow gun specs, arrow prediction and draw/hold state are gone; `saLockActive()` bails out while any bow is equipped. |
 | **Two bow mods: instant charge + no cooldown** | Gun Mods → Bow Mods | Only those two features from the pasted bow-mods script were ported — instant full draw and `SHOT_GAP`/`REDRAW_GAP`/`MIN_DRAW` + `lastShot` clearing. NoDrop, instant reload, no recoil, infinite ammo, no air block and everything else were **excluded**. See [Bow mods](#bow-mods-instant-charge--no-cooldown). |
-| **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Survives spawn, respawn, re-execute and unload. |
+| **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Now mirrors **either** the Player or NPC pipeline, including archetype colours. Survives spawn, respawn, re-execute and unload. |
+| **Best ESP preset for Players + NPCs** | ESP → ESP Features · ESP Preview panel | See [Best ESP](#best-esp-players--npcs). One **Apply Best ESP** button enables the curated readable feature set for BOTH pipelines, **Print ESP Features** audits every flag / binding, and the preview gains **Preview Kind**, **Simulate Aim Target**, a visibility frame, per-tag colours, tag backdrops and an off-screen arrow. |
 | **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
 | **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, and one shared shot resolver keeps the FOV circle as the reference point. **Guns only** — bows are skipped. |
 | **Tahoma ESP layout (weapon below, flags at the corner)** | ESP → ESP Features | See [ESP text layout](#esp-text-layout-tahoma-weapon-below-flags-at-the-corner). Player/NPC/crate labels are now screen-space Tahoma `TextLabel`s anchored to the box geometry: name above, distance at the top-left corner, **weapon below the box**, and `VIS`/`WALL`, state and HP stacked beside the top-right corner. The world-anchored BillboardGui text is hidden so nothing is drawn twice. The floating ESP Preview mirrors the same layout. |
@@ -163,7 +164,7 @@ The old player ESP put everything in one `BillboardGui` line above the head: `W:
 | Health % | third tag | `Show Health %` |
 | All tags | stacked by `espTextSize + 3` | `Tags On Box Side` (OFF stacks them under the weapon), `Tag Backdrops` |
 
-The refreshes (`13`, `15`, `17`) now write a small structured `o.tx` table — `name`, `dist`, `weapon`, `tags` — instead of only concatenating one string. The old BillboardGui labels are still populated as a fallback/data source but hidden by the FX pass, so no text is drawn twice. Crates use the same layout with their `OPENED` / `UNOPENED` state as the corner tag. The floating **ESP Preview** panel mirrors the layout live, including the `VIS` ↔ `WALL` alternation.
+The refreshes (`13`, `15`, `17`) now write a small structured `o.tx` table — `name`, `dist`, `weapon`, `tags` — instead of only concatenating one string. The old BillboardGui labels are still populated as a fallback/data source but hidden by the FX pass, so no text is drawn twice. Crates use the same layout with their `OPENED` / `UNOPENED` state as the corner tag. The screen-space text also keeps the palette overrides the old BillboardGui labels had: crate kind colours paint the name, crate state uses `crateState` / `crateOpened`, and NPC Guard / Scavenger / Soldier colours paint the name and state tag. The floating **ESP Preview** panel mirrors the layout live, including the `VIS` ↔ `WALL` alternation.
 
 **Tahoma.** Roblox's `Enum.Font` does **not** contain a `Tahoma` member (only Legacy / Arial / Gotham / SourceSans / …), and native `Drawing.new("Text")` fonts are limited to UI / System / Plex / Monospace. `01_config.lua` therefore resolves the font once and exposes `SA.ApplyEspFont(label)`:
 
@@ -622,9 +623,32 @@ Atlanta's `library:window()` always creates a second, draggable 300×325 panel c
 * **Live settings.** Every overlay is restyled through the same `pick(key, base, seed)` helper used by the real ESP, so `CFG.espRainbow`, `CFG.espPerElementColors`, `CFG.espTextSize`, `CFG.espBoxThickness` and all 48 `ESP_COLORS` entries apply instantly. It previews box / corner boxes / outline, name, distance at the left corner, the weapon badge below the box, the `VIS`/`WALL` + state + `HP: NN%` tags at the right corner, health bar (low→high lerp), visibility dot, skeleton, head dot, tracer and chams fill tint. `VIS` / `WALL` alternates every 2.5 s so both green and red visibility colours are visible. ViewportFrames cannot reliably render `Highlight`, so chams are shown by tinting the model's parts.
 * **Reachable.** On displays shorter than ~1080 px the template docks this panel *below* the main window, i.e. off-screen. The build clamps the panel into the viewport and docks it top-right when the template position cannot fit. If a future Atlanta revision stops exposing `window.esp_section`, the preview builds itself into a new `ESP Preview` section inside the ESP tab instead; the `embedded` flag keeps unload from hiding the main menu in that case.
 
-**Controls** — in the preview panel: `Enabled`, `Rotate Model`, `Spin Speed` (0–90 °/s), `Rebuild Character`, `Print Preview State`. In ESP → Player ESP: `Show ESP Preview Panel` (re-opens the floating window) and `Rebuild ESP Preview`. `Print Preview State` reports whether the model is a clone or the dummy rig, the part count, the panel/viewport visibility and why a fallback was used.
+**Controls** — in the preview panel: `Enabled`, `Preview Kind` (Player / NPC), `Simulate Aim Target`, `Rotate Model`, `Spin Speed` (0–90 °/s), `Apply Best ESP`, `Rebuild Character`, `Print Preview State`. In ESP → Player ESP: `Show ESP Preview Panel` (re-opens the floating window) and `Rebuild ESP Preview`. `Print Preview State` reports whether the model is a clone or the dummy rig, the part count, the panel/viewport visibility and why a fallback was used.
 
-New config keys: `espPreview` (ON), `espPreviewSpin` (ON), `espPreviewSpeed` (25), all backfilled for older saved configs and bound to Atlanta widgets.
+Config keys: `espPreview` (ON), `espPreviewSpin` (ON), `espPreviewSpeed` (25), `espPreviewKind` (`"Player"`), `espPreviewTarget` (OFF), all backfilled for older saved configs and bound to Atlanta widgets. See [Best ESP](#best-esp-players--npcs) for the Player/NPC mirror and the curated preset.
+
+
+## Best ESP (Players + NPCs)
+
+The ESP tab's **ESP Features** section now has an **Apply Best ESP** button and a **Print ESP Features** diagnostic. These address the two gaps in the old setup: the best features were scattered across Player / NPC / shared sections with no way to enable the whole readable set at once, and the ESP Preview only mirrored the Player pipeline.
+
+**Apply Best ESP** turns on the curated set for BOTH entity kinds through the Atlanta flags (so every bound widget updates), then re-opens the preview:
+
+| Group | Enabled |
+|---|---|
+| Player | ESP, Visibility Check, Names, Distance, Health Bar, Weapon, State |
+| NPC | ESP, Visibility Check, Names, Distance, Health Bar, Weapon, State, NPC Type Colours |
+| Shared | Per-Element Colours, Box Outline (corner boxes), Chams Fill, Skeleton, Head Dot, Tracer Lines, Off-screen Arrows, Highlight Aim Target, Arrows Follow FOV, Show Health %, Text Outline, Tags On Box Side, Tag Backdrops, ESP Preview |
+
+`Rainbow` and `Distance Fade` are deliberately left **OFF** — the first overrides the 48-colour palette and the second hides distant boxes, which defeats a "best" readability preset. `Chams Outline` is also off because the fill + corner-box combination is less noisy. **Print ESP Features** lists every Player / NPC / shared flag, its live `CFG` value, and any flag that a particular Atlanta build failed to bind.
+
+**Preview mirrors both pipelines.** `CFG.espPreviewKind` (`Player` / `NPC`, exposed as *Preview Kind*) selects which section's visibility check / name / distance / health / weapon / state flags and which of the `player*` / `npc*` colourpicker keys feed the overlay. In NPC mode the Guard / Scavenger / Soldier archetype colours rotate every three seconds, and the name + state tag use the archetype colour — the same `typeColor` path `drawEntity()` uses in the real ESP. *Simulate Aim Target* paints the box, fill and outline with the global `Target` colour just like *Highlight Aim Target* on a locked target.
+
+The preview also gained the overlays the real ESP already had: a padded **visibility frame** (green/red), a separate label **per corner tag** (so `VIS`/`WALL` stays green/red while state / `HP` use the scanner colour), rounded **tag backdrops**, an **off-screen arrow**, a functional **Chams Outline** second stroke (thickness 0 when disabled — no reliance on the newer `UIStroke.Enabled`), exact `rowH = TextSize + 3` line spacing identical to `drawEntity()`, tracer origin (Center / Mouse), text outline, and a Distance Fade simulation at 85% of the chosen Max Distance. If a future Atlanta build omits `window.esp_section`, the setup now creates its own small `HanamiEspPreviewPanel` ScreenGui instead of just printing a warning, and unload destroys it.
+
+**Fixed colour regressions** in `drawEntity()`: crate names keep their kind colour (`keepNameColor`) instead of falling back to the player name picker, crate state tags use `crateState` / `crateOpened`, and NPC archetype colours paint the name and state tag even with the new screen-space Tahoma labels.
+
+`SA.ApplyBestEsp()`, `SA.EspFeatureDiag()`, `CFG.espPreviewKind` (`"Player"`), `CFG.espPreviewTarget` (`false`) are the new API / config keys; both are backfilled for older saved configs, and the preview kind / speed are clamped on every load so a stale saved value cannot put the mirror into an invalid pipeline.
 
 ## How the loader works
 
@@ -649,7 +673,7 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma font resolver**), `SA` state, `bindRender`, **48-colour palette** | 411 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps**), `SA` state, `bindRender`, **48-colour palette** | 423 |
 | `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, **screen-space Tahoma `Text` draw**, no-op fallback, draw diagnostics | 413 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
@@ -671,15 +695,15 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/16_esp_crates_registry.lua` | live crate registry, **crate-state debug**, walker diagnostics | 113 |
 | `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, structured `o.tx` text, highlight gate) + events | 90 |
 | `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry | 128 |
-| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text (name / dist / weapon / corner tags), boxes, chams, skeleton, tracers, FOV arrows, fade | 287 |
+| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text (name / dist / weapon / corner tags), **NPC archetype / crate kind colours**, boxes, chams, skeleton, tracers, FOV arrows, fade | 301 |
 | `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with **per-player error isolation** | 141 |
 | `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
 | `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **classic Wall Pen sliders + recommendation / tap-fire controls / guns-only note / attachment auto-tune column**) | 238 |
-| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, Tahoma labels mirroring the new layout | 397 |
-| `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, camera/render bind, respawn hook, controls, `SA.EspPreview*` API | 223 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features (**Tahoma layout toggles**) / **48 colourpickers** / diagnostics buttons | 231 |
+| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **Player/NPC mirror, per-tag labels, vis frame, arrow, backdrops** | 537 |
+| `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, **Preview Kind / Target / Best ESP controls**, `SA.EspPreview*` API | 270 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features (**Best ESP preset + diagnostics, Tahoma layout toggles**) / **48 colourpickers** / diagnostics buttons | 304 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + **Bow Mods section (2 toggles + diagnostics)** | 45 |
 | `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only debug, bow-mods state, attachment / gun-table prints**) | 107 |
 | `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose + bow timing restore** | 91 |

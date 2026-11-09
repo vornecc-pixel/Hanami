@@ -292,6 +292,11 @@ local CFG = _G.__saCFG or {
     espPreview       = true,
     espPreviewSpin   = true,
     espPreviewSpeed  = 25,         -- degrees / second
+    -- The preview mirrors EITHER the Player or the NPC ESP pipeline
+    -- (flags, palette, archetype colours, feature set). "Simulate Aim
+    -- Target" paints it with the global target colour.
+    espPreviewKind   = "Player",   -- "Player" / "NPC"
+    espPreviewTarget = false,
 
     -- gun mods
     gmEnabled      = false,
@@ -347,6 +352,7 @@ for k, v in pairs({
     espShowHealthText = false, espTextOutline = true,
     espTagSide = true, espTagBackdrop = true,
     espPreview = true, espPreviewSpin = true, espPreviewSpeed = 25,
+    espPreviewKind = "Player", espPreviewTarget = false,
     npcUseTypeColors = false,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
@@ -405,6 +411,12 @@ CFG.manipBudget       = saClampNum(CFG.manipBudget, 8, 128, 40)
 CFG.manipHysteresis   = saClampNum(CFG.manipHysteresis, 0, 12, 3)
 CFG.manipMaxPeekDelta = saClampNum(CFG.manipMaxPeekDelta, 2, 12, 6)
 CFG.manipMaxPeek      = nil
+-- Preview mirror inputs must also land inside their widget ranges; an
+-- out-of-range / bogus saved value would otherwise make the Player/NPC
+-- switch silently fall into the wrong pipeline forever.
+CFG.espPreviewSpeed  = saClampNum(CFG.espPreviewSpeed, 0, 90, 25)
+CFG.espPreviewKind   = (CFG.espPreviewKind == "NPC") and "NPC" or "Player"
+CFG.espPreviewTarget = CFG.espPreviewTarget == true
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

@@ -99,32 +99,73 @@ function SA.EspPreviewDiag()
     print("════════════ ESP PREVIEW ════════════")
     print("  enabled :", tostring(CFG.espPreview), "| spin:", tostring(CFG.espPreviewSpin),
         "| speed:", tostring(CFG.espPreviewSpeed))
+    print("  kind    :", tostring(CFG.espPreviewKind), "ESP | aim target:",
+        tostring(CFG.espPreviewTarget), "| overlays:", pv.ui and "BUILT" or "MISSING")
     print("  model   :", pv.isDummy and "synthetic dummy rig"
         or (pv.model and "local character clone" or "NONE"))
     print("  parts   :", pv.parts and #pv.parts or 0, "| reason:", tostring(pv.reason or "-"))
-    print("  panel   :", pv.sgui and (pv.sgui.Enabled and "visible" or "hidden") or "MISSING")
+    print("  panel   :", pv.sgui and (pv.sgui.Enabled and "visible" or "hidden") or "MISSING",
+        "| own:", tostring(pv.ownGui ~= nil))
     print("  viewport:", pv.root and (pv.root.Visible and "visible" or "hidden") or "MISSING")
     print("  style   :", tostring(pv.styleErr or "ok"),
         "| embedded:", tostring(pv.embedded == true))
+    print("  features: box", tostring(CFG.espShowBox),
+        "| corners", tostring(CFG.espCornerBox),
+        "| skeleton", tostring(CFG.espShowSkeleton),
+        "| head", tostring(CFG.espShowHeadDot),
+        "| tracer", tostring(CFG.espShowTracer),
+        "| arrows", tostring(CFG.espShowOffscreen),
+        "| fade", tostring(CFG.espFade))
     print("══════════════════════════════════════")
 end
 
 -- ── Build once ───────────────────────────────────────────────────────
 local pvSec = window and window.esp_section or nil
-if not pvSec or not pvSec.holder then
+if pvSec and pvSec.holder then
+    pv.embedded = false
+else
     -- A future Atlanta revision may stop exposing the floating panel.
-    -- Fall back to a section inside the ESP tab so the preview still has
-    -- a home (pv.embedded keeps us from hiding the MAIN menu on unload).
+    -- Keep the ESP-tab section for the controls AND give it a real
+    -- holder: a small standalone ScreenGui owned by Hanami. Previously
+    -- this path only warned and skipped the build, so the preview was
+    -- completely unavailable on those library builds.
     pv.embedded = true
     pcall(function()
         local col = EspTab:column()
         pvSec = col:section({ name = "ESP Preview" })
     end)
-else
-    pv.embedded = false
+    pcall(function()
+        local parent = nil
+        pcall(function() parent = lp and lp:FindFirstChildOfClass("PlayerGui") end)
+        if not parent then
+            pcall(function() parent = game:GetService("CoreGui") end)
+        end
+        if not parent then return end
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "HanamiEspPreviewPanel"
+        sg.ResetOnSpawn = false
+        sg.IgnoreGuiInset = true
+        sg.DisplayOrder = 998
+        local panel = Instance.new("Frame")
+        panel.Name = "Panel"
+        panel.Size = UDim2new(0, 300, 0, 325)
+        panel.Position = UDim2new(0.72, 0, 0.1, 0)
+        panel.BackgroundColor3 = c3(24, 24, 34)
+        panel.BackgroundTransparency = 0.05
+        panel.Parent = sg
+        pcall(function()
+            local layout = Instance.new("UIListLayout")
+            layout.SortOrder = Enum.SortOrder.LayoutOrder
+            layout.Parent = panel
+        end)
+        sg.Parent = parent
+        pv.ownGui = sg
+        if pvSec then pvSec.holder = panel end
+        pv.embedded = false
+    end)
 end
 if not pvSec or not pvSec.holder then
-    warn("[esp] Atlanta window.esp_section missing — ESP preview unavailable")
+    warn("[esp] no ESP Preview holder available — preview unavailable")
 else
     local ok, buildErr = pcall(function()
         local holder = pvSec.holder
@@ -216,8 +257,14 @@ else
     pcall(function() pvSec:label({ name = "Live preview of YOUR ESP settings" }) end)
     pcall(bindToggle, pvSec, "Enabled", "espPreview",
         "Show / hide the 3D ESP Preview render")
+    pcall(bindDropdown, pvSec, "Preview Kind", "espPreviewKind", { "Player", "NPC" })
+    pcall(bindToggle, pvSec, "Simulate Aim Target", "espPreviewTarget",
+        "Paints box / fill / outline with the Target colour, like Highlight Aim Target")
     pcall(bindToggle, pvSec, "Rotate Model", "espPreviewSpin")
     pcall(bindSlider, pvSec, "Spin Speed", "espPreviewSpeed", 0, 90, 5, "deg/s")
+    pcall(addButton, pvSec, "Apply Best ESP", function()
+        if SA.ApplyBestEsp then SA.ApplyBestEsp() end
+    end)
     pcall(addButton, pvSec, "Rebuild Character", function() SA.EspPreviewRefresh() end)
     pcall(addButton, pvSec, "Print Preview State", function() SA.EspPreviewDiag() end)
 end
