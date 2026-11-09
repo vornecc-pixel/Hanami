@@ -433,6 +433,10 @@ bindSlider(hudSec, "HUD Scale", "nearestScale", 0.6, 1.8, 0.1, "x")
 bindSlider(hudSec, "HUD Transparency (%)", "nearestTransparency", 0, 80, 1, "%")
 bindToggle(hudSec, "Live 'Why No Target?' Line", "showNoTargetReason",
     "Shows the exact reason aim has no target (FOV, walls, master off, hit chance, pinned target)")
+bindToggle(hudSec, "Manip Crosshair Popup", "showManipPopup",
+    "Small READY / BLOCKED badge above the crosshair; read-only probe, never changes CanQuery or spends the ray budget")
+addButton(hudSec, "Refresh Manip Popup", function() SA.ManipPopupRefresh() end)
+addButton(hudSec, "Print Manip Popup", function() SA.PrintManipPopup() end)
 addButton(hudSec, "Lock Nearest as Aim Target", function()
     local name, err = SA.PinNearestTarget()
     if name then
@@ -530,6 +534,127 @@ saPerfOverlay.conn = bindRender(function()
             tostring(st.pool and st.pool.total or 0))
     end)
 end)
+
+-- ── BETTER: crosshair manipulation-status popup ─────────────────────
+-- A small badge just above SA.AimPoint(), the SAME mouse / screen-centre
+-- reference used by the FOV circle and target picker. It asks the read-only
+-- SA.ManipPossible() probe, so showing the badge never disables CanQuery,
+-- consumes the manipulation ray budget or writes a peek into the cache.
+-- Updates at ~10 Hz and follows the crosshair on every update.
+if SA.DisposeManipPopup then pcall(SA.DisposeManipPopup) end
+local saManipPopup = {
+    draw = nil, conn = nil, last = 0, built = false, visible = false,
+    possible = false, reason = "", text = "", target = nil,
+}
+_G.__saManipPopup = saManipPopup
+
+function SA.DisposeManipPopup()
+    if saManipPopup.conn then pcall(function() saManipPopup.conn:Disconnect() end) end
+    if saManipPopup.draw then pcall(function() saManipPopup.draw:Remove() end) end
+    saManipPopup.draw, saManipPopup.conn = nil, nil
+    saManipPopup.built, saManipPopup.visible = false, false
+    saManipPopup.reason = "disposed"
+end
+
+local function saManipPopupColour(possible, reason)
+    if possible then return Color3.fromRGB(90, 235, 140) end
+    if string.find(reason, "OFF", 1, true)
+        or string.find(reason, "no target", 1, true) then
+        return Color3.fromRGB(255, 205, 90)
+    end
+    return Color3.fromRGB(255, 105, 105)
+end
+
+local function saManipPopupBuild()
+    if saManipPopup.draw then return true end
+    local draw = SA.NewDraw("Text")
+    if not draw then return false end
+    draw.Size = Vector2.new(230, 22)
+    draw.Anchor = Vector2.new(0.5, 1)
+    draw.Align = "Center"
+    draw.TextSize = 12
+    draw.Outline = true
+    draw.Backdrop = true
+    draw.ZIndex = 20
+    saManipPopup.draw = draw
+    saManipPopup.built = true
+    return true
+end
+
+local function saManipPopupTag(possible, reason)
+    if string.find(reason, "OFF", 1, true) then return "OFF" end
+    if string.find(reason, "no target", 1, true) then return "NO TARGET" end
+    if string.find(reason, "bow", 1, true) then return "BOW" end
+    if string.find(reason, "out of", 1, true) then return "RANGE" end
+    if string.find(reason, "blocked", 1, true) then return "BLOCKED" end
+    return possible and "READY" or "NO"
+end
+
+local function saManipPopupTick(force)
+    if not SA.Alive or CFG.showManipPopup ~= true then
+        if saManipPopup.draw then saManipPopup.draw.Visible = false end
+        saManipPopup.visible = false
+        return
+    end
+    if not saManipPopupBuild() then return end
+    local now = tick()
+    if not force and now - saManipPopup.last < 0.1 then return end
+    saManipPopup.last = now
+    local ok, possible, reason, info = pcall(SA.ManipPossible)
+    if not ok then
+        possible, reason, info = false, "probe error: " .. tostring(possible), {}
+    end
+    reason = tostring(reason or "unknown")
+    info = info or {}
+    local detail = reason
+    if #detail > 28 then detail = string.sub(detail, 1, 28) .. "..." end
+    local text = "MANIP: " .. saManipPopupTag(possible, reason) .. " | " .. detail
+    local okPos, pt = pcall(SA.AimPoint)
+    if not okPos or not pt then pt = Vector2.new(640, 360) end
+    pcall(function()
+        saManipPopup.draw.Position = Vector2.new(pt.X, pt.Y - 26)
+        saManipPopup.draw.Text = text
+        saManipPopup.draw.Color = saManipPopupColour(possible, reason)
+        saManipPopup.draw.Visible = true
+    end)
+    saManipPopup.possible = possible == true
+    saManipPopup.reason = reason
+    saManipPopup.text = text
+    saManipPopup.target = info.model
+    saManipPopup.visible = true
+end
+
+function SA.ManipPopupRefresh() saManipPopupTick(true) end
+function SA.ManipPopupSet(on)
+    on = on == true
+    CFG.showManipPopup = on
+    pcall(setFlag, "showManipPopup", on)
+    saManipPopupTick(true)
+end
+function SA.ManipPopupState()
+    return {
+        enabled = CFG.showManipPopup == true,
+        built = saManipPopup.built == true,
+        visible = saManipPopup.visible == true,
+        possible = saManipPopup.possible == true,
+        reason = saManipPopup.reason,
+        text = saManipPopup.text,
+        target = saManipPopup.target,
+        last = saManipPopup.last or 0,
+    }
+end
+function SA.PrintManipPopup()
+    local s = SA.ManipPopupState()
+    print("========== MANIP CROSSHAIR POPUP ==========")
+    print("  enabled:", tostring(s.enabled), "| built:", tostring(s.built),
+        "| visible:", tostring(s.visible), "| possible:", tostring(s.possible))
+    print("  text:", tostring(s.text))
+    print("  reason:", tostring(s.reason), "| target:", tostring(s.target or "none"))
+    print("==========================================")
+end
+
+saManipPopupTick(true)
+saManipPopup.conn = bindRender(function() saManipPopupTick(false) end)
 
 
 -- ────────────────────────────────────────────────────────────────────

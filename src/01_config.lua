@@ -335,6 +335,7 @@ local SA_CFG_SHIPPED = {
     nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
+    showManipPopup = true,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -399,6 +400,7 @@ for k, v in pairs({
     nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
+    showManipPopup = true,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -491,6 +493,7 @@ CFG.nearestCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
 CFG.nearestScale       = saClampNum(CFG.nearestScale, 0.6, 1.8, 1)
 CFG.nearestTransparency= saClampNum(CFG.nearestTransparency, 0, 80, 12)
 CFG.showNoTargetReason = CFG.showNoTargetReason == true
+CFG.showManipPopup    = CFG.showManipPopup ~= false
 CFG.espOnlyNearest     = CFG.espOnlyNearest == true
 CFG.espNearestCount    = saClampNum(CFG.espNearestCount, 1, 20, 5)
 CFG.espOnlyAimTarget   = CFG.espOnlyAimTarget == true

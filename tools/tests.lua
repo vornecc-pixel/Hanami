@@ -98,6 +98,8 @@ if run > 1 then
     local after = #RunService.RenderStepped._connections
     ok(after <= before, "re-execute must not grow RenderStepped listeners")
     ok(after < 40, "render listener count is bounded")
+    ok(SA.ManipPopupState and SA.ManipPopupState().built == true,
+        "manip popup rebuilt after re-execute")
     -- The wrapper is installed once on the library, with the stock methods
     -- preserved, so repeated loads cannot stack wrapper call chains.
     ok(library.__saKeybindWrapperInstalled == true
@@ -345,6 +347,48 @@ SA.ClearPinnedTarget()
 eq(SA.PinnedTarget, nil, "pinned target cleared")
 quiet(function() setFlag("targetPriority", "Crosshair") end)
 eq(CFG.targetPriority, "Crosshair", "priority restored")
+
+-- ── manipulation crosshair popup ────────────────────────────────────
+setFlags({
+    masterEnabled = true, gunEnabled = true, manipulation = true,
+    showManipPopup = true, manipMaxParts = 3,
+})
+MOCK_MANIP_BLOCKED = false
+local okClear, clearReason, clearInfo = SA.ManipPossible()
+eq(okClear, true, "clear-line manipulation possible")
+contains(clearReason, "clear", "clear-line reason")
+eq(clearInfo.clear, true, "clear-line probe info")
+quiet(function() SA.ManipPopupRefresh() end)
+local popup = SA.ManipPopupState()
+eq(popup.enabled, true, "manip popup enabled")
+eq(popup.built, true, "manip popup built")
+eq(popup.visible, true, "manip popup visible")
+eq(popup.possible, true, "manip popup READY")
+contains(popup.text, "MANIP", "manip popup label")
+contains(popup.text, "READY", "manip popup READY text")
+
+MOCK_MANIP_BLOCKED = true
+setFlags({ manipMaxParts = 0 })
+local okBlocked, blockedReason = SA.ManipPossible()
+eq(okBlocked, false, "wall-blocked manipulation impossible")
+contains(blockedReason, "wall blocked", "wall-blocked reason")
+quiet(function() SA.ManipPopupRefresh() end)
+popup = SA.ManipPopupState()
+eq(popup.possible, false, "manip popup BLOCKED")
+contains(popup.text, "BLOCKED", "manip popup BLOCKED text")
+
+setFlags({ manipMaxParts = 3 })
+local okBypass, bypassReason = SA.ManipPossible()
+eq(okBypass, true, "wall-bypass manipulation possible")
+contains(bypassReason, "wall bypass", "wall-bypass reason")
+quiet(function() SA.ManipPopupRefresh() end)
+eq(SA.ManipPopupState().possible, true, "manip popup bypass READY")
+
+quiet(function() SA.ManipPopupSet(false) end)
+eq(SA.ManipPopupState().visible, false, "manip popup hidden when disabled")
+quiet(function() SA.ManipPopupSet(true) end)
+eq(SA.ManipPopupState().visible, true, "manip popup re-enabled")
+MOCK_MANIP_BLOCKED = false
 
 -- ── top-N HUD / performance overlay ─────────────────────────────────
 setFlags({
@@ -594,6 +638,7 @@ else
     eq(gethui():FindFirstChild("HanamiNearestPlayer"), nil, "HUD destroyed")
     eq(gethui():FindFirstChild("HanamiPerfOverlay"), nil, "FPS overlay destroyed")
     eq(gethui():FindFirstChild("HanamiSelfCheck"), nil, "self-check destroyed")
+    eq(SA.ManipPopupState().built, false, "manip popup disposed by full unload")
 end
 
 eq(callback_errors, 0, "mock callback errors")

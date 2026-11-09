@@ -400,6 +400,7 @@ function SA.SelfCheck()
         { "FOV", "FovState" }, { "preview", "EspPreviewDiag" },
         { "nearest HUD", "NearestWindowState" }, { "best ESP", "EspFeatureDiag" },
         { "gun diff", "GunDiff" }, { "perf", "PerfState" },
+        { "manip popup", "ManipPopupState" },
     }
     for _, d in ipairs(diagCalls) do
         local ok = false
@@ -422,6 +423,10 @@ function SA.SelfCheck()
             "built=" .. tostring(nearest.built) .. " reason=" .. tostring(nearest.reason))
     end
     saSCAdd(out, "no target", "ok", SA.NoTargetReason())
+    local okManip, manipPossible, manipReason = pcall(SA.ManipPossible)
+    saSCAdd(out, "manip possible", okManip and "ok" or "warn",
+        (okManip and tostring(manipPossible) or "probe error")
+        .. " | " .. tostring(manipReason))
     local okRT, rtGood, rtDetail = pcall(SA.TestConfigRoundTrip)
     saSCAdd(out, "config round-trip",
         (okRT and rtGood) and "ok" or "fail",
@@ -543,6 +548,7 @@ function SA.FullUnload()
     pcall(function() if SA.NearestWindowDispose then SA.NearestWindowDispose() end end)
     pcall(function() if SA.DisposeSelfCheckPanel then SA.DisposeSelfCheckPanel() end end)
     pcall(function() if SA.DisposePerfOverlay then SA.DisposePerfOverlay() end end)
+    pcall(function() if SA.DisposeManipPopup then SA.DisposeManipPopup() end end)
     pcall(function() RunService:UnbindFromRenderStep(snapName) end)
     pcall(function() RunService:UnbindFromRenderStep(restoreName) end)
     pcall(function() SA.TapRestore(_G.__saTapCF, _G.__saTapCam) end)

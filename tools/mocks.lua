@@ -611,7 +611,21 @@ INST_META.__index = function(t, k)
             return Vector3.new(x, y, 1), true
         end
     end
-    if k == "Raycast" then return function() return nil end end
+    if k == "Raycast" then
+        return function(_, origin, dir, params)
+            if not MOCK_MANIP_BLOCKED or not MOCK_MANIP_WALL then return nil end
+            local filters = params and params.FilterDescendantsInstances or {}
+            for _, f in ipairs(filters) do
+                if f == MOCK_MANIP_WALL then return nil end
+            end
+            return {
+                Instance = MOCK_MANIP_WALL,
+                Normal = Vector3.new(0, 0, -1),
+                Position = origin + dir * 0.5,
+                Distance = 0.5,
+            }
+        end
+    end
     if k == "GetState" then
         return function() return Enum.HumanoidStateType.Running end
     end
@@ -696,6 +710,11 @@ local Players = service("Players")
 local RunService = service("RunService")
 local UserInputService = service("UserInputService")
 local WorkspaceService = service("Workspace")
+MOCK_MANIP_BLOCKED = false
+MOCK_MANIP_WALL = Instance.new("Part")
+MOCK_MANIP_WALL.Name = "MockManipWall"
+MOCK_MANIP_WALL.CanQuery = true
+MOCK_MANIP_WALL.Parent = WorkspaceService
 local StatsService = service("Stats")
 service("HttpService")
 

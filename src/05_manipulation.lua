@@ -229,3 +229,155 @@ function SA.ManipState()
         directions = 8,
     }
 end
+
+-- ── BETTER: read-only "can manipulation find a shot?" probe ─────────
+-- The crosshair popup needs the SAME answer as saManipResolve() without
+-- actually consuming the ray budget, changing CanQuery or caching a peek.
+-- It uses a private RaycastParams and only reads the Workspace; the real
+-- shot resolver is still the only place that mutates world state.
+do
+    local probeRP = RaycastParams.new()
+    probeRP.FilterType = Enum.RaycastFilterType.Exclude
+    probeRP.IgnoreWater = true
+
+    local function probeFilters(targetModel)
+        local f = {}
+        if lp.Character then f[#f + 1] = lp.Character end
+        if targetModel then f[#f + 1] = targetModel end
+        return f
+    end
+
+    local function probeRay(origin, targetPos, filters)
+        probeRP.FilterDescendantsInstances = filters
+        local ok, hit = pcall(function()
+            return ws:Raycast(origin, targetPos - origin, probeRP)
+        end)
+        if not ok then return nil end
+        return hit
+    end
+
+    local function probePeek(origin, targetPos, normal, maxPeek)
+        local up = Vector3.new(0, 1, 0)
+        local n = normal or Vector3.new(0, 0, -1)
+        local right = n:Cross(up)
+        if right.Magnitude < 0.01 then
+            right = CFrame.lookAt(origin, targetPos).RightVector
+        end
+        right = right.Unit
+        local wallUp = n:Cross(right).Unit
+        local d45  = (right + wallUp).Unit
+        local d135 = (right - wallUp).Unit
+        local dirs = { right, -right, wallUp, -wallUp, d45, -d45, d135, -d135 }
+        local best, bestDist = nil, math.huge
+        for _, dir in ipairs(dirs) do
+            local pMax = origin + dir * maxPeek
+            if not probeRay(pMax, targetPos, probeRP.FilterDescendantsInstances) then
+                local lo, hi = 0, maxPeek
+                for _ = 1, 6 do
+                    local mid = (lo + hi) * 0.5
+                    local p = origin + dir * mid
+                    if probeRay(p, targetPos, probeRP.FilterDescendantsInstances) then
+                        lo = mid
+                    else
+                        hi = mid
+                    end
+                end
+                if hi < bestDist then
+                    best, bestDist = origin + dir * hi, hi
+                end
+            end
+        end
+        return best, bestDist
+    end
+
+    local function probeWallParts(origin, targetPos, maxParts, targetModel)
+        if maxParts <= 0 then return nil end
+        local filters = probeFilters(targetModel)
+        local count = 0
+        for _ = 1, maxParts + 2 do
+            local hit = probeRay(origin, targetPos, filters)
+            if not hit then return count end
+            local part = hit.Instance
+            if not part or not part:IsA("BasePart") or part:IsA("Terrain") then
+                return nil
+            end
+            local anc = part.Parent
+            local isChar = false
+            while anc and anc ~= ws do
+                if anc:FindFirstChildOfClass("Humanoid") then
+                    isChar = true
+                    break
+                end
+                anc = anc.Parent
+            end
+            if isChar then return nil end
+            count = count + 1
+            if count > maxParts then return nil end
+            filters[#filters + 1] = part
+        end
+        return nil
+    end
+
+    function SA.ManipPossible()
+        local info = {
+            enabled = CFG.manipulation == true,
+            aim = CFG.masterEnabled == true and CFG.gunEnabled == true,
+            popup = CFG.showManipPopup == true,
+        }
+        if not info.aim then
+            return false, "aim master / gun silent aim OFF", info
+        end
+        if not info.enabled then
+            return false, "manipulation OFF", info
+        end
+        if type(SA.IsEquippedBow) == "function" and SA.IsEquippedBow() then
+            return false, "bow equipped (guns only)", info
+        end
+        local cam = ws.CurrentCamera
+        if not cam then return false, "no camera", info end
+        local origin = cam.CFrame.Position
+        local okPick, best = pcall(function()
+            return pickBestTarget(cam, SA.AimPoint(), origin, true)
+        end)
+        if not okPick or not best or not best.model or not best.pos then
+            return false, (SA.NoTargetReason and SA.NoTargetReason()
+                or "no target in FOV"), info
+        end
+        local targetPos = best.pos
+        if CFG.prediction and type(SA.Predict) == "function" then
+            local okPred, pred = pcall(SA.Predict, origin, targetPos, best.model)
+            if okPred and pred then targetPos = pred end
+        end
+        local dist = (targetPos - origin).Magnitude
+        local range = saManipNum("manipDist", 0, 300, 30)
+        info.model = best.model.Name
+        info.distance = dist
+        info.range = range
+        if range > 0 and dist > range then
+            return false, "out of manip range", info
+        end
+
+        local filters = probeFilters(best.model)
+        local direct = probeRay(origin, targetPos, filters)
+        if not direct then
+            info.clear = true
+            return true, "clear line (no manip needed)", info
+        end
+
+        local maxPeek = saManipNum("manipPeek", 4, 6, 4)
+        local deltaCap = saManipNum("manipMaxPeekDelta", 2, 12, 6)
+        local peek, peekDist = probePeek(origin, targetPos, direct.Normal, maxPeek)
+        if peek and peekDist <= deltaCap then
+            info.peek = peekDist
+            return true, string.format("peek %.1f studs", peekDist), info
+        end
+
+        local parts = saManipNum("manipMaxParts", 0, 8, 3)
+        local wallParts = probeWallParts(origin, targetPos, parts, best.model)
+        if wallParts then
+            info.wallParts = wallParts
+            return true, string.format("wall bypass (%d parts)", wallParts), info
+        end
+        return false, "wall blocked / no peek or CanQuery path", info
+    end
+end

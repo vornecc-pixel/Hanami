@@ -95,7 +95,7 @@ const newKeys = [
   'espOnlyAimTarget', 'espTeamMode', 'espShowLiveCount', 'targetPriority',
   'fovPreset', 'targetBoneMode', 'espPreviewSource', 'espPreviewCompare',
   'perfMode', 'perfEspRebuildMs', 'perfMaxEntities', 'perfShowFps',
-  'gunDiffOnScan', 'gunOverrideString',
+  'gunDiffOnScan', 'gunOverrideString', 'showManipPopup',
 ];
 const config = read('src/01_config.lua');
 const shipped = config.slice(
@@ -153,12 +153,13 @@ for (const name of files) {
 }
 const requiredDescriptions = {
   'src/01_config.lua': ['profiles', 'self-check', 'perf'],
+  'src/05_manipulation.lua': ['popup', 'probe'],
   'src/08_prediction.lua': ['gun diff', 'override'],
   'src/19_render_loop.lua': ['adaptive', 'fps'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side'],
   'src/22_ui_esp.lua': ['declutter', 'live count'],
-  'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind'],
+  'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup'],
   'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload'],
 };
 for (const [name, needles] of Object.entries(requiredDescriptions)) {
@@ -179,6 +180,7 @@ const requiredDocs = [
   'real-model',
   'side-by-side',
   'Adaptive performance mode',
+  'Manipulation crosshair popup',
   'Live gun diff',
   '## Testing',
   'npm ci && npm test',
