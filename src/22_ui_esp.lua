@@ -84,6 +84,8 @@ local crateEnabledToggle = crateSec:toggle({
 })
 library.config_flags["hn_crateEnabled"] = function(v) setToggle(crateEnabledToggle, v) end
 
+bindToggle(crateSec, "FOV-Aware Crate ESP", "crateFovAware",
+    "Default ON: outside the FOV circle = one dot; inside = name + distance and an outline-only Highlight. No box or corners")
 bindToggle(crateSec, "Show Military Crates", "crateShowMilitary")
 bindToggle(crateSec, "Show Elite Crates", "crateShowElite")
 bindToggle(crateSec, "Show Other Loot", "crateShowLoot",
@@ -95,7 +97,7 @@ bindToggle(crateSec, "Invert Crate State", "crateInvertState",
 bindToggle(crateSec, "Lid Angle Detection", "crateLidDetect",
     "OFF by default. Only use if the game exposes NO state attribute/Prompt; lid angle is an unreliable guess")
 bindToggle(crateSec, "Crate Chams Highlight", "crateHighlight",
-    "OFF by default. When ON, the highlight is bound to the crate's own anchor part only — never to scenery")
+    "OFF by default. Only used when FOV-Aware Crate ESP is OFF; FOV-aware mode forces an outline-only Highlight inside FOV")
 bindToggle(crateSec, "Loose Crate Detection", "crateLooseDetect",
     "Fuzzy name + attribute matching. Fixes crates named MilitaryCrate, Crate_Military, hashes, Folders…")
 bindSlider(crateSec, "Crate Max Distance", "crateMaxDist", 200, 5000, 10, "")
@@ -106,6 +108,7 @@ addButton(crateSec, "Rescan Crates", function()
     SA.RequestScan()
     print("[sa] crate rescan queued —", #SA.GetCrates(), "known so far")
 end)
+addButton(crateSec, "Print Crate FOV State", function() SA.PrintCrateFovState() end)
 addButton(crateSec, "Print Crate Names (debug)", function()
     SA.PrintCrateCandidates()
 end)

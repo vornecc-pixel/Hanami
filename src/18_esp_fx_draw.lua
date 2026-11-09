@@ -32,6 +32,16 @@ local function drawEntity(cam, o, opt)
     local showOutline= cleanEsp or CFG.espShowOutline == true
     local textOutline= cleanEsp or CFG.espTextOutline == true
 
+    -- ONE FOV reference for off-screen arrows AND the new crate ESP mode.
+    local px, onScr = screenPoint(cam, g.raw, g.ok)
+    local fovC = opt.fovCenter or Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local fovR = math.max(opt.fovRadius or 150, 20)
+    local dir = px - fovC
+    if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
+    local outsideFov = dir.Magnitude > fovR
+    local crateFov = opt.pal == "crate" and CFG.crateFovAware ~= false
+    local crateInsideFov = onScr and not outsideFov
+
     -- crates only define a few palette keys; fall back to the shared
     -- player<Element> picker so skeleton / head dot / health aren't white
     local function col(suffix)
@@ -119,6 +129,51 @@ local function drawEntity(cam, o, opt)
     end
 
     local cx = g.x + g.w / 2
+
+    -- FOV-AWARE CRATE ESP: outside the aim circle draw ONLY a dot; inside
+    -- the circle draw name + distance and an outline-only Highlight. No
+    -- box, corner segments, state tag, fill, skeleton or visibility dot.
+    if crateFov then
+        local counts = SA.CrateFovCount
+        if not counts then
+            counts = { inside = 0, outside = 0, dots = 0, highlights = 0 }
+            SA.CrateFovCount = counts
+        end
+        if not crateInsideFov then
+            counts.outside = counts.outside + 1
+            local dot = getDraw(o, "cratefovdot", "Circle")
+            if dot then
+                dot.Position = px
+                dot.Radius = 4
+                dot.Color = base
+                dot.Transparency = t
+                dot.Visible = true
+                counts.dots = counts.dots + 1
+            end
+            if o.highlight then pcall(function() o.highlight.Enabled = false end) end
+            return
+        end
+        counts.inside = counts.inside + 1
+        showText("txName", tx.name, cx, g.y - 4,
+            textWidth(tx.name or ""), rowH + 2,
+            Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false)
+        showText("txDist", tx.dist, cx, g.y + g.h + 4,
+            textWidth(tx.dist or ""), rowH,
+            Vector2.new(0.5, 0), "Center", math.max(ts - 2, 6),
+            col("Distance"), false)
+        if o.highlight then
+            local okHighlight = pcall(function()
+                o.highlight.Enabled = true
+                o.highlight.FillColor = base
+                o.highlight.OutlineColor = base
+                o.highlight.FillTransparency = 1
+                o.highlight.OutlineTransparency = math.clamp(t, 0, 1)
+            end)
+            if okHighlight then counts.highlights = counts.highlights + 1 end
+        end
+        return
+    end
+
     showText("txName", tx.name, cx, g.y - 4,
         textWidth(tx.name or ""), rowH + 2,
         Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false)
@@ -280,13 +335,6 @@ local function drawEntity(cam, o, opt)
     -- (radius = SA.FovRadius(), centre = SA.AimPoint() — both shared with the circle),
     -- and it is also shown for targets that are on-screen but outside the
     -- aim cone. Change the FOV radius and the arrows move with it.
-    local px, onScr = screenPoint(cam, g.raw, g.ok)
-    local fovC = opt.fovCenter or Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local fovR = math.max(opt.fovRadius or 150, 20)
-    local dir = px - fovC
-    if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
-    local outsideFov = dir.Magnitude > fovR
-
     -- Tracer lines + off-screen arrows are PLAYER-ONLY. NPC and crate
     -- entities never create these drawings, so turning the toggles ON
     -- cannot clutter the world with extra lines/arrows.

@@ -79,6 +79,11 @@ const requiredDist = [
   'SA.GunDiff', 'SA.ApplyGunOverrides', 'SA.SyncGunDefs',
   'SA.PinNearestTarget', 'SA.NoTargetReason', 'SA.ResolveTargetBone',
   'SA.IsNpcModel', 'SA.ManipNpcState', 'SA.PrintManipNpcState',
+  'SA.TriggerBonePart', 'SA.TriggerTarget', 'SA.ForceHeadState',
+  'SA.PrintForceHeadState', 'SA.FireOnce', 'SA.FireAssistTick',
+  'SA.FireAssistState', 'SA.PrintFireAssist', 'SA.CrateFovState',
+  'SA.PrintCrateFovState', 'SA.PlayerWarningState', 'SA.PrintPlayerWarning',
+  'SA.DisposePlayerWarning', 'SA.DisposeFireAssist',
   'pvFindSourceModel', 'pvCloneModel', 'pvBuildOverlays', 'pvApplyStyleTo',
 ];
 for (const needle of requiredDist) {
@@ -97,9 +102,11 @@ const newKeys = [
   'fovPreset', 'targetBoneMode', 'espPreviewSource', 'espPreviewCompare',
   'perfMode', 'perfEspRebuildMs', 'perfMaxEntities', 'perfShowFps',
   'gunDiffOnScan', 'gunOverrideString', 'showManipPopup', 'espCleanMode',
-  'manipNpcs',
+  'manipNpcs', 'crateFovAware', 'showPlayerWarning', 'forceHead',
+  'triggerbot', 'autoFire', 'triggerHeadOnly', 'triggerRandomPart',
+  'triggerPart', 'triggerUseManip',
 ];
-assert(newKeys.length === 33, `expected 33 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 42, `expected 42 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -155,17 +162,24 @@ for (const name of files) {
     `README ${name} says ${row.lines} lines, actual ${lineCounts.get(name)}`);
 }
 const requiredDescriptions = {
-  'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean', 'npc manipulation'],
-  'src/02_shared.lua': ['fov', 'pinned', 'npc classifier'],
+  'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean',
+    'npc manipulation', 'trigger', 'warning', 'force head', 'crate fov'],
+  'src/02_shared.lua': ['fov', 'pinned', 'npc classifier', 'force head',
+    'trigger bone'],
   'src/05_manipulation.lua': ['popup', 'probe', 'npc'],
   'src/08_prediction.lua': ['gun diff', 'override'],
-  'src/18_esp_fx_draw.lua': ['clean', 'outline'],
+  'src/09_silent_aim.lua': ['silent aim', 'guns only', 'trigger', 'auto fire'],
+  'src/18_esp_fx_draw.lua': ['clean', 'outline', 'crate fov'],
+  'src/18_esp_fx_frame.lua': ['per-frame', 'crate fov'],
   'src/19_render_loop.lua': ['adaptive', 'fps'],
-  'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation'],
+  'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
+    'trigger', 'auto fire', 'force head'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
-  'src/22_ui_esp.lua': ['declutter', 'live count', 'clean'],
-  'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup', 'npc'],
-  'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload', 'npc manipulation'],
+  'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov'],
+  'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup',
+    'npc', 'warning', 'fire assist'],
+  'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload',
+    'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head'],
 };
 for (const [name, needles] of Object.entries(requiredDescriptions)) {
   const description = rowByName.get(name).description.toLowerCase();
@@ -188,8 +202,22 @@ const requiredDocs = [
   'Manipulation crosshair popup',
   '### NPC manipulation support',
   'Manipulate NPCs',
-  '1,406 assertions',
-  'all 33 new CFG keys',
+  '### Crate ESP FOV-aware',
+  'FOV-Aware Crate ESP',
+  '### 100 m player warning',
+  '100m Player Warning',
+  '### Triggerbot / Auto Fire',
+  'Triggerbot',
+  'Auto Fire',
+  'Manipulation Support',
+  '### Silent aim Force Head',
+  'Force Head (Silent Aim)',
+  'SA.CrateFovState()',
+  'SA.PlayerWarningState()',
+  'SA.FireAssistState()',
+  'SA.ForceHeadState()',
+  '1,550 assertions',
+  'all 42 new CFG keys',
   'SA.ManipNpcState()',
   'Clean ESP',
   'outlines only',

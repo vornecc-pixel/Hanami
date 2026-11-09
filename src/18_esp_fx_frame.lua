@@ -22,6 +22,7 @@ end
 -- distances the FX pass uses, so "nearest N" is stable and costs one
 -- small sort rather than a per-entity distance sweep.
 SA.EspVisibleCount = { players = 0, npcs = 0, crates = 0 }
+SA.CrateFovCount = { inside = 0, outside = 0, dots = 0, highlights = 0 }
 local espNearestSet = {}
 
 local function refreshNearestSet(myPos, aimModel)
@@ -72,6 +73,31 @@ function SA.EspPassAllowed(kind, model, dist, targetModel)
     return true
 end
 
+function SA.CrateFovState()
+    local c = SA.CrateFovCount or {}
+    return {
+        enabled = CFG.crateFovAware ~= false,
+        crateEsp = CFG.crateEnabled == true,
+        radius = SA.FovRadius and SA.FovRadius() or nil,
+        center = SA.AimPoint and SA.AimPoint() or nil,
+        inside = c.inside or 0,
+        outside = c.outside or 0,
+        dots = c.dots or 0,
+        highlights = c.highlights or 0,
+    }
+end
+
+function SA.PrintCrateFovState()
+    local s = SA.CrateFovState()
+    print("========== CRATE ESP FOV ==========")
+    print("  enabled:", tostring(s.enabled), "| crate ESP:", tostring(s.crateEsp))
+    print("  radius:", tostring(s.radius), "| inside:", tostring(s.inside),
+        "| outside:", tostring(s.outside))
+    print("  dots:", tostring(s.dots), "| outline highlights:",
+        tostring(s.highlights))
+    print("===================================")
+end
+
 function SA.EspPassStats()
     return {
         players = SA.EspVisibleCount.players,
@@ -117,6 +143,8 @@ function SA.ApplyEspFx(cam)
     if not cam then return end
     SA.EspVisibleCount.players, SA.EspVisibleCount.npcs,
         SA.EspVisibleCount.crates = 0, 0, 0
+    SA.CrateFovCount.inside, SA.CrateFovCount.outside = 0, 0
+    SA.CrateFovCount.dots, SA.CrateFovCount.highlights = 0, 0
     local origin = tracerOrigin(cam)
     local myRoot = SA.PlayerRig(lp.Character)
     local myPos = myRoot and myRoot.Position or cam.CFrame.Position

@@ -329,6 +329,9 @@ eq(SA.FovRadius(), 90, "shared FOV radius")
 quiet(function() setFlag("fovPreset", "Custom") end)
 eq(CFG.fovPreset, "Custom", "Custom preset state")
 
+-- Force Head is shipped ON; explicitly disable it for the classic
+-- per-weapon bone regression checks, then restore the default.
+CFG.forceHead = false
 CFG.targetBone = "Hrp"
 CFG.targetBoneMode = "Global"
 eq(SA.ResolveTargetBone(), "Hrp", "global bone")
@@ -336,6 +339,7 @@ CFG.targetBoneMode = "Head for snipers"
 local resolvedBone = SA.ResolveTargetBone()
 ok(resolvedBone == "Head" or resolvedBone == "Hrp", "per-weapon bone resolves")
 CFG.targetBoneMode = "Global"
+CFG.forceHead = true
 
 local pinnedName, pinErr
 quiet(function() pinnedName, pinErr = SA.PinNearestTarget() end)
@@ -511,6 +515,196 @@ CFG.manipNpcs = savedManipNpcs
 if savedMouseLocation ~= nil then
     UserInputService.GetMouseLocation = savedMouseLocation
 end
+
+-- ── crate ESP FOV-aware / 100 m warning / fire assist / Force Head ──
+local savedFov = CFG.fov
+local savedFovCentre = CFG.fovCenterMode
+local savedPrediction = CFG.prediction
+local savedCrateEnabled = CFG.crateEnabled
+local savedCrateFov = CFG.crateFovAware
+local savedWarning = CFG.showPlayerWarning
+local savedForceHead = CFG.forceHead
+local savedTargetBone = CFG.targetBone
+local savedBoneMode = CFG.targetBoneMode
+local savedTargetNpcs = CFG.targetNpcs
+local savedTeamCheck = CFG.teamCheck
+local savedWallCheck = CFG.wallCheck
+local savedPriority = CFG.targetPriority
+local savedDistance = CFG.distance
+local savedHitChance = CFG.hitChance
+local savedCooldown = CFG.gunCooldown
+local savedManip = CFG.manipulation
+local savedTriggerbot = CFG.triggerbot
+local savedAutoFire = CFG.autoFire
+local savedHeadOnly = CFG.triggerHeadOnly
+local savedRandomPart = CFG.triggerRandomPart
+local savedTriggerPart = CFG.triggerPart
+local savedManipSupport = CFG.triggerUseManip
+local savedPerfMode = CFG.perfMode
+
+CFG.perfMode = false
+CFG.crateEnabled = true
+CFG.crateFovAware = true
+CFG.crateMaxDist = 3000
+CFG.fovCenterMode = "Mouse"
+CFG.fov = 1
+UserInputService.GetMouseLocation = function() return Vector2.new(700, 360) end
+MOCK_MANIP_BLOCKED = false
+frameTimes(6)
+local crateOut = SA.CrateFovState()
+eq(crateOut.enabled, true, "crate FOV mode enabled")
+ok(crateOut.outside >= 1, "crate outside FOV counted")
+ok(crateOut.dots >= 1, "outside-FOV crate dot drawn")
+eq(crateOut.inside, 0, "no in-FOV crate labels at radius 1")
+eq(crateOut.highlights, 0, "no outline highlight outside FOV")
+quiet(function() SA.PrintCrateFovState() end)
+
+CFG.fov = 500
+frameTimes(6)
+local crateIn = SA.CrateFovState()
+ok(crateIn.inside >= 1, "crate inside FOV counted")
+ok(crateIn.highlights >= 1, "in-FOV crate outline highlight enabled")
+eq(crateIn.outside, 0, "no outside-FOV crates at wide radius")
+eq(crateIn.dots, 0, "no outside-FOV dot at wide radius")
+
+CFG.showPlayerWarning = true
+quiet(function() SA.PlayerWarningRefresh() end)
+local warning = SA.PlayerWarningState()
+eq(warning.enabled, true, "100m player warning enabled")
+eq(warning.threshold, 100, "fixed 100m warning threshold")
+eq(warning.visible, true, "near player triggers warning")
+contains(warning.text, "WARNING", "warning popup label")
+contains(warning.text, "100m", "warning popup threshold label")
+ok(warning.meters ~= nil and warning.meters <= 100,
+    "warning nearest distance within 100m")
+quiet(function() SA.PrintPlayerWarning() end)
+quiet(function() SA.PlayerWarningSet(false) end)
+eq(SA.PlayerWarningState().visible, false, "warning hidden when disabled")
+quiet(function() SA.PlayerWarningSet(true) end)
+eq(SA.PlayerWarningState().visible, true, "warning restored")
+UserInputService.GetMouseLocation = nil
+
+CFG.forceHead = true
+CFG.targetBone = "Hrp"
+CFG.targetBoneMode = "Hrp for shotguns"
+eq(SA.ResolveTargetBone(), "Head", "Force Head overrides per-weapon Hrp")
+eq(SA.ForceHeadState().resolved, "Head", "Force Head state resolves Head")
+eq(SA.SilentAimState().forceHead, true, "silent aim reports Force Head")
+quiet(function() SA.PrintForceHeadState() end)
+CFG.forceHead = false
+CFG.targetBoneMode = "Global"
+CFG.targetBone = "Hrp"
+eq(SA.ResolveTargetBone(), "Hrp", "Force Head OFF restores Target Bone")
+CFG.forceHead = true
+
+CFG.fovCenterMode = "Mouse"
+CFG.fov = 150
+CFG.targetNpcs = false
+CFG.teamCheck = false
+CFG.wallCheck = false
+CFG.prediction = false
+CFG.distance = 0
+CFG.hitChance = 100
+CFG.gunCooldown = 0
+CFG.targetPriority = "Crosshair"
+CFG.masterEnabled = true
+CFG.gunEnabled = true
+CFG.manipulation = false
+CFG.triggerbot = false
+CFG.autoFire = false
+CFG.triggerHeadOnly = true
+CFG.triggerRandomPart = false
+CFG.triggerPart = "Head"
+CFG.triggerUseManip = false
+MOCK_TOOL_ACTIVATE_FAIL = false
+UserInputService.GetMouseLocation = function() return Vector2.new(641, 345) end
+local otherModel = Players:GetPlayers()[2].Character
+eq(SA.TriggerBonePart(otherModel).Name, "Head", "Head Only trigger part")
+CFG.triggerHeadOnly = false
+CFG.triggerPart = "UpperTorso"
+eq(SA.TriggerBonePart(otherModel).Name, "UpperTorso", "specific trigger part")
+CFG.triggerRandomPart = true
+ok(SA.TriggerBonePart(otherModel) ~= nil, "random trigger part resolves")
+CFG.triggerHeadOnly = true
+CFG.triggerRandomPart = false
+CFG.triggerPart = "Head"
+local triggerTarget = SA.TriggerTarget()
+ok(triggerTarget ~= nil, "triggerbot FOV target found")
+eq(triggerTarget.model, otherModel, "triggerbot target model")
+eq(triggerTarget.part, "Head", "triggerbot uses Head Only part")
+
+MOCK_FIRE_TOOL = 0
+MOCK_FIRE_MOUSE = 0
+local okDirectFire, directBackend = SA.FireOnce()
+eq(okDirectFire, true, "direct Tool:Activate fire")
+eq(directBackend, "tool", "direct fire uses Tool backend")
+ok(MOCK_FIRE_TOOL >= 1, "Tool:Activate backend called")
+local shotsBefore = SA.FireAssistState().shots
+CFG.triggerbot = true
+eq(SA.FireAssistTick(true), true, "triggerbot fires on FOV target")
+local afterTrigger = SA.FireAssistState()
+eq(afterTrigger.shots, shotsBefore + 1, "triggerbot shot count")
+eq(afterTrigger.backend, "tool", "triggerbot Tool backend")
+eq(afterTrigger.partUsed, "Head", "triggerbot used Head part")
+contains(afterTrigger.reason, "fired", "triggerbot success reason")
+
+CFG.triggerUseManip = true
+CFG.manipulation = false
+eq(SA.FireAssistTick(true), false, "manip support blocks when manipulation OFF")
+contains(SA.FireAssistState().reason, "manipulation OFF", "manip support reason")
+CFG.manipulation = true
+MOCK_MANIP_BLOCKED = false
+eq(SA.FireAssistTick(true), true, "manip support allows READY probe")
+contains(SA.FireAssistState().reason, "fired", "manip support fired")
+quiet(function() SA.PrintFireAssist() end)
+
+CFG.triggerbot = false
+CFG.autoFire = true
+CFG.triggerUseManip = false
+CFG.manipulation = false
+local shotsBeforeAuto = SA.FireAssistState().shots
+eq(SA.FireAssistTick(true), true, "auto fire continuous click 1")
+eq(SA.FireAssistTick(true), true, "auto fire continuous click 2")
+eq(SA.FireAssistState().shots, shotsBeforeAuto + 2, "auto fire shot count")
+eq(SA.FireAssistState().target, nil, "auto fire needs no target")
+
+local mouseBefore = MOCK_FIRE_MOUSE
+MOCK_TOOL_ACTIVATE_FAIL = true
+local okFallback, fallbackBackend = SA.FireOnce()
+eq(okFallback, true, "mouse fallback fires")
+eq(fallbackBackend, "mouse", "mouse1press fallback backend")
+ok(MOCK_FIRE_MOUSE > mouseBefore, "mouse1press fallback called")
+MOCK_TOOL_ACTIVATE_FAIL = false
+
+-- Restore shipped defaults / earlier test state.
+UserInputService.GetMouseLocation = nil
+CFG.fov = savedFov
+CFG.fovCenterMode = savedFovCentre
+CFG.prediction = savedPrediction
+CFG.crateEnabled = savedCrateEnabled
+CFG.crateFovAware = savedCrateFov
+CFG.showPlayerWarning = savedWarning
+CFG.forceHead = savedForceHead
+CFG.targetBone = savedTargetBone
+CFG.targetBoneMode = savedBoneMode
+CFG.targetNpcs = savedTargetNpcs
+CFG.teamCheck = savedTeamCheck
+CFG.wallCheck = savedWallCheck
+CFG.targetPriority = savedPriority
+CFG.distance = savedDistance
+CFG.hitChance = savedHitChance
+CFG.gunCooldown = savedCooldown
+CFG.manipulation = savedManip
+CFG.triggerbot = savedTriggerbot
+CFG.autoFire = savedAutoFire
+CFG.triggerHeadOnly = savedHeadOnly
+CFG.triggerRandomPart = savedRandomPart
+CFG.triggerPart = savedTriggerPart
+CFG.triggerUseManip = savedManipSupport
+CFG.perfMode = savedPerfMode
+MOCK_MANIP_BLOCKED = false
+MOCK_TOOL_ACTIVATE_FAIL = false
+pcall(function() ws.CurrentCamera.CFrame = CFrame.new(0, 3, 0) end)
 
 -- ── top-N HUD / performance overlay ─────────────────────────────────
 setFlags({
@@ -728,6 +922,7 @@ local buttonNames = {
     "Set All: Toggle", "Print Override Help", "Sync Gun Defs + Diff",
     "Print Full Gun Table", "Print Nearest HUD", "Print Draw Pool",
     "Refresh Nearest HUD", "Print FOV State", "Print Gun Table",
+    "Refresh Player Warning", "Print Player Warning",
     "Print Bow Mods State", "Print Attachments", "Print Manip State (classic)",
     "Print Silent Aim (v7.7)", "Print Current Target", "Print Prediction",
     "Print ESP Features", "Apply Clean ESP", "Apply Best ESP",

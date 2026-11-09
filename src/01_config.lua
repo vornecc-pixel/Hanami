@@ -182,11 +182,20 @@ local SA_CFG_SHIPPED = {
     hitChance  = 100,
     targetNpcs = true,
     targetBone = "Head",
+    forceHead = true,           -- silent aim always resolves Head when present
 
     -- gun silent aim
     gunEnabled     = true,
     gunShotOnly    = true,
     gunCooldown    = 0,
+
+    -- triggerbot / auto fire (guns only; both OFF by default)
+    triggerbot       = false,
+    autoFire         = false,
+    triggerHeadOnly  = true,
+    triggerRandomPart= false,
+    triggerPart      = "Head",
+    triggerUseManip  = false,
 
     -- ballistics / prediction
     prediction           = true,
@@ -264,6 +273,7 @@ local SA_CFG_SHIPPED = {
 
     -- crate esp
     crateEnabled       = false,
+    crateFovAware      = true,  -- dot outside FOV; name + distance + outline highlight inside
     crateShowMilitary  = true,
     crateShowElite     = true,
     crateShowLoot      = true,
@@ -317,6 +327,7 @@ local SA_CFG_SHIPPED = {
     -- Small HUD that appears when the Atlanta menu is hidden / minimised.
     -- Reports the nearest player, their distance in metres and held tool.
     nearestWindow    = true,
+    showPlayerWarning = true,  -- crosshair warning when any player is within 100 m
 
     -- gun mods
     gmEnabled      = false,
@@ -341,7 +352,10 @@ local SA_CFG_SHIPPED = {
     nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
-    showManipPopup = true,
+    showManipPopup = true, showPlayerWarning = true,
+    forceHead = true, triggerbot = false, autoFire = false,
+    triggerHeadOnly = true, triggerRandomPart = false,
+    triggerPart = "Head", triggerUseManip = false,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -379,7 +393,8 @@ for k, v in pairs({
     attachmentAimScale = 1, attachmentSilencerSpeed = 0.85,
     attOverrideSight = "Auto", attOverrideMuzzle = "Auto",
     attOverrideUnder = "Auto", attOverrideMag = "Auto",
-    crateEnabled = false, crateShowMilitary = true, crateShowElite = true,
+    crateEnabled = false, crateFovAware = true,
+    crateShowMilitary = true, crateShowElite = true,
     crateShowLoot = true, crateShowOpened = true, crateLooseDetect = true,
     crateHighlight = false, crateInvertState = false, crateLidDetect = false,
     crateMaxDist = 3000,
@@ -408,7 +423,10 @@ for k, v in pairs({
     nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
-    showManipPopup = true,
+    showManipPopup = true, showPlayerWarning = true,
+    forceHead = true, triggerbot = false, autoFire = false,
+    triggerHeadOnly = true, triggerRandomPart = false,
+    triggerPart = "Head", triggerUseManip = false,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -504,6 +522,18 @@ CFG.showNoTargetReason = CFG.showNoTargetReason == true
 CFG.showManipPopup    = CFG.showManipPopup ~= false
 CFG.espCleanMode      = CFG.espCleanMode ~= false
 CFG.manipNpcs         = CFG.manipNpcs ~= false
+CFG.crateFovAware     = CFG.crateFovAware ~= false
+CFG.showPlayerWarning = CFG.showPlayerWarning ~= false
+CFG.forceHead         = CFG.forceHead ~= false
+CFG.triggerbot        = CFG.triggerbot == true
+CFG.autoFire          = CFG.autoFire == true
+CFG.triggerHeadOnly   = CFG.triggerHeadOnly ~= false
+CFG.triggerRandomPart = CFG.triggerRandomPart == true
+CFG.triggerUseManip   = CFG.triggerUseManip == true
+CFG.triggerPart       = ({ Head=true, Hrp=true, UpperTorso=true,
+                            LowerTorso=true, LeftArm=true, RightArm=true,
+                            LeftLeg=true, RightLeg=true, Random=true })
+                         [CFG.triggerPart] and CFG.triggerPart or "Head"
 CFG.espOnlyNearest     = CFG.espOnlyNearest == true
 CFG.espNearestCount    = saClampNum(CFG.espNearestCount, 1, 20, 5)
 CFG.espOnlyAimTarget   = CFG.espOnlyAimTarget == true

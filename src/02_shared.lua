@@ -124,6 +124,10 @@ end
 -- Per-weapon bone override. "Global" keeps the classic Target Bone
 -- dropdown; the two modes only change it for scoped guns / shotguns.
 function SA.ResolveTargetBone()
+    -- BETTER: default-ON Force Head. Older per-weapon modes could silently
+    -- pick Hrp for a rifle / shotgun; silent aim now resolves Head first
+    -- unless the user explicitly turns Force Head OFF.
+    if CFG.forceHead ~= false then return "Head" end
     local base = CFG.targetBone or "Head"
     local mode = CFG.targetBoneMode or "Global"
     if mode == "Global" then return base end
@@ -204,7 +208,7 @@ end
 -- preview = true -> pure "closest to crosshair inside FOV" lookup for the
 -- snapline. Skips the wall abort and the hit-chance roll so the line stays
 -- stable instead of flickering with RNG.
-local function pickBestTarget(camera, aimPx, originPos, preview)
+local function pickBestTarget(camera, aimPx, originPos, preview, boneFn)
     if not camera or not lp.Character then return nil end
     -- Pinned target wins for the REAL shot, but never hijacks the
     -- snapline preview (which must stay the closest-to-crosshair pick).
@@ -259,7 +263,8 @@ local function pickBestTarget(camera, aimPx, originPos, preview)
                 local model = p.Character
                 local hum = model and model:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Health > 0 then
-                    consider(bonePart(model, resolvedBone), model, hum)
+                    consider(boneFn and boneFn(model)
+                        or bonePart(model, resolvedBone), model, hum)
                 end
             end
         end
@@ -270,7 +275,8 @@ local function pickBestTarget(camera, aimPx, originPos, preview)
         for _, model in ipairs(npcs) do
             local hum = model:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
-                consider(bonePart(model, resolvedBone), model, hum)
+                consider(boneFn and boneFn(model)
+                    or bonePart(model, resolvedBone), model, hum)
             end
         end
     end
@@ -281,6 +287,79 @@ local function pickBestTarget(camera, aimPx, originPos, preview)
         if not rollHit() then return nil end
     end
     return best
+end
+
+-- ── BETTER: triggerbot / auto-fire hit-part selection ───────────────
+-- R6 + R15 aliases. Random Hit Part wins over Head Only; a specific Hit
+-- Part is used when both toggles are OFF. Silent aim still uses
+-- SA.ResolveTargetBone() (Force Head), so these modes never change the
+-- camera-snap target unless the fire-assist path is enabled.
+function SA.TriggerBonePart(model)
+    if not model then return nil end
+    local aliases = {
+        Head = { "Head" },
+        Hrp = { "HumanoidRootPart" },
+        UpperTorso = { "UpperTorso", "Torso" },
+        LowerTorso = { "LowerTorso" },
+        LeftArm = { "LeftUpperArm", "Left Arm", "LeftArm" },
+        RightArm = { "RightUpperArm", "Right Arm", "RightArm" },
+        LeftLeg = { "LeftUpperLeg", "Left Leg", "LeftLeg" },
+        RightLeg = { "RightUpperLeg", "Right Leg", "RightLeg" },
+    }
+    local function find(names)
+        for _, n in ipairs(names) do
+            local ok, part = pcall(function() return model:FindFirstChild(n) end)
+            if ok and part and type(part.IsA) == "function"
+                and part:IsA("BasePart") then return part end
+        end
+        return nil
+    end
+    if CFG.triggerRandomPart == true or CFG.triggerPart == "Random" then
+        local parts = {}
+        for _, names in pairs(aliases) do
+            local part = find(names)
+            if part then parts[#parts + 1] = part end
+        end
+        if #parts > 0 then return parts[math.random(1, #parts)] end
+    end
+    local wanted = CFG.triggerHeadOnly ~= false and "Head"
+        or (CFG.triggerPart or "Head")
+    return find(aliases[wanted] or aliases.Head)
+        or find(aliases.Head) or find(aliases.Hrp)
+end
+
+function SA.TriggerTarget()
+    local camera = ws.CurrentCamera
+    if not camera or not lp.Character then return nil end
+    local origin = camera.CFrame.Position
+    local best = pickBestTarget(camera, SA.AimPoint(), origin, true, SA.TriggerBonePart)
+    if not best or not best.bone then return nil end
+    local pos = best.bone.Position
+    if CFG.wallCheck and CFG.triggerUseManip ~= true
+        and not checkWall(origin, pos, best.model) then return nil end
+    return {
+        model = best.model, bone = best.bone, pos = pos,
+        name = best.model and best.model.Name or "?",
+        part = best.bone and best.bone.Name or "?",
+    }
+end
+
+function SA.ForceHeadState()
+    return {
+        enabled = CFG.forceHead ~= false,
+        resolved = SA.ResolveTargetBone(),
+        targetBone = CFG.targetBone,
+        mode = CFG.targetBoneMode,
+    }
+end
+
+function SA.PrintForceHeadState()
+    local s = SA.ForceHeadState()
+    print("========== FORCE HEAD ==========")
+    print("  enabled:", tostring(s.enabled), "| resolved:", tostring(s.resolved))
+    print("  Target Bone:", tostring(s.targetBone),
+        "| Per-Weapon Bone:", tostring(s.mode))
+    print("================================")
 end
 
 local function dbg(...)

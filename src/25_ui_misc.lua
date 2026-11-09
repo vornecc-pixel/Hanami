@@ -402,6 +402,10 @@ function SA.SelfCheck()
         { "gun diff", "GunDiff" }, { "perf", "PerfState" },
         { "manip popup", "ManipPopupState" }, { "clean ESP", "CleanEspState" },
         { "NPC manipulation", "ManipNpcState" },
+        { "crate FOV", "CrateFovState" },
+        { "player warning", "PlayerWarningState" },
+        { "fire assist", "FireAssistState" },
+        { "force head", "ForceHeadState" },
     }
     for _, d in ipairs(diagCalls) do
         local ok = false
@@ -550,6 +554,8 @@ function SA.FullUnload()
     pcall(function() if SA.DisposeSelfCheckPanel then SA.DisposeSelfCheckPanel() end end)
     pcall(function() if SA.DisposePerfOverlay then SA.DisposePerfOverlay() end end)
     pcall(function() if SA.DisposeManipPopup then SA.DisposeManipPopup() end end)
+    pcall(function() if SA.DisposePlayerWarning then SA.DisposePlayerWarning() end end)
+    pcall(function() if SA.DisposeFireAssist then SA.DisposeFireAssist() end end)
     pcall(function() RunService:UnbindFromRenderStep(snapName) end)
     pcall(function() RunService:UnbindFromRenderStep(restoreName) end)
     pcall(function() SA.TapRestore(_G.__saTapCF, _G.__saTapCam) end)

@@ -46,7 +46,10 @@ addButton(dbgSec, "Print Silent Aim (v7.7)", function()
         "| guns only:", s.gunsOnly, "| bow equipped:", s.bowEquipped)
     print(string.format("[sa] tap window: %.2fs | bow equipped: %s | snapped: %s",
         s.tapWindow, tostring(s.bowEquipped), tostring(s.snapped)))
+    print("[sa] force head:", tostring(s.forceHead),
+        "| resolved bone:", tostring(s.resolvedBone))
 end)
+addButton(dbgSec, "Print Fire Assist", function() SA.PrintFireAssist() end)
 addButton(dbgSec, "Retry Tap Hooks", function()
     SA.InstallTapReorder()
     local s = SA.SilentAimState()
@@ -438,6 +441,10 @@ bindToggle(hudSec, "Manip Crosshair Popup", "showManipPopup",
     "Small READY / BLOCKED badge above the crosshair; read-only probe, never changes CanQuery or spends the ray budget")
 addButton(hudSec, "Refresh Manip Popup", function() SA.ManipPopupRefresh() end)
 addButton(hudSec, "Print Manip Popup", function() SA.PrintManipPopup() end)
+bindToggle(hudSec, "100m Player Warning", "showPlayerWarning",
+    "Red crosshair badge when any other player is within 100 metres; fixed threshold, no team filter")
+addButton(hudSec, "Refresh Player Warning", function() SA.PlayerWarningRefresh() end)
+addButton(hudSec, "Print Player Warning", function() SA.PrintPlayerWarning() end)
 addButton(hudSec, "Lock Nearest as Aim Target", function()
     local name, err = SA.PinNearestTarget()
     if name then
@@ -661,6 +668,147 @@ end
 
 saManipPopupTick(true)
 saManipPopup.conn = bindRender(function() saManipPopupTick(false) end)
+
+-- ── BETTER: 100 m player proximity warning ─────────────────────────
+-- Any OTHER player inside 100 metres (1 m ≈ 3.571 studs) triggers a small
+-- red badge above the crosshair. Fixed threshold, no team filter, ~10 Hz.
+if SA.DisposePlayerWarning then pcall(SA.DisposePlayerWarning) end
+SA.PLAYER_WARNING_METERS = 100
+local saPlayerWarning = {
+    draw = nil, conn = nil, last = 0, built = false, visible = false,
+    text = "", reason = "idle", nearest = nil, meters = nil, studs = nil,
+}
+_G.__saPlayerWarning = saPlayerWarning
+
+function SA.DisposePlayerWarning()
+    if saPlayerWarning.conn then pcall(function() saPlayerWarning.conn:Disconnect() end) end
+    if saPlayerWarning.draw then pcall(function() saPlayerWarning.draw:Remove() end) end
+    saPlayerWarning.draw, saPlayerWarning.conn = nil, nil
+    saPlayerWarning.built, saPlayerWarning.visible = false, false
+    saPlayerWarning.reason = "disposed"
+end
+
+local function saPlayerWarningBuild()
+    if saPlayerWarning.draw then return true end
+    local draw = SA.NewDraw("Text")
+    if not draw then return false end
+    draw.Size = Vector2.new(270, 22)
+    draw.Anchor = Vector2.new(0.5, 1)
+    draw.Align = "Center"
+    draw.TextSize = 12
+    draw.Outline = true
+    draw.Backdrop = true
+    draw.Color = Color3.fromRGB(255, 105, 105)
+    draw.ZIndex = 21
+    saPlayerWarning.draw = draw
+    saPlayerWarning.built = true
+    return true
+end
+
+local function saPlayerWarningNearest()
+    local myRoot = SA.PlayerRig(lp.Character)
+    local myPos = myRoot and myRoot.Position or nil
+    if not myPos then
+        pcall(function() myPos = ws.CurrentCamera.CFrame.Position end)
+    end
+    if not myPos then return nil, "no local position" end
+    local ok, players = pcall(function() return Players:GetPlayers() end)
+    if not ok or not players then return nil, "Players:GetPlayers failed" end
+    local best = nil
+    for _, plr in ipairs(players) do
+        if plr ~= lp then
+            local char = plr.Character
+            local root = char and SA.PlayerRig(char) or nil
+            local hum = char and char:FindFirstChildOfClass("Humanoid") or nil
+            if root and root.Position and hum and hum.Health > 0 then
+                local okD, d = pcall(function()
+                    return (myPos - root.Position).Magnitude
+                end)
+                if okD and d then
+                    local metres = d / (SA.STUDS_PER_METER or 3.571)
+                    if metres <= SA.PLAYER_WARNING_METERS
+                        and (not best or d < best.studs) then
+                        best = { plr = plr, studs = d, meters = metres }
+                    end
+                end
+            end
+        end
+    end
+    if not best then return nil, "no player within 100m" end
+    return best, "player within 100m"
+end
+
+local function saPlayerWarningTick(force)
+    if not SA.Alive or CFG.showPlayerWarning ~= true then
+        if saPlayerWarning.draw then saPlayerWarning.draw.Visible = false end
+        saPlayerWarning.visible = false
+        saPlayerWarning.reason = "disabled"
+        return
+    end
+    if not saPlayerWarningBuild() then return end
+    local now = tick()
+    if not force and now - (saPlayerWarning.last or 0) < 0.1 then return end
+    saPlayerWarning.last = now
+    local best, reason = saPlayerWarningNearest()
+    saPlayerWarning.reason = reason or "unknown"
+    if not best then
+        saPlayerWarning.visible = false
+        saPlayerWarning.nearest, saPlayerWarning.meters = nil, nil
+        saPlayerWarning.studs = nil
+        pcall(function() saPlayerWarning.draw.Visible = false end)
+        return
+    end
+    local name = saNearestDisplay(best.plr)
+    local text = string.format("WARNING: %s %.0fm / 100m", name, best.meters)
+    local okPos, pt = pcall(SA.AimPoint)
+    if not okPos or not pt then pt = Vector2.new(640, 360) end
+    pcall(function()
+        saPlayerWarning.draw.Position = Vector2.new(pt.X, pt.Y - 52)
+        saPlayerWarning.draw.Text = text
+        saPlayerWarning.draw.Visible = true
+    end)
+    saPlayerWarning.visible = true
+    saPlayerWarning.text = text
+    saPlayerWarning.nearest = name
+    saPlayerWarning.meters = best.meters
+    saPlayerWarning.studs = best.studs
+end
+
+function SA.PlayerWarningRefresh() saPlayerWarningTick(true) end
+function SA.PlayerWarningSet(on)
+    on = on == true
+    CFG.showPlayerWarning = on
+    pcall(setFlag, "showPlayerWarning", on)
+    saPlayerWarningTick(true)
+end
+function SA.PlayerWarningState()
+    return {
+        enabled = CFG.showPlayerWarning == true,
+        built = saPlayerWarning.built == true,
+        visible = saPlayerWarning.visible == true,
+        threshold = SA.PLAYER_WARNING_METERS,
+        text = saPlayerWarning.text,
+        reason = saPlayerWarning.reason,
+        nearest = saPlayerWarning.nearest,
+        meters = saPlayerWarning.meters,
+        studs = saPlayerWarning.studs,
+        last = saPlayerWarning.last or 0,
+    }
+end
+function SA.PrintPlayerWarning()
+    local s = SA.PlayerWarningState()
+    print("========== PLAYER WARNING ==========")
+    print("  enabled:", tostring(s.enabled), "| built:", tostring(s.built),
+        "| visible:", tostring(s.visible), "| threshold:", tostring(s.threshold), "m")
+    print("  text:", tostring(s.text))
+    print("  nearest:", tostring(s.nearest or "none"),
+        "| metres:", s.meters and string.format("%.1f", s.meters) or "n/a",
+        "| reason:", tostring(s.reason))
+    print("====================================")
+end
+
+saPlayerWarningTick(true)
+saPlayerWarning.conn = bindRender(function() saPlayerWarningTick(false) end)
 
 
 -- ────────────────────────────────────────────────────────────────────

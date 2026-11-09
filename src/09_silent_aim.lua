@@ -368,8 +368,164 @@ function SA.SilentAimState()
         gunsOnly = true,
         bowEquipped = SA.IsEquippedBow() == true,
         tapWindow = CFG.saTapWindow or 0.35,
+        forceHead = CFG.forceHead ~= false,
+        resolvedBone = SA.ResolveTargetBone and SA.ResolveTargetBone()
+            or CFG.targetBone,
         snapped = snapped, snappedThisFrame = saSnappedThisFrame,
         snapBind = snapName, restoreBind = restoreName,
         snapPriority = snapPrio, restorePriority = restorePrio,
     }
 end
+
+-- ══════════════════════════════════════════════════════════════════
+-- TRIGGERBOT / AUTO FIRE (guns only, both OFF by default)
+-- Triggerbot needs a valid FOV target and can pick Head / a random hit
+-- part / a specific part. Auto Fire clicks continuously with no target
+-- requirement. Both temporarily snap the camera to the selected aim point
+-- for one Tool:Activate() / mouse1press click, then restore it. The
+-- read-only manipulation probe gates shots when Manipulation Support is ON.
+-- ══════════════════════════════════════════════════════════════════
+if SA.DisposeFireAssist then pcall(SA.DisposeFireAssist) end
+local saFireAssist = _G.__saFireAssist or {
+    last = 0, shots = 0, reason = "idle", backend = "none",
+    target = nil, part = nil, conn = nil,
+}
+_G.__saFireAssist = saFireAssist
+
+function SA.DisposeFireAssist()
+    if saFireAssist.conn then pcall(function() saFireAssist.conn:Disconnect() end) end
+    saFireAssist.conn = nil
+    saFireAssist.reason = "disposed"
+    saFireAssist.backend = "none"
+    saFireAssist.target, saFireAssist.part = nil, nil
+end
+
+function SA.FireOnce()
+    local tool = nil
+    pcall(function() tool = SA.GetEquippedGun().tool end)
+    if tool then
+        local okTool = pcall(function() tool:Activate() end)
+        if okTool then return true, "tool" end
+    end
+    local press = executorFn("mouse1press")
+    local release = executorFn("mouse1release")
+    if press then
+        local okMouse = pcall(function()
+            press()
+            if release then release() end
+        end)
+        if okMouse then return true, "mouse" end
+    end
+    return false, "no fire backend"
+end
+
+function SA.FireAssistTick(force)
+    if not SA.Alive then
+        saFireAssist.reason = "unloaded"
+        return false
+    end
+    if CFG.triggerbot ~= true and CFG.autoFire ~= true then
+        saFireAssist.reason = "disabled"
+        return false
+    end
+    if not saLockActive() then
+        saFireAssist.reason = "aim master / gun silent aim OFF"
+        return false
+    end
+    if type(SA.IsEquippedBow) == "function" and SA.IsEquippedBow() then
+        saFireAssist.reason = "bow equipped (guns only)"
+        return false
+    end
+    local now = tick()
+    if not force and now - (saFireAssist.last or 0) < 0.08 then return false end
+    saFireAssist.last = now
+    local camera = ws.CurrentCamera
+    if not camera then
+        saFireAssist.reason = "no camera"
+        return false
+    end
+    local origin = camera.CFrame.Position
+    local needTarget = CFG.triggerbot == true
+    local target = needTarget and SA.TriggerTarget() or nil
+    if needTarget and not target then
+        saFireAssist.reason = "no trigger target in FOV"
+        return false
+    end
+    local aim = target and target.pos or nil
+    if target and CFG.prediction and type(SA.Predict) == "function" then
+        local okPred, predicted = pcall(SA.Predict, origin, aim, target.model)
+        if okPred and predicted then aim = predicted end
+    end
+    if CFG.triggerUseManip == true then
+        if CFG.manipulation ~= true then
+            saFireAssist.reason = "manipulation OFF (support enabled)"
+            return false
+        end
+        local okProbe, possible, why = pcall(SA.ManipPossible,
+            target and target.model or nil)
+        if not okProbe or not possible then
+            saFireAssist.reason = "manip blocked: " .. tostring(why or "probe error")
+            return false
+        end
+    end
+    if not gunCanSnap() then
+        saFireAssist.reason = "gun cooldown"
+        return false
+    end
+    local original = camera.CFrame
+    if aim then
+        pcall(function() camera.CFrame = CFrame.lookAt(origin, aim) end)
+    end
+    -- Keep the v7.7 render-step snap alive for the frame that receives the
+    -- synthetic click; isFiring() uses this same timestamp.
+    firing.last = tick()
+    local fired, backend = SA.FireOnce()
+    if aim then pcall(function() camera.CFrame = original end) end
+    saFireAssist.backend = backend or "unknown"
+    if fired then
+        saFireAssist.shots = (saFireAssist.shots or 0) + 1
+        saFireAssist.target = target and target.name or nil
+        saFireAssist.part = target and target.part or nil
+        saFireAssist.reason = "fired via " .. tostring(backend)
+        return true
+    end
+    saFireAssist.reason = tostring(backend or "fire failed")
+    return false
+end
+
+function SA.FireAssistState()
+    return {
+        triggerbot = CFG.triggerbot == true,
+        autoFire = CFG.autoFire == true,
+        headOnly = CFG.triggerHeadOnly ~= false,
+        randomPart = CFG.triggerRandomPart == true,
+        part = CFG.triggerPart,
+        manipSupport = CFG.triggerUseManip == true,
+        forceHead = CFG.forceHead ~= false,
+        resolvedAimBone = SA.ResolveTargetBone and SA.ResolveTargetBone()
+            or CFG.targetBone,
+        shots = saFireAssist.shots or 0,
+        reason = saFireAssist.reason,
+        backend = saFireAssist.backend,
+        target = saFireAssist.target,
+        partUsed = saFireAssist.part,
+        last = saFireAssist.last or 0,
+    }
+end
+
+function SA.PrintFireAssist()
+    local s = SA.FireAssistState()
+    print("========== TRIGGER / AUTO FIRE ==========")
+    print("  triggerbot:", tostring(s.triggerbot), "| auto fire:",
+        tostring(s.autoFire), "| shots:", tostring(s.shots))
+    print("  head only:", tostring(s.headOnly), "| random part:",
+        tostring(s.randomPart), "| part:", tostring(s.part))
+    print("  manip support:", tostring(s.manipSupport), "| force head:",
+        tostring(s.forceHead), "| resolved aim bone:", tostring(s.resolvedAimBone))
+    print("  reason:", tostring(s.reason), "| backend:", tostring(s.backend))
+    print("  target:", tostring(s.target or "none"), "| part used:",
+        tostring(s.partUsed or "none"))
+    print("=========================================")
+end
+
+saFireAssist.conn = bindRender(function() SA.FireAssistTick(false) end)

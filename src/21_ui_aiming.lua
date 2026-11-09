@@ -261,7 +261,9 @@ end
 
 -- ── AIMING : column 1 (Silent Aim / Gun) ───────────────────────────
 local aimCol = Aiming:column()
-local masterSec, gunSec = aimCol:multi_section({ names = { "Silent Aim", "Gun" } })
+local masterSec, gunSec, triggerSec = aimCol:multi_section({
+    names = { "Silent Aim", "Gun", "Trigger / Auto Fire" },
+})
 
 local masterToggle = bindToggle(masterSec, "Enabled", "masterEnabled",
     "Master switch for the camera sandwich")
@@ -324,12 +326,34 @@ bindToggle(gunSec, "Tap-Fire Reorder (Fix A/B)", "saTapReorder",
 bindSlider(gunSec, "Tap Window (s)", "saTapWindow", 0.1, 1, 0.05, "s")
 gunSec:label({ name = "Silent aim + manipulation: GUNS ONLY (bows skipped)" })
 
+-- Triggerbot + Auto Fire. Part modes are independent of silent aim's
+-- Force Head / Target Bone settings; manipulation support is a strict gate.
+bindToggle(triggerSec, "Triggerbot", "triggerbot",
+    "Click only when a valid target is inside the FOV circle; uses the selected hit part")
+bindToggle(triggerSec, "Auto Fire", "autoFire",
+    "Continuous ~12.5 Hz clicks while ON; no target required. Respects gun cooldown")
+bindToggle(triggerSec, "Head Only", "triggerHeadOnly",
+    "ON by default. Ignored while Random Hit Part is ON")
+bindToggle(triggerSec, "Random Hit Part", "triggerRandomPart",
+    "Pick a random available R6/R15 hit part for each triggerbot target")
+bindDropdown(triggerSec, "Hit Part", "triggerPart", {
+    "Head", "Hrp", "UpperTorso", "LowerTorso",
+    "LeftArm", "RightArm", "LeftLeg", "RightLeg", "Random",
+})
+bindToggle(triggerSec, "Manipulation Support", "triggerUseManip",
+    "Require manipulation ON and a READY read-only SA.ManipPossible() probe before firing")
+triggerSec:label({ name = "Random wins over Head Only; Hit Part is used when both are OFF" })
+triggerSec:label({ name = "Backend: Tool:Activate(), then mouse1press/release fallback" })
+addButton(triggerSec, "Print Fire Assist", function() SA.PrintFireAssist() end)
+
 -- ── AIMING : column 2 (Target / Ballistics / Wall Penetration) ──────
 local aimCol2 = Aiming:column()
 local targetSec, ballSec, manipSec = aimCol2:multi_section({
     names = { "Target", "Ballistics", "Wall Penetration" },
 })
 
+bindToggle(targetSec, "Force Head (Silent Aim)", "forceHead",
+    "Default ON: overrides Target Bone / Per-Weapon Bone so silent aim always resolves Head when the rig has one")
 bindDropdown(targetSec, "Target Bone", "targetBone", { "Head", "Hrp" })
 bindDropdown(targetSec, "Per-Weapon Bone", "targetBoneMode", {
     "Global", "Head for snipers", "Hrp for shotguns",
@@ -351,6 +375,7 @@ end)
 addButton(targetSec, "Print Why No Target", function()
     print("[aim]", SA.NoTargetReason())
 end)
+addButton(targetSec, "Print Force Head State", function() SA.PrintForceHeadState() end)
 hitChanceSlider = bindSlider(targetSec, "Hit Chance (%)", "hitChance", 0, 100, 1, "%")
 bindSlider(targetSec, "Max Distance (studs)", "distance", 0, 500, 1, "")
 cooldownSlider = bindSlider(targetSec, "Cooldown (s)", "gunCooldown", 0, 1, 0.01, "s")

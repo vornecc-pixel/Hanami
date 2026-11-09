@@ -629,6 +629,15 @@ INST_META.__index = function(t, k)
     if k == "GetState" then
         return function() return Enum.HumanoidStateType.Running end
     end
+    if k == "Activate" then
+        return function()
+            if MOCK_TOOL_ACTIVATE_FAIL then
+                error("mock tool activation failed")
+            end
+            MOCK_FIRE_TOOL = (MOCK_FIRE_TOOL or 0) + 1
+            return true
+        end
+    end
     if k == "GetNetworkPing" then return function() return 0.05 end end
     if k == "GetMouseLocation" then return function() return Vector2.new(640, 360) end end
     if k == "IsMouseButtonPressed" then return function() return false end end
@@ -711,6 +720,14 @@ local RunService = service("RunService")
 local UserInputService = service("UserInputService")
 local WorkspaceService = service("Workspace")
 MOCK_MANIP_BLOCKED = false
+MOCK_FIRE_TOOL = 0
+MOCK_FIRE_MOUSE = 0
+MOCK_FIRE_MOUSE_RELEASES = 0
+MOCK_TOOL_ACTIVATE_FAIL = false
+function mouse1press() MOCK_FIRE_MOUSE = MOCK_FIRE_MOUSE + 1 end
+function mouse1release()
+    MOCK_FIRE_MOUSE_RELEASES = MOCK_FIRE_MOUSE_RELEASES + 1
+end
 MOCK_MANIP_WALL = Instance.new("Part")
 MOCK_MANIP_WALL.Name = "MockManipWall"
 MOCK_MANIP_WALL.CanQuery = true
@@ -761,6 +778,13 @@ local function make_character(name, x, toolName)
     head.Name = "Head"
     head.Position = Vector3.new(x or 0, 1.5, 0)
     head.Parent = char
+    for _, partName in ipairs({ "UpperTorso", "LowerTorso", "Left Arm",
+                                "Right Arm", "Left Leg", "Right Leg" }) do
+        local body = Instance.new("Part")
+        body.Name = partName
+        body.Position = Vector3.new(x or 0, 1, 0)
+        body.Parent = char
+    end
     local hum = Instance.new("Humanoid")
     hum.Name = "Humanoid"
     hum.Parent = char
