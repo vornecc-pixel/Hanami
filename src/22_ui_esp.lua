@@ -133,8 +133,15 @@ bindToggle(featSec, "Arrows Follow FOV", "espArrowFOV",
 featSec:label({ name = "── ALL ESP TEXT ──" })
 bindSlider(featSec, "Text Size", "espTextSize", 6, 30, 1, "px")
 bindToggle(featSec, "Show Health %", "espShowHealthText",
-    "Appends HP: NN% to the player/NPC info line (name, distance, tool and state are already there)")
+    "Adds an HP: NN% tag beside the box corner")
 bindToggle(featSec, "Text Outline", "espTextOutline")
+featSec:label({ name = "── TAHOMA LAYOUT ──" })
+bindToggle(featSec, "Tags On Box Side", "espTagSide",
+    "VIS / WALL, state and HP sit beside the top-right corner. OFF stacks them under the weapon")
+bindToggle(featSec, "Tag Backdrops", "espTagBackdrop",
+    "Dark pill behind the weapon badge and each side tag")
+featSec:label({ name = "Name above · Weapon below · Flags at corner" })
+featSec:label({ name = "Font: " .. tostring(SA.ESP_FONT_NAME) })
 
 -- ── ESP : column 3 — one colourpicker for EVERY drawn element ────────
 -- Atlanta labels expose a `right_holder`, so each labelled row can carry

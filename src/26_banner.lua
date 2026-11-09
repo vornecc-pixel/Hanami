@@ -23,7 +23,8 @@ print(string.format("  bowmod: %s | instant charge %s | no cooldown %s | u10=%d 
     CFG.bowInstantCharge and "on" or "off",
     CFG.bowNoCooldown and "on" or "off",
     bowInfo.configTables, bowInfo.liveStates))
-print("  manip : v4 — 8 peek dirs, adaptive peek, target-aware filter")
+print("  manip : classic sliders — 8 peek dirs, 0-300 studs, base peek 4-6")
+print("  esp   : Tahoma text — weapon below box, VIS/WALL + state at corner")
 print("  aim   :", CFG.masterEnabled and "on" or "off")
 print("  manip :", CFG.manipulation and "on" or "off")
 print("  esp   :", CFG.espEnabled and "on" or "off")

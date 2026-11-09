@@ -90,13 +90,13 @@ addButton(dbgSec, "Sync Gun Defs (GC)", function()
     local n = SA.SyncGunDefs()
     if n == 0 then print("[sa] no live gun tables found; using static specs") end
 end)
-addButton(dbgSec, "Print Manip State (v4)", function()
+addButton(dbgSec, "Print Manip State (classic)", function()
     local m = SA.ManipState()
     print(string.format("[manip] frame=%d rays left=%d/%d disabled=%d cached=%d dirs=%d",
         m.frame, m.remaining, m.budget, m.disabled, m.cached, m.directions))
-    print(string.format("[manip] base=%s adaptive=%.1f hardCap=%s peekOrigin=%s",
-        tostring(CFG.manipPeek), m.adaptivePeek or 0, tostring(m.adaptiveCap),
-        tostring(m.peek or "none")))
+    print(string.format("[manip] range=%s peek=%s deltaCap=%s parts=%s hyst=%s peekOrigin=%s",
+        tostring(m.range), tostring(m.basePeek), tostring(m.deltaCap),
+        tostring(m.parts), tostring(m.hysteresis), tostring(m.peek or "none")))
 end)
 addButton(dbgSec, "Print Current Target", function()
     local t = SA.Target

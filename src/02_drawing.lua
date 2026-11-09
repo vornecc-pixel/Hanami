@@ -244,7 +244,112 @@ local function noopDraw()
     })
 end
 
+-- ────────────────────────────────────────────────────────────────────
+-- SCREEN-SPACE TEXT ("Text" draw kind)
+-- ESP text used to live in a BillboardGui stacked above the head, so the
+-- weapon / state / VIS line could only ever sit at the top. A real
+-- TextLabel in the shared ScreenGui overlay can be anchored to the exact
+-- box geometry: name above, weapon BELOW, flags beside the corner.
+--
+-- Native Drawing.new("Text") is deliberately NOT used: its font enum only
+-- exposes UI/System/Plex/Monospace and cannot render a Tahoma FontFace.
+-- The GUI path also works on every executor the Line/Circle fallback does.
+-- ────────────────────────────────────────────────────────────────────
+local function textDraw()
+    local gui = getDrawGui()
+    if not gui then return nil end
+
+    local ok, lbl = pcall(function()
+        local t = Instance.new("TextLabel")
+        t.Name = "HanamiText"
+        t.BackgroundTransparency = 1
+        t.BackgroundColor3 = Color3.fromRGB(10, 12, 16)
+        t.BorderSizePixel = 0
+        t.Text = ""
+        t.TextColor3 = Color3.new(1, 1, 1)
+        t.TextSize = 12
+        t.Font = SA.ESP_FONT or Enum.Font.ArialBold
+        if SA.ESP_FONT_FACE then t.FontFace = SA.ESP_FONT_FACE end
+        t.TextStrokeColor3 = Color3.new(0, 0, 0)
+        t.TextStrokeTransparency = 0
+        t.TextXAlignment = Enum.TextXAlignment.Center
+        t.TextYAlignment = Enum.TextYAlignment.Center
+        t.TextWrapped = false
+        t.Visible = false
+        t.Active = false
+        t.Selectable = false
+        t.ZIndex = 2
+        -- Round the optional dark backdrop into a badge. Older clients
+        -- without UICorner simply keep square labels.
+        pcall(function()
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0.3, 0)
+            corner.Parent = t
+        end)
+        t.Parent = gui
+        return t
+    end)
+    if not ok or not lbl then return nil end
+
+    local st = {
+        Visible = false, Text = "", Color = Color3.new(1, 1, 1),
+        Transparency = 0, TextSize = 12, ZIndex = 2,
+        Size = Vector2.new(220, 16), Position = Vector2.new(0, 0),
+        Anchor = Vector2.new(0.5, 0.5), Align = "Center",
+        Outline = true, Backdrop = false,
+    }
+
+    local function sync()
+        lbl.Visible = st.Visible == true
+        lbl.Text = st.Text or ""
+        lbl.TextColor3 = st.Color
+        lbl.TextTransparency = math.clamp(st.Transparency or 0, 0, 1)
+        lbl.TextSize = math.clamp(st.TextSize or 12, 6, 40)
+        lbl.TextStrokeTransparency = st.Outline and 0 or 1
+        lbl.ZIndex = st.ZIndex or 2
+        lbl.Size = UDim2.fromOffset(st.Size.X, st.Size.Y)
+        lbl.Position = UDim2.fromOffset(st.Position.X, st.Position.Y)
+        pcall(function() lbl.AnchorPoint = st.Anchor end)
+        pcall(function()
+            local a = st.Align
+            lbl.TextXAlignment = (a == "Left" and Enum.TextXAlignment.Left)
+                or (a == "Right" and Enum.TextXAlignment.Right)
+                or Enum.TextXAlignment.Center
+        end)
+        pcall(function()
+            lbl.BackgroundTransparency = st.Backdrop and 0.55 or 1
+        end)
+    end
+
+    local proxy = {}
+    setmetatable(proxy, {
+        __index = function(_, k)
+            if k == "Remove" then
+                return function()
+                    pcall(function() lbl:Destroy() end)
+                    proxyCount = math.max(proxyCount - 1, 0)
+                end
+            end
+            if k == "Backend" then return "ScreenGui" end
+            return st[k]
+        end,
+        __newindex = function(_, k, v)
+            if st[k] == v then return end
+            st[k] = v
+            pcall(sync)
+        end,
+    })
+    proxyCount = proxyCount + 1
+    sync()
+    return proxy
+end
+
 function SA.NewDraw(kind)
+    -- Text is GUI-only (see textDraw above); never probe a native Text
+    -- object, because its font enum cannot express Tahoma.
+    if kind == "Text" then
+        return textDraw() or noopDraw()
+    end
     local guiFirst = (CFG and CFG.forceGuiDrawing) == true or nativeOK[kind] == false
 
     -- Preferred backend: ScreenGui (forced, or native already proven bad).
@@ -299,6 +404,8 @@ function SA.DrawDiag()
     return table.concat({
         "backend=" .. SA.DrawBackend(),
         "native: " .. table.concat(kinds, ", "),
+        "font=" .. tostring(SA.ESP_FONT_NAME),
+        "Text=ScreenGui (Tahoma FontFace when available)",
         "overlay=" .. (drawGui and drawGui.Parent and drawGui:GetFullName() or "NONE"),
         "proxies=" .. tostring(proxyCount),
         "last=" .. drawLastError,

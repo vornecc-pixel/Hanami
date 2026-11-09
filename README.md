@@ -29,12 +29,13 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Survives spawn, respawn, re-execute and unload. |
 | **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
 | **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, and one shared shot resolver keeps the FOV circle as the reference point. **Guns only** — bows are skipped. |
-| **Manipulation v4 (patched)** | Aiming → Wall Penetration | 8 peek directions (cardinals + diagonals), peek distance scales with range, target model included in the ray filter, and much higher caps (48 parts / 96 rays). See the same section. |
+| **Tahoma ESP layout (weapon below, flags at the corner)** | ESP → ESP Features | See [ESP text layout](#esp-text-layout-tahoma-weapon-below-flags-at-the-corner). Player/NPC/crate labels are now screen-space Tahoma `TextLabel`s anchored to the box geometry: name above, distance at the top-left corner, **weapon below the box**, and `VIS`/`WALL`, state and HP stacked beside the top-right corner. The world-anchored BillboardGui text is hidden so nothing is drawn twice. The floating ESP Preview mirrors the same layout. |
+| **Classic manip sliders + recommendation back** | Aiming → Wall Penetration | See [Best settings for wall penetration](#best-settings-for-wall-penetration). Six sliders again — **Range 0–300 studs**, **Base Peek 4–6 only**, Parts 0–8, Budget 8–128, Hysteresis 0–12, Max Peek Delta 2–12 — and the old `75 / 4 / 3 / 64 / 5 / 6` recommendation button. The dead "Adaptive Peek Cap" is gone and every remaining slider has a real, clamped effect. |
 | **Actually compiles in the executor** | loader | See [Luau 200-local-register fix](#7-the-luau-200-local-register-compile-error). The old join hit `Out of local registers ... exceeded limit 200` at `playerSec` and never ran. The loader now hoists column-1 `local`s into the chunk environment, so the main chunk needs zero local registers. |
 | **FOV circle fixed + made the aim reference** | Visual → FOV Circle / Snapline | See [FOV fixes](#fov-fixes--one-reference-point). Now defaults ON, draws through a reliable ScreenGui backend, and its centre + radius are the single reference used by silent aim, snapline, tracers and arrows. |
 | **Crate opened / unopened labels fixed** | ESP → Crate ESP | See [Crate state fixes](#crate-state-fixes). The inverted labels came from a Y-rotation destructuring bug plus false-positive state guesses. Added strict state parsing, `Invert Crate State` and a state debug print. |
 | **No more ~3 s frame skip** | everywhere | See [Stability & fixes](#stability--fixes). One shared, yielding Workspace walker replaces both `GetDescendants()` scanners; GUI builds are capped; stale render loops disconnect on re-execute. |
-| **One text-size slider for ALL ESP text** | ESP → ESP Features → Text Size | Scales name, distance, tool / state, `VIS`/`WALL`, health % on players, NPCs **and** crates, and re-stacks the rows so they never overlap. Plus `Show Health %` and `Text Outline` toggles. |
+| **One text-size slider for ALL ESP text** | ESP → ESP Features → Text Size | Scales name, distance, weapon, `VIS`/`WALL`, state and health % on players, NPCs **and** crates together, with row spacing derived from the same value. Plus `Show Health %`, `Text Outline`, `Tags On Box Side` and `Tag Backdrops` toggles. |
 | **FOV circle actually shows** | Visual → FOV Circle / Snapline | `SA.NewDraw` falls back to real Roblox GUI Frames when the executor has no usable `Drawing` API; no longer gated on aim being ON; transparency slider now means what it says (0 % = solid). ON by default. |
 | **Auto Ping Lead** | Aiming → Ballistics | Reads live `lp:GetNetworkPing()` (or `Stats.Network.ServerStatsItem["Data Ping"]`), smooths it, and feeds it into the ballistic solver. `Ping Scale` × ping + `Extra Ping Offset (ms)` = total extra lead. Old manual-only `Extra Lead` is now an offset on top. |
 | **No stray crate Highlight** | ESP → Crate ESP | `Crate Chams Highlight` is **OFF** by default. Classification now requires a container-like Model/BasePart with a real crate signal, and the `Highlight` is bound to the crate's own anchor part only — never a whole folder of scenery. |
@@ -44,7 +45,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **Customizable visibility colours** | ESP → Colours · Player / NPC | Green (clear LOS) / red (blocked) are now obvious labelled pickers, not tiny swatches buried on unrelated toggles. They paint an outer frame, a visibility dot and the `VIS` / `WALL` tag even when per-element colours are on. |
 | **Crate diagnostics** | ESP → Crate ESP | **Print Crate Names (debug)** lists every container-ish instance with its class, classified kind and parent, so the exact names your game uses can be found. |
 | **Ballistic prediction** | Aiming → Ballistics | Replaced the old one-step `distance/speed` guess with an exact quadratic intercept solve using each gun's real `speed`, bullet drop, alt ammo, live ping and range. See the next section. |
-| **Player visibility check** | ESP → Player ESP | Box, name, fill and info line turn **green when there is a clear line of sight** and **red when a wall blocks it**. Cached camera raycast (~120 ms). |
+| **Player visibility check** | ESP → Player ESP | Box, name, fill and the `VIS` / `WALL` corner tag turn **green when there is a clear line of sight** and **red when a wall blocks it**. Cached camera raycast (~120 ms). |
 | **FOV snapline** | Visual → FOV Circle / Snapline | Line + dot to the target, **green = visible, red = blocked**, plus a gold **lead ring** at the exact point the solver aims at. |
 | **NPC silent aim / NPC ESP** | Aiming + ESP | `pickBestTarget` selects from players **and** the NPC registry. Separate section for `Guard`, `Scavenger`, `Soldier`, with name/distance/health box, visibility colours and scanner options. |
 | **Entity scanner** | ESP tab + Misc | Reads an equipped `Tool`, `ItemId` / `Weapon` / `HeldItem` attributes and weapon containers, plus `Downed` / `Knocked` / `Dead` / `State` attributes with a `HumanoidStateType` fallback. `Show Weapon` and `Show State` are options on **both** player and NPC ESP; `VIS` / `WALL` is a third tag. |
@@ -98,7 +99,7 @@ The loose classifier accepted *any* instance with an `Opened` / `Looted` attribu
 
 ### 6. All ESP text scales from one slider
 
-`CFG.espTextSize` (6–30 px, default **11**) is applied in the unified `drawEntity()` styling pass to **every** `TextLabel` the three ESP types create — player name / distance / info, NPC name / distance / info, crate name / state / distance. Rows are re-stacked and the `BillboardGui` is resized to fit. `Show Health %` appends `HP: NN%` to the player / NPC info line; `Text Outline` toggles the stroke.
+`CFG.espTextSize` (6–30 px, default **11**) is applied in the unified `drawEntity()` styling pass to **every** screen-space `TextLabel` the three ESP types draw: name, distance, weapon badge and corner tags for players / NPCs / crates. Row spacing is `espTextSize + 3` so nothing overlaps at large sizes. `Show Health %` adds an `HP: NN%` tag, `Text Outline` toggles the stroke, `Tags On Box Side` moves the tags between the corner and the bottom stack, and `Tag Backdrops` toggles the dark pill behind them. See the [ESP text layout](#esp-text-layout-tahoma-weapon-below-flags-at-the-corner).
 
 ### 7. The Luau 200-local-register compile error
 
@@ -137,6 +138,41 @@ A simulation of the old queue with 8 players (2 permanently unbuildable at the f
 * **Rebuild Player ESP** — clears every object so the render loop rebuilds them all; handy after a big server change or a config toggle.
 
 The rotating, success-only queue is shared with the NPC and crate passes, so they benefit from fix #1 too. All other behaviour (visibility colours, 48 colourpickers, FOV reference point, one text-size slider) is unchanged.
+
+## ESP text layout (Tahoma, weapon below, flags at the corner)
+
+The old player ESP put everything in one `BillboardGui` line above the head: `W: assault_rifle | S: Running | WALL`. That made the weapon the topmost row and squeezed the `VIS`/`WALL` flag into the same string. `src/18_esp_fx_draw.lua` now renders **every** label as a `TextLabel` in the shared `ScreenGui` overlay, positioned against the box geometry computed by `18_esp_fx_frame.lua`:
+
+```
+                  PlayerName                  <- above the box, centred
+   [42m]  ┌───────────────────────┐  WALL   <- distance at top-left corner,
+          │                       │  S: Running    flags at top-right corner
+          │           +           │  HP: 100%
+          │                       │
+          └───────────────────────┘
+              [ assault_rifle ]              <- BELOW the box, centred
+```
+
+| Element | Position | Toggle / colour |
+|---|---|---|
+| Name | centred above the box, 4 px gap | `Show Names` · `Name text` picker |
+| Distance | right-aligned just left of the top-left corner | `Show Distance` · `Distance text` picker |
+| Weapon | centred below the box, 4 px gap | `Show Weapon` · `Scanner text` picker |
+| `VIS` / `WALL` | first tag at the top-right corner | `Visibility Check` · **always** the dynamic green/red colour |
+| State | second tag | `Show State` |
+| Health % | third tag | `Show Health %` |
+| All tags | stacked by `espTextSize + 3` | `Tags On Box Side` (OFF stacks them under the weapon), `Tag Backdrops` |
+
+The refreshes (`13`, `15`, `17`) now write a small structured `o.tx` table — `name`, `dist`, `weapon`, `tags` — instead of only concatenating one string. The old BillboardGui labels are still populated as a fallback/data source but hidden by the FX pass, so no text is drawn twice. Crates use the same layout with their `OPENED` / `UNOPENED` state as the corner tag. The floating **ESP Preview** panel mirrors the layout live, including the `VIS` ↔ `WALL` alternation.
+
+**Tahoma.** Roblox's `Enum.Font` does **not** contain a `Tahoma` member (only Legacy / Arial / Gotham / SourceSans / …), and native `Drawing.new("Text")` fonts are limited to UI / System / Plex / Monospace. `01_config.lua` therefore resolves the font once and exposes `SA.ApplyEspFont(label)`:
+
+1. `Enum.Font.Tahoma` if the executor patches the enum;
+2. otherwise `Font.fromName("Tahoma", Regular, Normal)` → `TextLabel.FontFace`;
+3. otherwise `Font.new("rbxasset://fonts/families/Tahoma.json", …)`;
+4. otherwise the bundled `Enum.Font.ArialBold` so text is **never** invisible.
+
+All four ESP label sets (players, NPCs, crates, preview) and the new screen-space labels go through that helper; `Print Draw Backend` in Visual → Debug reports the resolved font name. If a client cannot load a Tahoma family, ArialBold is used automatically — there is no setting to break the text. `SA.NewDraw("Text")` is deliberately GUI-only, so it works on the same executors as the Line / Circle / Triangle fallback.
 
 ## Silent aim v7.7 & manipulation v4
 
@@ -182,11 +218,13 @@ The extract is a *debug extract* — its `flags["sa_lock"]` is empty, `bowCombat
 | Enable Bow Mods | Gun Mods → Bow Mods | OFF |
 | Instant Charge (max draw) | Gun Mods → Bow Mods | OFF |
 | No Shot Cooldown | Gun Mods → Bow Mods | OFF |
-| Base Peek Offset / Adaptive Peek Cap | Aiming → Wall Penetration | 20 / 120 |
-| Range / Parts / Budget / Hysteresis / Max Delta | Aiming → Wall Penetration | 1000 / 48 / 96 / 3 / 40 |
-| Print Silent Aim (v7.7), Retry Tap Hooks, Print Manip State (v4), Print Bow Mods State | Visual → Debug | — |
+| Base Peek Offset (4–6 only) | Aiming → Wall Penetration | 4 |
+| Range / Parts / Budget / Hysteresis / Max Delta | Aiming → Wall Penetration | 30 / 3 / 40 / 3 / 6 |
+| Apply Recommended Wall Pen | Aiming → Wall Penetration | 75 / 4 / 3 / 64 / 5 / 6 |
+| Tags On Box Side / Tag Backdrops | ESP → ESP Features | ON / ON |
+| Print Silent Aim (v7.7), Retry Tap Hooks, Print Manip State (classic), Print Bow Mods State | Visual → Debug | — |
 
-A one-time migration in `01_config.lua` raises saved profiles that still used the old defaults; custom values are left alone, and the retired `saBowHook` flag is dropped.
+A one-time migration in `01_config.lua` pulls saved v7.7 profiles back into the classic ranges; **every load** clamps all six manip values into their slider bounds, retires `manipMaxPeek` and drops the retired `saBowHook` flag. Custom values inside the new ranges are left alone.
 
 ## Bow mods (instant charge + no cooldown)
 
@@ -291,8 +329,10 @@ The dynamic **visible / hidden** colour always paints an outer frame around the 
 | Tracer Lines | line from Mouse / Center / Bottom to each target | OFF |
 | Off-screen Arrows | triangle on the FOV circle perimeter pointing at off-targets | OFF |
 | Arrows Follow FOV | arrows share the FOV circle centre / radius | ON |
-| **Text Size** | one slider for **all** ESP text (name, distance, tool, state, health) | 11 px |
+| **Text Size** | one slider for **all** ESP text (name, distance, weapon, tags) | 11 px |
 | Show Health % / Text Outline | `HP: NN%` tag / label stroke | OFF / ON |
+| Tags On Box Side | `VIS`/`WALL`, state, HP at the top-right corner (OFF stacks them under the weapon) | ON |
+| Tag Backdrops | dark pill behind the weapon badge and each corner tag | ON |
 | Highlight Aim Target | target box / fill / outline uses the `target` colour | ON |
 | Rainbow Mode + Speed | all colours cycle through HSV (speed slider) | OFF |
 | Distance Fade + Fade Start (%) | transparency ramps in over the last N% of `Max Distance` | OFF |
@@ -425,7 +465,7 @@ Attachment effects are applied on top of this by `08_attachments.lua`: `muzzle_b
 | Sight / Muzzle / Under / Mag Override | Auto | `Auto`, `None`, or an explicit attachment id — fallback when detection can't see the game's storage |
 | Show Lead Marker | ON | Gold ring at the predicted aim point (Visual tab, with colourpicker) |
 
-Debug buttons: **Print Gun Spec** (Aiming → Ballistics), **Print Gun Table**, **Print Attachments**, **Rescan Attachments**, **Sync Gun Defs (GC)** and **Print Live Ping** (Aiming → Attachments / Visual → Debug), plus **Print Silent Aim (v7.7)**, **Retry Tap Hooks**, **Print Manip State (v4)**, **Print Bow Mods State**, **Print Prediction** (now also prints ping / scale / offset / aim-time / attachments / iterations), **Print Draw Backend** and **Print Current Target** in Visual → Debug.
+Debug buttons: **Print Gun Spec** (Aiming → Ballistics), **Print Gun Table**, **Print Attachments**, **Rescan Attachments**, **Sync Gun Defs (GC)** and **Print Live Ping** (Aiming → Attachments / Visual → Debug), plus **Print Silent Aim (v7.7)**, **Retry Tap Hooks**, **Print Manip State (classic)**, **Print Bow Mods State**, **Print Prediction** (now also prints ping / scale / offset / aim-time / attachments / iterations), **Print Draw Backend** and **Print Current Target** in Visual → Debug.
 
 ### Live game hooks
 
@@ -506,31 +546,32 @@ If nothing is detected, set the four slot overrides manually (or check the tool'
 
 ## Best settings for wall penetration
 
-Wall penetration = the **FOV-aware wall peek** (`Aiming → Wall Penetration`, now **Manipulation v4**). It temporarily disables `CanQuery` on the wall parts in front of you for the hit-scan, then restores them in the same frame's restore bind. It is FOV-gated, so it only spends raycasts on targets that are actually inside your aim cone. v4 adds 8 peek directions, a target-aware ray filter, and an adaptive peek that grows with distance.
+Wall penetration = the **FOV-aware wall peek** (`Aiming → Wall Penetration`). It temporarily disables `CanQuery` on the wall parts in front of you for the hit-scan, then restores them in the same frame's restore bind. It is FOV-gated, so it only spends raycasts on targets that are actually inside your aim cone. The engine keeps the 8 peek directions (cardinals + diagonals), the single shared `RaycastParams` with the target model in the filter, and the reused `CanQuery` entries — but the **classic six-slider set** is back.
 
-**Recommended all-round setup** (press **Apply Recommended Wall Pen** to set all of it at once) — these are the v7.7 defaults:
+**Recommended all-round setup** (press **Apply Recommended Wall Pen** to set all of it at once — the original `75 / 4 / 3 / 64 / 5 / 6` recommendation):
 
 | Setting | Value | Why |
 |---|---|---|
-| Enabled (FOV-aware, v4) | **ON** | Turns on the peek/disable-restore cycle. |
+| Enabled (FOV-aware) | **ON** | Turns on the peek/disable-restore cycle. |
 | Wall Check | **OFF** | Strict LOS-only mode. It is bypassed automatically while Manipulation is ON anyway — with it ON *and* penetration OFF, shots behind any wall are aborted. |
-| Range | **1000 studs** | Raised from 75; adaptive peek now handles long shots. The distance check is a hard gate, not a search radius. |
-| Base Peek Offset | **20** | Starting side clearance. The actual peek is `clamp(20 + 6% of distance, 20, cap)`. |
-| Adaptive Peek Cap | **120** | Hard ceiling so the ray origin never drifts arbitrarily far from the crosshair. |
-| Max CanQuery Parts | **48** | Raised from 3 so layered cover (wall + props + fences) can be cleared. Entries are reused, so the restore pass stays cheap. |
-| Ray Budget / Frame | **96** | Raised from 64 to match the 8 peek directions (each costs up to 7 rays). Drop to **48** on low-end devices. |
-| Cache Hysteresis | **3 frames** | Keeps the same peek active instead of re-scanning every frame when you strafe. |
-| Max Peek Delta | **40** | Now compared against `max(40, adaptivePeek)`, so a legitimate long-distance peek is never rejected by a tiny delta cap. |
+| Range | **75 studs** | Slider is **0–300 studs** only. 75 covers most fights; pushing to 300 searches a lot more geometry for little gain. |
+| Base Peek Offset | **4** | Slider is **4–6** only. Enough side clearance for thin walls / door frames without teleporting the ray origin far off your crosshair. This is now the *actual* maximum peek. |
+| Max CanQuery Parts | **3** | Handles a wall + a prop + a fence. Slider `0–8`. Higher values make the restore pass heavier. |
+| Ray Budget / Frame | **64** | Slider `8–128`. Good balance between finding a clear peek and staying smooth. Use **32** on low-end devices. |
+| Cache Hysteresis | **5 frames** | Slider `0–12`. Keeps the same peek active instead of re-scanning every frame when you strafe. |
+| Max Peek Delta | **6** | Slider `2–12`. **Genuinely caps** how far the binary-searched peek may drift before it is recomputed. |
 | Aim / Circle Radius (FOV) | **~150 px** | A narrower cone means fewer candidate peeks per frame — the single biggest CPU saving. Also moves the off-screen arrows. |
 | Hit Chance | **100 %** | No random skipped shots while you're testing penetration. |
 | Cooldown | **0 s** | Fire as fast as the weapon allows. |
 | Prediction | **ON** | The ballistic solver compensates moving targets; penetration doesn't help if the shot lands behind them. |
 | Target Bone | **Head** | Smaller target → fewer ambiguous multi-part peeks. |
 
+**Why the adaptive peek was removed.** v7.7 scaled the peek with distance and then computed `deltaCap = math.max(CFG.manipMaxPeekDelta, maxPeek)`. Since `maxPeek` was always >= the peek distance, **Max Peek Delta could never reject any peek** — it was a dead slider, and the extra "Adaptive Peek Cap" slider had no analogue in the original recommendation. `05_manipulation.lua` now uses `maxPeek = CFG.manipPeek` directly and compares `peekDist <= CFG.manipMaxPeekDelta`, so all six sliders are functional. `01_config.lua` clamps each value to its UI range on every load (saved profiles, preset imports and console edits included) and removes `CFG.manipMaxPeek` from old configs.
+
 Two useful variants:
 
 * **Strict / legit** — Manipulation `OFF`, Wall Check `ON`, FOV `~120`, Hit Chance `60–80`. Only shoots what you can genuinely see.
-* **Heavy cover / static targets** — keep the recommended values but raise `Max CanQuery Parts` to `64` and `Ray Budget` to `128`; keep FOV at `150` so the extra rays stay bounded. If you want the old light-touch behaviour, use `Range 75 / Peek 4 / Parts 3 / Budget 64 / Hyst 5 / Delta 6` — the sliders still cover those values.
+* **Heavier cover** — keep the recommendation but raise `Max CanQuery Parts` to `8` and `Ray Budget` to `128`; keep FOV at `150` so the extra rays stay bounded. For long-range work use `Range 300 / Peek 6 / Delta 12`.
 
 The snapline and the red ESP colour are your penetration indicator: **green = you already have line of sight, no penetration needed; red = a wall is in the way**.
 
@@ -539,7 +580,7 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 `src/21_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 22–26 build the tabs.
 
 ```
-Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (v4) · Attachments (Auto) · Overrides & Diagnostics
+Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (classic) · Attachments (Auto) · Overrides & Diagnostics
 ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
 Gun Mods → Gun Mods · State Overrides · Bow Mods (Enable / Instant Charge / No Cooldown)
 Visual   → FOV Circle / Snapline · Debug
@@ -578,7 +619,7 @@ Atlanta's `library:window()` always creates a second, draggable 300×325 panel c
 
 * **3D model.** A `ViewportFrame` with its own `Camera` (parented to the viewport, never to `Workspace`). It clones your current character, strips every `Script` / `LocalScript` / `ModuleScript` / `BillboardGui` / `SurfaceGui` / `Highlight` / `ParticleEmitter` / `Sound` / `ForceField`, restores `Archivable`, sets a `PrimaryPart` fallback, and recentres it with `PivotTo` (with a `SetPrimaryPartCFrame` fallback). If there is no character yet, cloning is blocked, or the clone cannot be parented, it falls back to a synthetic R6-style dummy rig — the panel still renders instead of erroring.
 * **Respawn / re-execute / unload.** `CharacterAdded` rebuilds the model after a short delay; a load-time teardown disconnects the previous render loop, destroys the old viewport **and the old floating panel**, and the `CharacterAdded` connection is stored in `_G` so it never stacks. `Unload Everything` calls `SA.EspPreviewDispose()`. No yields happen inside `RenderStepped` — rotation is pure `dt` math and restyling is throttled to 10 Hz.
-* **Live settings.** Every overlay is restyled through the same `pick(key, base, seed)` helper used by the real ESP, so `CFG.espRainbow`, `CFG.espPerElementColors`, `CFG.espTextSize`, `CFG.espBoxThickness` and all 48 `ESP_COLORS` entries apply instantly. It previews box / corner boxes / outline, name, distance, weapon + state + `HP: NN%` info line, health bar (low→high lerp), visibility dot, skeleton, head dot, tracer and chams fill tint. `VIS` / `WALL` alternates every 2.5 s so both green and red visibility colours are visible. ViewportFrames cannot reliably render `Highlight`, so chams are shown by tinting the model's parts.
+* **Live settings.** Every overlay is restyled through the same `pick(key, base, seed)` helper used by the real ESP, so `CFG.espRainbow`, `CFG.espPerElementColors`, `CFG.espTextSize`, `CFG.espBoxThickness` and all 48 `ESP_COLORS` entries apply instantly. It previews box / corner boxes / outline, name, distance at the left corner, the weapon badge below the box, the `VIS`/`WALL` + state + `HP: NN%` tags at the right corner, health bar (low→high lerp), visibility dot, skeleton, head dot, tracer and chams fill tint. `VIS` / `WALL` alternates every 2.5 s so both green and red visibility colours are visible. ViewportFrames cannot reliably render `Highlight`, so chams are shown by tinting the model's parts.
 * **Reachable.** On displays shorter than ~1080 px the template docks this panel *below* the main window, i.e. off-screen. The build clamps the panel into the viewport and docks it top-right when the template position cannot fit. If a future Atlanta revision stops exposing `window.esp_section`, the preview builds itself into a new `ESP Preview` section inside the ESP tab instead; the `embedded` flag keeps unload from hiding the main menu in that case.
 
 **Controls** — in the preview panel: `Enabled`, `Rotate Model`, `Spin Speed` (0–90 °/s), `Rebuild Character`, `Print Preview State`. In ESP → Player ESP: `Show ESP Preview Panel` (re-opens the floating window) and `Rebuild ESP Preview`. `Print Preview State` reports whether the model is a clone or the dummy rig, the part count, the panel/viewport visibility and why a fallback was used.
@@ -608,13 +649,13 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**v7.7 manip/tap, bow-mods, attachment keys**), `SA` state, `bindRender`, **48-colour palette** | 354 |
-| `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, no-op fallback, draw diagnostics | 306 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma font resolver**), `SA` state, `bindRender`, **48-colour palette** | 411 |
+| `src/02_drawing.lua` | **per-kind capability probing**, ScreenGui proxy, **screen-space Tahoma `Text` draw**, no-op fallback, draw diagnostics | 413 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking | 166 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
 | `src/03_entity_scan.lua` | NPC registry handler + **guarded** LOS visibility cache | 97 |
 | `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump | 131 |
-| `src/05_manipulation.lua` | **Manipulation v4 (guns only)**: shared RaycastParams, 8-direction peek, adaptive peek, target-aware filter, reused CanQuery entries, bow bail-out | 220 |
+| `src/05_manipulation.lua` | **Manipulation (classic sliders, guns only)**: shared RaycastParams, 8-direction peek, fixed 4–6 peek, clamped functional sliders, target-aware filter, reused CanQuery entries | 231 |
 | `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp; no bow state) + snap cooldown | 56 |
 | `src/07_gun_specs.lua` | **all 20 guns + every attribute** (mag / spread / ads / move / reload / recoil / s2 / scope / tags), ammo, damage, alt ammo, 8 named falloffs, ranges + **name-only bow gate** | 326 |
 | `src/08_attachments.lua` | **12 attachment defs**, `AttFit` / slots / tags, tolerant tool scanner, **auto-tune effects** + `SA.*Attachments*` diagnostics | 417 |
@@ -623,26 +664,26 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
 | `src/12_esp_players.lua` | **Player ESP v2**: tolerant `SA.PlayerRig`, re-execute purge, char tracking, half-build cleanup, diagnostics | 213 |
-| `src/13_esp_players_refresh.lua` | **per-player pcall refresh**, respawn/character-change detection, lifecycle hooks for ALL players | 177 |
+| `src/13_esp_players_refresh.lua` | **per-player pcall refresh**, structured `o.tx` text (weapon / tags), respawn detection, lifecycle hooks | 197 |
 | `src/14_esp_npcs.lua` | NPC ESP objects + enable/disable + events | 110 |
-| `src/15_esp_npcs_refresh.lua` | NPC ESP refresh (visibility + scanner + HP) | 88 |
+| `src/15_esp_npcs_refresh.lua` | NPC ESP refresh (visibility + scanner + HP + structured `o.tx` text) | 104 |
 | `src/16_esp_crates.lua` | crate classification, **strict opened-state resolver**, anchors, GUI objects | 353 |
 | `src/16_esp_crates_registry.lua` | live crate registry, **crate-state debug**, walker diagnostics | 113 |
-| `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, highlight gate) + enable/disable + events | 83 |
+| `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, structured `o.tx` text, highlight gate) + events | 90 |
 | `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry | 128 |
-| `src/18_esp_fx_draw.lua` | **unified styling**: text size, boxes, chams, skeleton, tracers, FOV arrows, fade | 241 |
+| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text (name / dist / weapon / corner tags), boxes, chams, skeleton, tracers, FOV arrows, fade | 287 |
 | `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with **per-player error isolation** | 141 |
 | `src/19_render_loop.lua` | master render loop: **rotating success-only build queue**, 4 guarded passes, FX pass | 103 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
-| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **Wall Pen v4 / tap-fire controls / guns-only note / attachment auto-tune column**) | 237 |
-| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, live `CFG`/`ESP_COLORS` styling | 376 |
+| `src/21_ui_aiming.lua` | Atlanta setup, binding helpers, Aiming tab (Target / Ballistics / **classic Wall Pen sliders + recommendation / tap-fire controls / guns-only note / attachment auto-tune column**) | 238 |
+| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, Tahoma labels mirroring the new layout | 397 |
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, camera/render bind, respawn hook, controls, `SA.EspPreview*` API | 223 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **48 colourpickers** / **player ESP + preview diagnostics buttons** | 224 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features (**Tahoma layout toggles**) / **48 colourpickers** / diagnostics buttons | 231 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + **Bow Mods section (2 toggles + diagnostics)** | 45 |
 | `src/24_ui_visual.lua` | Visual tab (FOV centre/backend, snapline, **guns-only debug, bow-mods state, attachment / gun-table prints**) | 107 |
 | `src/25_ui_misc.lua` | Misc tab, quick actions (incl. Reset ESP Colours), UI init, **full v7.7 unload + preview dispose + bow timing restore** | 91 |
-| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 53 |
+| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 54 |
 ## Editing
 
 * Parts share one scope: a column-1 `local` in an earlier part is hoisted and visible in later ones. **Indented** `local`s stay private to their function.

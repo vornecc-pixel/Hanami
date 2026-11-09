@@ -311,7 +311,7 @@ local function buildCrate(model)
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, 0, 0, 14)
     nameLbl.BackgroundTransparency = 1
-    nameLbl.Font = Enum.Font.GothamBold
+    SA.ApplyEspFont(nameLbl)
     nameLbl.TextSize = 12
     nameLbl.TextStrokeTransparency = 0
     nameLbl.Parent = bb
@@ -320,7 +320,7 @@ local function buildCrate(model)
     stateLbl.Size = UDim2.new(1, 0, 0, 12)
     stateLbl.Position = UDim2.new(0, 0, 0, 14)
     stateLbl.BackgroundTransparency = 1
-    stateLbl.Font = Enum.Font.GothamBold
+    SA.ApplyEspFont(stateLbl)
     stateLbl.TextSize = 11
     stateLbl.TextStrokeTransparency = 0
     stateLbl.Parent = bb
@@ -329,7 +329,7 @@ local function buildCrate(model)
     distLbl.Size = UDim2.new(1, 0, 0, 12)
     distLbl.Position = UDim2.new(0, 0, 0, 28)
     distLbl.BackgroundTransparency = 1
-    distLbl.Font = Enum.Font.GothamMedium
+    SA.ApplyEspFont(distLbl)
     distLbl.TextSize = 11
     distLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
     distLbl.TextStrokeTransparency = 0

@@ -43,6 +43,13 @@ local function refreshCrateESP()
                     o.stateLbl.Text = opened and "[ OPENED ]" or "[ UNOPENED ]"
                     o.stateLbl.TextColor3 = opened and ESP_COLORS.crateOpened or ESP_COLORS.crateState
                     o.distLbl.Text = string.format("[%dm]", math.floor(dist / 3.571))
+                    -- Shared screen-space layout: kind above, distance at
+                    -- the left corner, OPENED / UNOPENED at the right.
+                    o.tx = {
+                        name = CRATE_KIND_LABEL[kind],
+                        dist = string.format("%dm", math.floor(dist / 3.571)),
+                        tags = { { text = opened and "OPENED" or "UNOPENED", kind = "state" } },
+                    }
                 end
             end
         end

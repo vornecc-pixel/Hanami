@@ -49,6 +49,41 @@ local function bindRender(fn)
 end
 
 -- ────────────────────────────────────────────────────────────────────
+-- ESP FONT — TAHOMA
+-- Roblox's `Enum.Font` has NO "Tahoma" member (Legacy / Arial / Gotham /
+-- SourceSans / ... only). Prefer a real Tahoma `FontFace` through the
+-- newer Font datatype (Font.fromName, then the Tahoma family asset), and
+-- keep a bundled enum as a hard fallback so text never disappears on a
+-- client that cannot load a custom family. Every ESP TextLabel goes
+-- through SA.ApplyEspFont(), including the screen-space labels added by
+-- SA.NewDraw("Text") and the ESP Preview panel.
+-- ────────────────────────────────────────────────────────────────────
+local tahomaEnum, tahomaFace = nil, nil
+pcall(function() tahomaEnum = Enum.Font.Tahoma end)  -- patched executors
+pcall(function()
+    tahomaFace = Font.fromName("Tahoma", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+end)
+if not tahomaFace then
+    pcall(function()
+        tahomaFace = Font.new("rbxasset://fonts/families/Tahoma.json",
+            Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+    end)
+end
+SA.ESP_FONT      = tahomaEnum or Enum.Font.ArialBold
+SA.ESP_FONT_FACE = tahomaFace
+SA.ESP_FONT_NAME = (tahomaFace or tahomaEnum) and "Tahoma" or "ArialBold (Tahoma fallback)"
+
+function SA.ApplyEspFont(lbl)
+    if not lbl then return end
+    pcall(function() lbl.Font = SA.ESP_FONT end)
+    if SA.ESP_FONT_FACE then
+        -- FontFace wins over the legacy Font property when it loads; if
+        -- the family is unavailable the pcall keeps the enum fallback.
+        pcall(function() lbl.FontFace = SA.ESP_FONT_FACE end)
+    end
+end
+
+-- ────────────────────────────────────────────────────────────────────
 -- UNIFIED ESP PALETTE
 -- One table for EVERY drawn element. Each key has its own colourpicker in
 -- the ESP -> Colours mini-tabs, and the table survives re-execution via _G.
@@ -174,15 +209,16 @@ local CFG = _G.__saCFG or {
     fovCenterMode   = "Mouse",     -- "Mouse" / "Screen Center"
     forceGuiDrawing = true,        -- ScreenGui backend always works; native Drawing often doesn't
 
-    -- manipulation v4 (v7.7 defaults — adaptive peek, 8 directions)
+    -- manipulation — CLASSIC six-slider set (8 peek dirs + shared ray params)
+    -- Ranges are deliberately tight: 0-300 studs, base peek 4-6 only.
+    -- Every slider below has a real effect in 05_manipulation.lua.
     manipulation      = false,
-    manipDist         = 1000,   -- was 30
-    manipPeek         = 20,     -- was 4 (base peek; scales with distance)
-    manipMaxPeek      = 120,    -- NEW: ceiling for the adaptive peek
-    manipMaxParts     = 48,     -- was 20 in the extract / 3 in the old build
-    manipBudget       = 96,     -- was 48 / 40
-    manipHysteresis   = 3,
-    manipMaxPeekDelta = 40,     -- was 20 / 6
+    manipDist         = 30,     -- studs, slider 0..300
+    manipPeek         = 4,      -- base peek, slider 4..6
+    manipMaxParts     = 3,      -- slider 0..8
+    manipBudget       = 40,     -- rays / frame, slider 8..128
+    manipHysteresis   = 3,      -- frames, slider 0..12
+    manipMaxPeekDelta = 6,      -- slider 2..12 (genuinely caps the peek)
 
     -- silent aim v7.7 (tap-fire reorder; GUNS ONLY — bows are skipped)
     saTapReorder = true,        -- Fix A (InputBegan) + Fix B (Tool.Activated)
@@ -247,6 +283,9 @@ local CFG = _G.__saCFG or {
     espTextSize         = 11,      -- one slider for ALL ESP text
     espShowHealthText   = false,
     espTextOutline      = true,
+    -- New ESP text layout (Tahoma, weapon below the box, tags at corner)
+    espTagSide          = true,    -- VIS/WALL, state, HP beside top-right corner
+    espTagBackdrop      = true,    -- dark pill behind each side tag
     npcUseTypeColors    = false,
 
     -- ESP preview panel (Atlanta's floating "ESP Preview" window)
@@ -274,8 +313,8 @@ _G.__saCFG = CFG
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
-    manipulation = false, manipDist = 1000, manipPeek = 20, manipMaxPeek = 120,
-    manipMaxParts = 48, manipBudget = 96, manipHysteresis = 3, manipMaxPeekDelta = 40,
+    manipulation = false, manipDist = 30, manipPeek = 4,
+    manipMaxParts = 3, manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
     saTapReorder = true, saTapWindow = 0.35,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
@@ -306,6 +345,7 @@ for k, v in pairs({
     espFade = false, espFadeStart = 60, espBoxThickness = 1,
     espTracerOrigin = "Bottom", espArrowFOV = true, espTextSize = 11,
     espShowHealthText = false, espTextOutline = true,
+    espTagSide = true, espTagBackdrop = true,
     espPreview = true, espPreviewSpin = true, espPreviewSpeed = 25,
     npcUseTypeColors = false,
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
@@ -326,28 +366,45 @@ if _G.__saFovFix ~= 2 then
     _G.__saFovFix = 2
 end
 
--- One-time migration: v7.7 raised the manipulation defaults a lot. Only
--- replace values that are still one of the OLD defaults, so a profile the
--- user tuned is never clobbered. Old values came from either the pre-v7.7
--- build (30/4/3/40/6) or the v7.7 extract (850/20/20/48/40).
-if _G.__saManipFix ~= 2 then
-    local oldDist  = { [30] = true, [75] = true, [850] = true }
-    local oldPeek  = { [4] = true }
-    local oldParts = { [3] = true, [20] = true }
-    local oldBudg  = { [40] = true, [48] = true, [64] = true }
-    local oldDelta = { [6] = true, [20] = true }
-    if oldDist[CFG.manipDist]                 then CFG.manipDist = 1000 end
-    if oldPeek[CFG.manipPeek]                 then CFG.manipPeek = 20 end
-    if oldParts[CFG.manipMaxParts]            then CFG.manipMaxParts = 48 end
-    if oldBudg[CFG.manipBudget]               then CFG.manipBudget = 96 end
-    if oldDelta[CFG.manipMaxPeekDelta]        then CFG.manipMaxPeekDelta = 40 end
-    if CFG.manipMaxPeek == nil                then CFG.manipMaxPeek = 120 end
+-- One-time migration back to the CLASSIC manipulation slider set. v7.7
+-- pushed every value outside the useful 0-300 / 4-6 window and added an
+-- "Adaptive Peek Cap" that silently turned Max Peek Delta into a no-op.
+-- Only replace values still equal to a known v7.7 default, so a profile
+-- the user tuned by hand is never clobbered.
+if _G.__saManipFix ~= 3 then
+    local v77Dist  = { [1000] = true, [850] = true }
+    local v77Peek  = { [20] = true }
+    local v77Parts = { [48] = true, [20] = true }
+    local v77Budg  = { [96] = true, [48] = true }
+    local v77Delta = { [40] = true, [20] = true }
+    if v77Dist[CFG.manipDist]                 then CFG.manipDist = 75 end
+    if v77Peek[CFG.manipPeek]                 then CFG.manipPeek = 4 end
+    if v77Parts[CFG.manipMaxParts]            then CFG.manipMaxParts = 3 end
+    if v77Budg[CFG.manipBudget]               then CFG.manipBudget = 64 end
+    if v77Delta[CFG.manipMaxPeekDelta]        then CFG.manipMaxPeekDelta = 6 end
+    CFG.manipMaxPeek = nil                    -- retire the adaptive cap
     if CFG.saTapReorder == nil                then CFG.saTapReorder = true end
     if CFG.saTapWindow == nil                 then CFG.saTapWindow = 0.35 end
     -- Bows are no longer aimed; drop the retired flag from saved profiles.
     CFG.saBowHook = nil
-    _G.__saManipFix = 2
+    _G.__saManipFix = 3
 end
+
+-- Clamp on EVERY load: saved profiles, preset imports and console edits
+-- must all land inside the slider ranges or the controls lie about what
+-- they do. `manipMaxPeek` is removed from saved configs entirely.
+local function saClampNum(v, lo, hi, def)
+    local n = tonumber(v)
+    if not n then return def end
+    return math.clamp(n, lo, hi)
+end
+CFG.manipDist         = saClampNum(CFG.manipDist, 0, 300, 30)
+CFG.manipPeek         = saClampNum(CFG.manipPeek, 4, 6, 4)
+CFG.manipMaxParts     = saClampNum(CFG.manipMaxParts, 0, 8, 3)
+CFG.manipBudget       = saClampNum(CFG.manipBudget, 8, 128, 40)
+CFG.manipHysteresis   = saClampNum(CFG.manipHysteresis, 0, 12, 3)
+CFG.manipMaxPeekDelta = saClampNum(CFG.manipMaxPeekDelta, 2, 12, 6)
+CFG.manipMaxPeek      = nil
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

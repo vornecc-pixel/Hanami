@@ -1,22 +1,24 @@
 -- ==================================================================
--- Hanami / 05_manipulation.lua — Bullet Manipulation v4 (v7.7 patched)
+-- Hanami / 05_manipulation.lua — Bullet Manipulation (classic sliders)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk;
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
 
 -- ────────────────────────────────────────────────────────────────────
--- BULLET MANIPULATION v4 — patched from the vault v7.7 extract
+-- BULLET MANIPULATION — classic six-slider behaviour, modern engine
 --
---   * one shared RaycastParams instead of a new one per ray (the old
---     module rebuilt it inside every peek / clearance raycast)
---   * filter includes BOTH the local character and the target model, so
---     the target's own body never counts as "cover"
+--   * CLASSIC sliders back: Range (0-300 studs), Base Peek (4-6 only),
+--     Max CanQuery Parts (0-8), Ray Budget (8-128), Cache Hysteresis
+--     (0-12) and Max Peek Delta (2-12). No "Adaptive Peek Cap".
+--   * fixed maxPeek = Base Peek. The v7.7 adaptive formula made
+--     `deltaCap = math.max(delta, maxPeek)` ALWAYS >= maxPeek, so Max
+--     Peek Delta could never reject a peek — it was a dead slider. Now
+--     deltaCap is just the slider value and genuinely caps peekDist.
+--   * Every slider is clamped to its UI range each frame, so imported
+--     profiles and console edits can't silently break a control.
+--   * one shared RaycastParams (target model included in the filter)
 --   * GUNS ONLY: bows bail out before any ray is cast
 --   * 8 peek directions: 4 cardinals + 4 diagonals
---   * adaptive maxPeek = clamp(base + distance * 0.06, base, cap) so
---     long shots still clear cover, with a hard manipMaxPeek ceiling
---   * raised defaults: parts 48, budget 96, range 1000, peek 20,
---     max peek 120, max delta 40 (see 01_config.lua)
 --   * disabled parts are tracked by a counter and reused entries, so
 --     the restore pass never grows a table every frame
 --
@@ -46,6 +48,14 @@ local saManipCache = {}
 local saManipBudget = 0
 local saManipFrame = 0
 
+-- Match the UI slider bounds exactly; a value outside the range is not a
+-- "valid" setting and would make the control lie about what it does.
+local function saManipNum(key, lo, hi, def)
+    local n = tonumber(CFG[key])
+    if not n then return def end
+    return math.clamp(n, lo, hi)
+end
+
 -- PATCH: targetModel is part of the filter. Without it, a ray from the
 -- peek origin to a target's head can hit the target's own torso first.
 local function saInitParams(targetModel)
@@ -56,7 +66,7 @@ local function saInitParams(targetModel)
 end
 
 local function saBudgetReset()
-    saManipBudget = math.max(CFG.manipBudget or 96, 0)
+    saManipBudget = saManipNum("manipBudget", 8, 128, 40)
     saManipFrame = saManipFrame + 1
 end
 
@@ -152,7 +162,7 @@ end
 
 local function saManipBeginFrame()
     saBudgetReset()
-    local ttl = math.max(CFG.manipHysteresis or 3, 0)
+    local ttl = saManipNum("manipHysteresis", 0, 12, 3)
     for k, v in pairs(saManipCache) do
         if saManipFrame - v.frame > ttl then saManipCache[k] = nil end
     end
@@ -168,7 +178,7 @@ local function saManipResolve(origin, targetPos, targetModel)
         return origin, true
     end
     local dist = (targetPos - origin).Magnitude
-    if dist > (CFG.manipDist or 1000) then return origin, false end
+    if dist > saManipNum("manipDist", 0, 300, 30) then return origin, false end
     saInitParams(targetModel)
     if not saBudgetTake(1) then return origin, false end
     local direct = ws:Raycast(origin, targetPos - origin, saManipSharedRP)
@@ -185,15 +195,12 @@ local function saManipResolve(origin, targetPos, targetModel)
         saManipCache[targetModel] = nil
     end
 
-    -- PATCH: adaptive peek. A fixed 4-stud peek cannot clear cover on a
-    -- long shot; scaling with distance (capped) fixes that without letting
-    -- the origin drift arbitrarily far from the crosshair.
-    local basePeek = math.max(CFG.manipPeek or 20, 0)
-    local capPeek  = math.max(CFG.manipMaxPeek or 120, basePeek)
-    local maxPeek  = math.clamp(basePeek + dist * 0.06, basePeek, capPeek)
+    -- CLASSIC: Base Peek IS the maximum peek (4-6 studs). The adaptive
+    -- v7.7 formula is gone — it silently neutralised Max Peek Delta.
+    local maxPeek  = saManipNum("manipPeek", 4, 6, 4)
     saManipLastMaxPeek = maxPeek
-    local deltaCap = math.max(CFG.manipMaxPeekDelta or 40, maxPeek)
-    local parts    = math.max(CFG.manipMaxParts or 48, 0)
+    local deltaCap = saManipNum("manipMaxPeekDelta", 2, 12, 6)
+    local parts    = saManipNum("manipMaxParts", 0, 8, 3)
     local peek, peekDist = saFindPeek(origin, targetPos, direct.Normal, maxPeek)
     if peek and peekDist <= deltaCap then
         saClearCanQuery(peek, targetPos, parts)
@@ -211,10 +218,14 @@ function SA.ManipState()
     for _ in pairs(saManipCache) do n = n + 1 end
     return {
         frame = saManipFrame, remaining = saManipBudget,
-        budget = CFG.manipBudget or 96, disabled = saManipDisabledN,
-        cached = n, peek = saManipPeekOrigin,
-        adaptivePeek = saManipLastMaxPeek,
-        adaptiveCap = math.max(CFG.manipMaxPeek or 120, CFG.manipPeek or 20),
+        budget = saManipNum("manipBudget", 8, 128, 40),
+        disabled = saManipDisabledN, cached = n, peek = saManipPeekOrigin,
+        range = saManipNum("manipDist", 0, 300, 30),
+        basePeek = saManipNum("manipPeek", 4, 6, 4),
+        maxPeek = saManipLastMaxPeek,
+        parts = saManipNum("manipMaxParts", 0, 8, 3),
+        hysteresis = saManipNum("manipHysteresis", 0, 12, 3),
+        deltaCap = saManipNum("manipMaxPeekDelta", 2, 12, 6),
         directions = 8,
     }
 end

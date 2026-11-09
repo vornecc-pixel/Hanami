@@ -72,15 +72,16 @@ local function pvSolid(parent, name, size, pos, anchor, col)
     return f
 end
 
-local function pvLabel(parent, name, size, pos, anchor)
+local function pvLabel(parent, name, size, pos, anchor, align, valign)
     local l = Instance.new("TextLabel")
     l.Name = name
     l.BackgroundTransparency = 1
     l.BorderSizePixel = 0
-    l.Font = Enum.Font.GothamBold
+    SA.ApplyEspFont(l)
     l.TextSize = 11
     l.TextStrokeTransparency = 0
-    l.TextXAlignment = Enum.TextXAlignment.Center
+    l.TextXAlignment = align or Enum.TextXAlignment.Center
+    l.TextYAlignment = valign or Enum.TextYAlignment.Center
     l.Text = ""
     l.Size = size
     l.Position = pos
@@ -237,12 +238,17 @@ local function pvBuildOverlays(viewport)
             UDim2new(0, s[3], 0, s[4]), s[1], s[2], c3(255, 255, 255))
     end
 
+    -- Mirror the in-world layout: name above, distance at the top-left
+    -- corner, weapon BELOW the box, VIS/WALL + state beside the corner.
     ui.name = pvLabel(holder, "Name", UDim2new(1, 0, 0, 14),
         UDim2new(0, 0, 0, -5), vec2(0, 1))
-    ui.dist = pvLabel(holder, "Distance", UDim2new(1, 0, 0, 14),
+    ui.dist = pvLabel(holder, "Distance", UDim2new(0, 90, 0, 14),
+        UDim2new(0, -7, 0, 0), vec2(1, 0), Enum.TextXAlignment.Right)
+    ui.weapon = pvLabel(holder, "Weapon", UDim2new(1, 0, 0, 14),
         UDim2new(0, 0, 1, 5), vec2(0, 0))
-    ui.info = pvLabel(holder, "Info", UDim2new(1, 0, 0, 14),
-        UDim2new(0, 0, 1, 20), vec2(0, 0))
+    ui.tags = pvLabel(holder, "Tags", UDim2new(0, 120, 0, 56),
+        UDim2new(1, 7, 0, 0), vec2(0, 0), Enum.TextXAlignment.Left,
+        Enum.TextYAlignment.Top)
 
     ui.hpBg = pvSolid(holder, "HpBg", UDim2new(0, 4, 1, 0),
         UDim2new(0, -5, 0, 0), vec2(1, 0), c3(20, 20, 20))
@@ -317,34 +323,49 @@ local function pvApplyStyle()
     ui.name.Size = UDim2new(1, 0, 0, rowH)
     ui.name.TextStrokeTransparency = outlineOn
 
-    ui.dist.Text = string.format("[%dm]", math.floor((tonumber(CFG.espMaxDist) or 2000) / 20))
+    ui.dist.Text = string.format("%dm", math.floor((tonumber(CFG.espMaxDist) or 2000) / 20))
     ui.dist.Visible = CFG.espShowDist == true
     ui.dist.TextColor3 = pick("playerDistance", base, seed)
     ui.dist.TextSize = ts
-    ui.dist.Size = UDim2new(1, 0, 0, rowH)
+    ui.dist.Size = UDim2new(0, 90, 0, rowH)
     ui.dist.TextStrokeTransparency = outlineOn
 
     local ratio = math.clamp(0.55 + 0.4 * math.sin(tick() * 1.3), 0.05, 1)
-    local bits = {}
-    if CFG.espShowTool then
-        local t = "?"
-        pcall(function() t = SA.GetTool(lp.Character) end)
-        bits[#bits + 1] = "W: " .. tostring(t)
+
+    -- WEAPON AT THE BOTTOM (the in-world ESP now does exactly this)
+    local tool = "?"
+    pcall(function() tool = SA.GetTool(lp.Character) end)
+    ui.weapon.Text = "[ " .. tostring(tool) .. " ]"
+    ui.weapon.Visible = CFG.espShowTool == true
+    ui.weapon.TextColor3 = pick("playerInfo", base, seed)
+    ui.weapon.TextSize = ts
+    ui.weapon.Size = UDim2new(1, 0, 0, rowH)
+    ui.weapon.Position = UDim2new(0, 0, 1, 5)
+    ui.weapon.TextStrokeTransparency = outlineOn
+
+    -- FLAGS / STATE / WALL BESIDE THE TOP-RIGHT CORNER
+    local tagLines = {}
+    if CFG.espVisibleCheck then
+        tagLines[#tagLines + 1] = simulatedVisible and "VIS" or "WALL"
     end
     if CFG.espShowState then
         local s = "?"
         pcall(function() s = SA.GetState(lp.Character, nil) end)
-        bits[#bits + 1] = "S: " .. tostring(s)
+        tagLines[#tagLines + 1] = "S: " .. tostring(s)
     end
-    if CFG.espShowHealthText then bits[#bits + 1] = "HP: " .. math.floor(ratio * 100) .. "%" end
-    if CFG.espVisibleCheck then bits[#bits + 1] = simulatedVisible and "VIS" or "WALL" end
-    ui.info.Text = table.concat(bits, " | ")
-    ui.info.Visible = #bits > 0
-    ui.info.TextColor3 = CFG.espVisibleCheck and base or pick("playerInfo", base, seed)
-    ui.info.TextSize = ts
-    ui.info.Size = UDim2new(1, 0, 0, rowH)
-    ui.info.Position = UDim2new(0, 0, 1, 5 + rowH)
-    ui.info.TextStrokeTransparency = outlineOn
+    if CFG.espShowHealthText then
+        tagLines[#tagLines + 1] = "HP: " .. math.floor(ratio * 100) .. "%"
+    end
+    local side = CFG.espTagSide ~= false
+    local tagH = math.max(#tagLines, 1) * rowH
+    ui.tags.Text = table.concat(tagLines, "\n")
+    ui.tags.Visible = #tagLines > 0
+    ui.tags.TextColor3 = CFG.espVisibleCheck and base or pick("playerInfo", base, seed)
+    ui.tags.TextSize = ts
+    ui.tags.TextXAlignment = side and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
+    ui.tags.Size = side and UDim2new(0, 120, 0, tagH) or UDim2new(1, 0, 0, tagH)
+    ui.tags.Position = side and UDim2new(1, 7, 0, 0) or UDim2new(0, 0, 1, 5 + rowH)
+    ui.tags.TextStrokeTransparency = outlineOn
 
     ui.hpBg.Visible = CFG.espShowHealth == true
     ui.hpFill.Size = UDim2new(1, -2, ratio, -2)

@@ -62,19 +62,39 @@ local function refreshOnePlayer(plr, o, cam)
         o.distLbl.Text = string.format("[%dm]", math.floor(dist / 3.571))
     else o.distLbl.Visible = false end
 
-    local bits = {}
-    if CFG.espShowTool or CFG.espShowState then
-        local info = SA.ScanEntity(char, hum)
-        if CFG.espShowTool  then table.insert(bits, "W: " .. info.tool)  end
-        if CFG.espShowState then table.insert(bits, "S: " .. info.state) end
+    -- ── Structured text for the new screen-space Tahoma layout ───────
+    -- 18_esp_fx_draw.lua anchors these strings to the box: name above,
+    -- distance at the top-LEFT corner, weapon BELOW the box, and the
+    -- VIS/WALL + state + HP tags at the top-RIGHT corner. The old
+    -- BillboardGui labels are still filled (fallback / console debug)
+    -- but are hidden by the FX pass so no text is drawn twice.
+    local info = SA.ScanEntity(char, hum)   -- cached ~0.25 s, safe per frame
+    local hpPct = math.floor(100 * math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1))
+    local hpText = string.format("HP: %d%%", hpPct)
+    local tags = {}
+    if CFG.espVisibleCheck then
+        tags[#tags + 1] = { text = visible and "VIS" or "WALL", kind = "vis" }
     end
+    if CFG.espShowState then
+        tags[#tags + 1] = { text = "S: " .. tostring(info.state), kind = "state" }
+    end
+    if CFG.espShowHealthText then
+        tags[#tags + 1] = { text = hpText, kind = "hp" }
+    end
+    o.tx = {
+        name   = CFG.espShowName and plr.Name or nil,
+        dist   = CFG.espShowDist and string.format("%dm", math.floor(dist / 3.571)) or nil,
+        weapon = CFG.espShowTool and tostring(info.tool) or nil,
+        tags   = tags,
+    }
+
+    local bits = {}
+    if CFG.espShowTool  then table.insert(bits, "W: " .. info.tool)  end
+    if CFG.espShowState then table.insert(bits, "S: " .. info.state) end
     if CFG.espVisibleCheck then
         table.insert(bits, visible and "VIS" or "WALL")
     end
-    if CFG.espShowHealthText then
-        table.insert(bits, string.format("HP: %d%%",
-            math.floor(100 * math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1))))
-    end
+    if CFG.espShowHealthText then table.insert(bits, hpText) end
     o.infoLbl.Text = table.concat(bits, " | ")
     o.infoLbl.TextColor3 = col
     o.infoLbl.Visible = #bits > 0

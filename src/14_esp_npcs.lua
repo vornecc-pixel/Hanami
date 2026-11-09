@@ -38,7 +38,7 @@ local function buildNpc(model)
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Size = UDim2.new(1, 0, 0, 14)
     nameLbl.BackgroundTransparency = 1
-    nameLbl.Font = Enum.Font.GothamBold
+    SA.ApplyEspFont(nameLbl)
     nameLbl.TextSize = 11
     nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
     nameLbl.TextStrokeTransparency = 0
@@ -48,7 +48,7 @@ local function buildNpc(model)
     distLbl.Size = UDim2.new(1, 0, 0, 12)
     distLbl.Position = UDim2.new(0, 0, 0, 14)
     distLbl.BackgroundTransparency = 1
-    distLbl.Font = Enum.Font.GothamMedium
+    SA.ApplyEspFont(distLbl)
     distLbl.TextSize = 11
     distLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
     distLbl.TextStrokeTransparency = 0
@@ -59,7 +59,7 @@ local function buildNpc(model)
     infoLbl.Size = UDim2.new(1, 0, 0, 12)
     infoLbl.Position = UDim2.new(0, 0, 0, 28)
     infoLbl.BackgroundTransparency = 1
-    infoLbl.Font = Enum.Font.GothamMedium
+    SA.ApplyEspFont(infoLbl)
     infoLbl.TextSize = 10
     infoLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
     infoLbl.TextStrokeTransparency = 0

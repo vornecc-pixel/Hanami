@@ -35,48 +35,94 @@ local function drawEntity(cam, o, opt)
         boxCol, fillCol, outlineCol = espC("target"), espC("target"), espC("target")
     end
 
-    -- billboard text
-    if o.nameLbl then
-        -- crates keep their type colour on the name (set by the refresh);
-        -- every other label uses its own picker / the dynamic base.
-        if opt.keepNameColor then
-            if CFG.espRainbow then o.nameLbl.TextColor3 = rainbowColor(seed) end
-        else o.nameLbl.TextColor3 = col("Name") end
-        o.nameLbl.TextTransparency = t
-    end
-    if o.distLbl then o.distLbl.TextColor3 = col("Distance"); o.distLbl.TextTransparency = t end
-    if o.infoLbl then
-        -- VIS / WALL tag always carries the dynamic green/red colour
-        o.infoLbl.TextColor3 = opt.checkVisible and opt.visColor or col("Info")
-        o.infoLbl.TextTransparency = t
-    end
-    if o.stateLbl then
-        o.stateLbl.TextColor3 = opt.opened and espC("crateOpened") or col("State")
-        o.stateLbl.TextTransparency = t
-    end
+    -- ── SCREEN-SPACE TAHOMA TEXT ─────────────────────────────────────
+    -- The old build stacked name / distance / "W: ... | S: ... | WALL"
+    -- in a BillboardGui above the head, so the weapon could only ever be
+    -- at the top. Every label is now a TextLabel in the shared ScreenGui
+    -- overlay, anchored to the box geometry:
+    --     name     -> centred ABOVE the box
+    --     distance -> just LEFT of the top-left corner
+    --     weapon   -> centred BELOW the box   (the requested layout)
+    --     VIS/WALL, state, HP -> stacked RIGHT of the top-right corner
+    -- The world-anchored labels stay as the fallback data source and are
+    -- hidden, so nothing is rendered twice.
+    local ts      = math.clamp(CFG.espTextSize or 11, 6, 30)
+    local rowH    = math.floor(ts + 3)
+    local outline = CFG.espTextOutline == true
+    local tx      = o.tx or {}
 
-    -- ── ONE TEXT-SIZE SLIDER FOR EVERY ESP LABEL ──────────────────────
-    -- name, distance, tool / state, VIS tag and health % all scale
-    -- together; rows are re-stacked so nothing overlaps at large sizes.
-    local ts = math.clamp(CFG.espTextSize or 11, 6, 30)
-    local rowH = math.floor(ts + 2)
-    local order = o.stateLbl
-        and { o.nameLbl, o.stateLbl, o.distLbl }
-        or  { o.nameLbl, o.distLbl, o.infoLbl }
-    local rows = 0
-    for _, lbl in ipairs(order) do
-        if lbl then
-            lbl.TextSize = ts
-            lbl.Size = UDim2.new(1, 0, 0, rowH)
-            lbl.TextStrokeTransparency = CFG.espTextOutline and 0 or 1
-            if lbl.Visible then
-                lbl.Position = UDim2.new(0, 0, 0, rows * rowH)
-                rows = rows + 1
-            end
+    -- Read label visibility BEFORE hiding them: the refreshes rewrite
+    -- those flags every frame, so a hidden label still has fresh text.
+    if not o.tx then
+        if o.nameLbl and o.nameLbl.Visible then tx.name = o.nameLbl.Text end
+        if o.distLbl and o.distLbl.Visible then tx.dist = o.distLbl.Text end
+        if o.stateLbl and o.stateLbl.Visible then
+            tx.tags = { { text = o.stateLbl.Text, kind = "state" } }
+        elseif o.infoLbl and o.infoLbl.Visible then
+            tx.tags = { { text = o.infoLbl.Text, kind = "info" } }
         end
     end
-    o.bb.Size = UDim2.fromOffset(220, math.max(rows, 1) * rowH)
-    o.bb.StudsOffset = Vector3.new(0, 2 + ts * 0.12, 0)
+    for _, lbl in ipairs({ o.nameLbl, o.distLbl, o.infoLbl, o.stateLbl }) do
+        if lbl then lbl.Visible = false end
+    end
+    if o.bb then
+        o.bb.Size = UDim2.fromOffset(220, 1)
+        o.bb.StudsOffset = Vector3.new(0, 0, 0)
+    end
+
+    -- ONE text-size slider still controls every ESP label (players, NPCs,
+    -- crates, side tags and the weapon badge); rowH keeps them apart.
+    local function textWidth(s)
+        return math.max(46, #tostring(s) * ts * 0.62 + 14)
+    end
+    local function showText(key, text, x, y, w, h, anchor, align, size, color, backdrop)
+        if not text or text == "" or not g.onScreen then return end
+        local d = getDraw(o, key, "Text")
+        if not d then return end
+        d.Text = tostring(text)
+        d.Color = color
+        d.Transparency = t
+        d.TextSize = size
+        d.Size = Vector2.new(w, h)
+        d.Position = Vector2.new(x, y)
+        d.Anchor = anchor
+        d.Align = align
+        d.Outline = outline
+        d.Backdrop = backdrop == true
+        d.ZIndex = 3
+        d.Visible = true
+    end
+
+    local cx = g.x + g.w / 2
+    showText("txName", tx.name, cx, g.y - 4,
+        textWidth(tx.name or ""), rowH + 2,
+        Vector2.new(0.5, 1), "Center", ts + 1, col("Name"), false)
+    showText("txDist", tx.dist, g.x - 7, g.y,
+        textWidth(tx.dist or ""), rowH,
+        Vector2.new(1, 0), "Right", math.max(ts - 2, 6), col("Distance"), false)
+    showText("txWeapon", tx.weapon and ("[ " .. tx.weapon .. " ]") or nil,
+        cx, g.y + g.h + 4, textWidth(tx.weapon or "") + 16, rowH,
+        Vector2.new(0.5, 0), "Center", ts, col("Info"), CFG.espTagBackdrop == true)
+
+    local tags = tx.tags or {}
+    for i, tag in ipairs(tags) do
+        local tagColor = col("Info")
+        if tag.kind == "vis" then
+            -- WALL / VIS is ALWAYS the dynamic green/red visibility pick
+            tagColor = opt.checkVisible and opt.visColor or col("Info")
+        elseif tag.kind == "state" and opt.opened then
+            tagColor = espC("crateOpened")
+        end
+        local side = CFG.espTagSide ~= false
+        showText("txTag" .. i, tag.text,
+            side and (g.x + g.w + 7) or cx,
+            side and (g.y + (i - 1) * rowH)
+                or (g.y + g.h + 4 + rowH + (i - 1) * rowH),
+            textWidth(tag.text), rowH,
+            side and Vector2.new(0, 0) or Vector2.new(0.5, 0),
+            side and "Left" or "Center", ts, tagColor,
+            CFG.espTagBackdrop == true)
+    end
 
     -- chams
     if o.highlight then

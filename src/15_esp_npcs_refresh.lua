@@ -38,19 +38,35 @@ local function refreshNpcESP()
                     o.distLbl.Text = string.format("[%dm]", math.floor(dist / 3.571))
                 else o.distLbl.Visible = false end
 
-                local bits = {}
-                if CFG.npcShowTool or CFG.npcShowState then
-                    local info = SA.ScanEntity(model, hum)
-                    if CFG.npcShowTool  then table.insert(bits, "W: " .. info.tool)  end
-                    if CFG.npcShowState then table.insert(bits, "S: " .. info.state) end
+                -- Structured text shared with the player layout: weapon
+                -- below the box, VIS/WALL + state + HP at the corner.
+                local info = SA.ScanEntity(model, hum)
+                local hpText = string.format("HP: %d%%",
+                    math.floor(100 * math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)))
+                local tags = {}
+                if CFG.npcVisibleCheck then
+                    tags[#tags + 1] = { text = visible and "VIS" or "WALL", kind = "vis" }
                 end
+                if CFG.npcShowState then
+                    tags[#tags + 1] = { text = "S: " .. tostring(info.state), kind = "state" }
+                end
+                if CFG.espShowHealthText then
+                    tags[#tags + 1] = { text = hpText, kind = "hp" }
+                end
+                o.tx = {
+                    name   = CFG.npcShowName and ("[NPC] " .. model.Name) or nil,
+                    dist   = CFG.npcShowDist and string.format("%dm", math.floor(dist / 3.571)) or nil,
+                    weapon = CFG.npcShowTool and tostring(info.tool) or nil,
+                    tags   = tags,
+                }
+
+                local bits = {}
+                if CFG.npcShowTool  then table.insert(bits, "W: " .. info.tool)  end
+                if CFG.npcShowState then table.insert(bits, "S: " .. info.state) end
                 if CFG.npcVisibleCheck then
                     table.insert(bits, visible and "VIS" or "WALL")
                 end
-                if CFG.espShowHealthText then
-                    table.insert(bits, string.format("HP: %d%%",
-                        math.floor(100 * math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1))))
-                end
+                if CFG.espShowHealthText then table.insert(bits, hpText) end
                 o.infoLbl.Text = table.concat(bits, " | ")
                 o.infoLbl.TextColor3 = col
                 o.infoLbl.Visible = #bits > 0
