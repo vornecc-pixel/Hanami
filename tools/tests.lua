@@ -138,6 +138,9 @@ local newKeys = {
     "fovPreset", "targetBoneMode", "espPreviewSource", "espPreviewCompare",
     "perfMode", "perfEspRebuildMs", "perfMaxEntities", "perfShowFps",
     "gunDiffOnScan", "gunOverrideString", "hipfireNoRecoil",
+    "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
+    "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
+    "hitboxVisible",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -867,6 +870,188 @@ do
     quiet(function() SA.HipfireNoRecoilRestore() end)
 end
 
+-- ── Hitbox Expander v2: silent, self-healing, reversible ───────────
+do
+    quiet(function() SA.HitboxRestore() end)
+    mock_hitbox_reset()
+    local plrs = Players:GetPlayers()
+    local lpPlr, otherPlr, farPlr = plrs[1], plrs[2], plrs[3]
+    local otherChar = otherPlr.Character
+    local farChar = farPlr.Character
+    local function part(char, name) return char:FindFirstChild(name) end
+    local function resetCfg()
+        CFG.hitboxEnabled = false
+        CFG.hitboxTarget = "Both"
+        CFG.hitboxMode = "fixed"
+        CFG.hitboxScale = 8
+        CFG.hitboxCap = 8
+        CFG.hitboxMaxDist = 300
+        CFG.hitboxTeamCheck = true
+        CFG.hitboxAliveOnly = true
+        CFG.hitboxVisible = false
+    end
+    local function offFrame()
+        CFG.hitboxEnabled = false
+        quiet(function() mock_frame(0.016) end)
+    end
+    resetCfg()
+    local st = SA.HitboxState()
+    eq(st.enabled, false, "hitbox default OFF")
+    eq(st.target, "Both", "hitbox default target")
+    eq(st.mode, "fixed", "hitbox default mode")
+    eq(st.scale, 8, "hitbox default scale")
+    eq(st.cap, 8, "hitbox default cap")
+    eq(st.maxDist, 300, "hitbox default maxDist")
+    eq(st.teamCheck, true, "hitbox default teamCheck")
+    eq(st.aliveOnly, true, "hitbox default aliveOnly")
+    eq(st.visible, false, "hitbox default visible")
+    eq(st.parts, 0, "no tracked parts while OFF")
+    eq(st.accessories, 0, "no tracked accessories while OFF")
+    eq(part(otherChar, "Head").Size.X, 2, "head original size while OFF")
+    eq(MOCK_HITBOX_HANDLE.CanQuery, true, "accessory handle untouched while OFF")
+    eq(SA.HitboxScan(), 0, "OFF scan expands nothing")
+    eq(part(otherChar, "Head").Size.X, 2, "OFF scan leaves head alone")
+
+    -- fixed / Both: both mock enemies get Head + UpperTorso + LowerTorso.
+    CFG.hitboxEnabled = true
+    local expanded = SA.HitboxScan()
+    ok(expanded >= 6, "fixed Both expands six parts: " .. tostring(expanded))
+    eq(part(otherChar, "Head").Size.X, 8, "fixed Head X")
+    eq(part(otherChar, "Head").Size.Y, 8, "fixed Head Y")
+    eq(part(otherChar, "Head").Size.Z, 8, "fixed Head Z")
+    eq(part(otherChar, "UpperTorso").Size.X, 8, "fixed UpperTorso")
+    eq(part(otherChar, "LowerTorso").Size.X, 8, "fixed LowerTorso")
+    eq(part(farChar, "Head").Size.X, 8, "fixed far Head")
+    eq(part(otherChar, "Head").CanCollide, false, "CanCollide disabled")
+    eq(part(otherChar, "Head").CanTouch, false, "CanTouch disabled")
+    eq(part(otherChar, "Head").CanQuery, true, "CanQuery enabled")
+    eq(part(otherChar, "Head").LocalTransparencyModifier, 0, "silent by default")
+    eq(MOCK_HITBOX_HANDLE.CanQuery, false, "accessory Handle silenced")
+    st = SA.HitboxState()
+    eq(st.parts, 6, "six originals tracked")
+    eq(st.accessories, 1, "one accessory tracked")
+    eq(st.sizeHooks, 6, "six Size self-heal hooks")
+    eq(st.charHooks, 2, "two character ChildAdded hooks")
+    ok(st.scans >= 1, "scan counter increments")
+
+    -- Self-healing: a server Size revert is corrected instantly.
+    part(otherChar, "Head").Size = Vector3.new(1, 1, 1)
+    eq(part(otherChar, "Head").Size.X, 8, "Size revert instantly re-expanded")
+
+    -- Client-only debug tint.
+    CFG.hitboxVisible = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").LocalTransparencyModifier, 0.55,
+        "visible = client-only tint")
+    CFG.hitboxVisible = false
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").LocalTransparencyModifier, 0, "tint cleared")
+
+    -- Target = Head only.
+    offFrame()
+    mock_hitbox_reset()
+    CFG.hitboxTarget = "Head"
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 8, "Head mode expands Head")
+    eq(part(otherChar, "UpperTorso").Size.X, 2, "Head mode skips UpperTorso")
+    eq(SA.HitboxState().parts, 2, "Head mode tracks two parts")
+
+    -- Target = Torso (R15 UpperTorso / LowerTorso, R6 Torso if present).
+    offFrame()
+    mock_hitbox_reset()
+    CFG.hitboxTarget = "Torso"
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 2, "Torso mode skips Head")
+    eq(part(otherChar, "UpperTorso").Size.X, 8, "Torso mode expands UpperTorso")
+    eq(part(otherChar, "LowerTorso").Size.X, 8, "Torso mode expands LowerTorso")
+    eq(SA.HitboxState().parts, 4, "Torso mode tracks four parts")
+
+    -- Multiply mode with the safety cap: (2,1,1) x 8 -> (16,8,8) -> cap 8.
+    offFrame()
+    mock_hitbox_reset()
+    CFG.hitboxTarget = "Both"
+    CFG.hitboxMode = "multiply"
+    CFG.hitboxScale = 8
+    CFG.hitboxCap = 8
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 8, "multiply cap X")
+    eq(part(otherChar, "Head").Size.Y, 4, "multiply cap Y")
+    eq(part(otherChar, "Head").Size.Z, 4, "multiply cap Z")
+    -- No clamping needed when the largest axis is below the cap.
+    CFG.hitboxScale = 2
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 4, "multiply uncapped X")
+    eq(part(otherChar, "Head").Size.Y, 2, "multiply uncapped Y")
+    eq(part(otherChar, "Head").Size.Z, 2, "multiply uncapped Z")
+
+    -- maxDist: 0 means unlimited; a small cap skips the far character.
+    offFrame()
+    mock_hitbox_reset()
+    CFG.hitboxMode = "fixed"
+    CFG.hitboxScale = 8
+    CFG.hitboxMaxDist = 5
+    otherChar.HumanoidRootPart.Position = Vector3.new(2, 0, 0)
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 8, "near target expanded")
+    eq(part(farChar, "Head").Size.X, 2, "far target skipped by maxDist")
+
+    -- teamCheck: same Team skipped, enemy Team expanded; OFF ignores teams.
+    offFrame()
+    mock_hitbox_reset()
+    CFG.hitboxMaxDist = 300
+    lpPlr.Team = MOCK_TEAM_RED
+    otherPlr.Team = MOCK_TEAM_RED
+    farPlr.Team = MOCK_TEAM_BLUE
+    CFG.hitboxTeamCheck = true
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 2, "same Team skipped")
+    eq(part(farChar, "Head").Size.X, 8, "enemy Team expanded")
+    CFG.hitboxTeamCheck = false
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 8, "teamCheck OFF expands teammate")
+
+    -- aliveOnly: dead Humanoid skipped; OFF includes it.
+    offFrame()
+    mock_hitbox_reset()
+    lpPlr.Team, otherPlr.Team, farPlr.Team = nil, nil, nil
+    CFG.hitboxTeamCheck = true
+    otherChar.Humanoid.Health = 0
+    CFG.hitboxAliveOnly = true
+    CFG.hitboxEnabled = true
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 2, "dead target skipped")
+    eq(part(farChar, "Head").Size.X, 8, "alive target expanded")
+    CFG.hitboxAliveOnly = false
+    SA.HitboxScan()
+    eq(part(otherChar, "Head").Size.X, 8, "aliveOnly OFF expands dead target")
+
+    -- OFF restores every original, disconnects hooks, leaves no globals.
+    offFrame()
+    eq(part(otherChar, "Head").Size.X, 2, "head size restored")
+    eq(part(otherChar, "Head").CanCollide, true, "CanCollide restored")
+    eq(part(otherChar, "Head").CanTouch, true, "CanTouch restored")
+    eq(part(otherChar, "Head").CanQuery, true, "CanQuery restored")
+    eq(part(otherChar, "Head").LocalTransparencyModifier, 0, "tint restored")
+    eq(MOCK_HITBOX_HANDLE.CanQuery, true, "accessory CanQuery restored")
+    eq(SA.HitboxState().parts, 0, "no tracked parts after restore")
+    eq(SA.HitboxState().accessories, 0, "no tracked accessories after restore")
+    eq(SA.HitboxState().sizeHooks, 0, "no Size hooks after restore")
+    eq(SA.HitboxState().charHooks, 0, "no character hooks after restore")
+    part(otherChar, "Head").Size = Vector3.new(3, 3, 3)
+    eq(part(otherChar, "Head").Size.X, 3, "Size hook disconnected after restore")
+    quiet(function() SA.PrintHitbox() end)
+    eq(SA.HitboxScan(), 0, "OFF scan returns zero")
+
+    mock_hitbox_reset()
+    resetCfg()
+    quiet(function() SA.HitboxRestore() end)
+end
+
 -- ── top-N HUD / performance overlay ─────────────────────────────────
 setFlags({
     nearestTopN = 2,
@@ -1139,13 +1324,27 @@ if run == 1 then
     LAST_GENERATION = SA.Generation
 else
     LAST_GENERATION = SA.Generation
-    -- Full unload must restore defs even while the toggle is ON.
+    -- Full unload must restore defs / hitboxes even while toggles are ON.
     MOCK_HIP_DEF.spread = 11
     CFG.hipfireNoRecoil = true
     SA.HipfireNoRecoilScan()
     eq(MOCK_HIP_DEF.spread, 0, "full unload: hipfire def patched before unload")
+    quiet(function() SA.HitboxRestore() end)
+    mock_hitbox_reset()
+    CFG.hitboxEnabled = true
+    CFG.hitboxTarget = "Both"
+    CFG.hitboxMode = "fixed"
+    CFG.hitboxScale = 8
+    CFG.hitboxMaxDist = 300
+    CFG.hitboxTeamCheck = true
+    CFG.hitboxAliveOnly = true
+    SA.HitboxScan()
+    eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 8,
+        "full unload: hitbox expanded before unload")
     local unloaded, why = SA.FullUnload()
     eq(MOCK_HIP_DEF.spread, 11, "full unload restores hipfire def originals")
+    eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 2,
+        "full unload restores hitbox originals")
     ok(unloaded == true, "full unload: " .. tostring(why))
     eq(SA.Alive, false, "unload stops loops")
     eq(SA.Unloaded, true, "unload guard")

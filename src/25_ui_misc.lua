@@ -255,6 +255,8 @@ function SA.ResetKeybindDefaults()
                                    active = SA.CFG_DEFAULTS.bowModsEnabled == true },
         hn_bind_manipulation = { key = Enum.KeyCode.M,
                                  active = SA.CFG_DEFAULTS.manipulation == true },
+        hn_bind_hitboxEnabled = { key = Enum.KeyCode.H,
+                                  active = SA.CFG_DEFAULTS.hitboxEnabled == true },
     }
     for flag, d in pairs(defaults) do
         local cfg = SA.AllKeybinds and SA.AllKeybinds[flag] or nil
@@ -543,11 +545,13 @@ function SA.FullUnload()
     pcall(function() setFlag("masterEnabled", false) end)
     pcall(function() setFlag("gmEnabled", false) end)
     pcall(function() setFlag("hipfireNoRecoil", false) end)
+    pcall(function() setFlag("hitboxEnabled", false) end)
     pcall(function() setFlag("bowModsEnabled", false) end)
     pcall(function() setFlag("bowInstantCharge", false) end)
     pcall(function() setFlag("bowNoCooldown", false) end)
     pcall(function() if SA.BowModsRestore then SA.BowModsRestore() end end)
     pcall(function() if SA.HipfireNoRecoilRestore then SA.HipfireNoRecoilRestore() end end)
+    pcall(function() if SA.HitboxRestore then SA.HitboxRestore() end end)
     pcall(function() disableESP() end)
     pcall(function() disableNpcESP() end)
     pcall(function() disableCrateESP() end)

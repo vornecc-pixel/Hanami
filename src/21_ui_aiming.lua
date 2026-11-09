@@ -493,3 +493,32 @@ addButton(attOvrSec, "Sync Gun Defs (GC)", function()
     local n = SA.SyncGunDefs()
     print("[att] live gun fields merged:", n)
 end)
+-- ── AIMING : column 4 (Hitbox Expander v2) ─────────────────────────
+local hitCol = Aiming:column()
+local hitSec = hitCol:section({ name = "Hitbox Expander v2" })
+
+local hitToggle = bindToggle(hitSec, "Enable Hitbox Expander", "hitboxEnabled",
+    "Silent client-side hitbox expansion; restores every original on OFF / unload")
+SA.FeatureKeybind(hitToggle, "Enable Hitbox Expander", "hn_bind_hitboxEnabled",
+    Enum.KeyCode.H, "hitboxEnabled")
+bindDropdown(hitSec, "Target Parts", "hitboxTarget", { "Head", "Torso", "Both" })
+bindDropdown(hitSec, "Scale Mode", "hitboxMode", { "fixed", "multiply" })
+bindSlider(hitSec, "Scale (studs / x)", "hitboxScale", 1, 30, 1, "")
+bindSlider(hitSec, "Multiply Cap (studs)", "hitboxCap", 1, 30, 1, "")
+bindSlider(hitSec, "Max Distance (0 = unlimited)", "hitboxMaxDist", 0, 2000, 10, "")
+bindToggle(hitSec, "Team Check", "hitboxTeamCheck",
+    "Skip SA.IsTeammate() / same-Team players")
+bindToggle(hitSec, "Alive Only", "hitboxAliveOnly")
+bindToggle(hitSec, "Show Expanded Parts (client only)", "hitboxVisible",
+    "LocalTransparencyModifier = 0.55; nobody else sees the tint")
+hitSec:label({ name = "fixed = uniform cube; multiply = original x Scale, capped" })
+hitSec:label({ name = "R6 Torso + R15 UpperTorso / LowerTorso are covered" })
+addButton(hitSec, "Print Hitbox State", function() SA.PrintHitbox() end)
+addButton(hitSec, "Rescan Characters", function()
+    local n = SA.HitboxScan()
+    print("[hitbox] scanned:", n, "new parts expanded")
+end)
+addButton(hitSec, "Restore Hitboxes", function()
+    SA.HitboxRestore()
+    print("[hitbox] all sizes / collision / accessory flags restored")
+end)

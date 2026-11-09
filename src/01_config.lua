@@ -341,6 +341,17 @@ local SA_CFG_SHIPPED = {
     -- Standalone full-scope hipfire no recoil (own GC scan + restore).
     hipfireNoRecoil = false,
 
+    -- Hitbox Expander v2 (silent, self-healing, R6/R15)
+    hitboxEnabled   = false,
+    hitboxTarget    = "Both",     -- Head / Torso / Both
+    hitboxMode      = "fixed",    -- fixed (studs) / multiply (x original)
+    hitboxScale     = 8,
+    hitboxCap       = 8,          -- multiply-mode safety cap
+    hitboxMaxDist   = 300,        -- 0 = unlimited
+    hitboxTeamCheck = true,
+    hitboxAliveOnly = true,
+    hitboxVisible   = false,      -- client-only debug tint
+
     -- bow mods (GC scan; NOT part of silent aim / manipulation)
     -- Only two features: instant (max) charge and no shot cooldown.
     bowModsEnabled   = false,
@@ -418,6 +429,9 @@ for k, v in pairs({
     gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
     gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
     gmNoSway = false, gmNoKick = false, hipfireNoRecoil = false,
+    hitboxEnabled = false, hitboxTarget = "Both", hitboxMode = "fixed",
+    hitboxScale = 8, hitboxCap = 8, hitboxMaxDist = 300,
+    hitboxTeamCheck = true, hitboxAliveOnly = true, hitboxVisible = false,
     bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
     configProfile = "default", configName = "default", autoLoadConfig = false,
     keybindMode = "toggle", keybindConflictWarn = true,
@@ -563,6 +577,17 @@ CFG.perfShowFps        = CFG.perfShowFps == true
 CFG.gunDiffOnScan      = CFG.gunDiffOnScan == true
 CFG.gunOverrideString  = tostring(CFG.gunOverrideString or "")
 CFG.hipfireNoRecoil    = CFG.hipfireNoRecoil == true
+CFG.hitboxEnabled      = CFG.hitboxEnabled == true
+CFG.hitboxTarget       = ({ Head=true, Torso=true, Both=true })
+                         [CFG.hitboxTarget] and CFG.hitboxTarget or "Both"
+CFG.hitboxMode         = ({ fixed=true, multiply=true })
+                         [CFG.hitboxMode] and CFG.hitboxMode or "fixed"
+CFG.hitboxScale        = saClampNum(CFG.hitboxScale, 1, 30, 8)
+CFG.hitboxCap          = saClampNum(CFG.hitboxCap, 1, 30, 8)
+CFG.hitboxMaxDist      = saClampNum(CFG.hitboxMaxDist, 0, 2000, 300)
+CFG.hitboxTeamCheck    = CFG.hitboxTeamCheck ~= false
+CFG.hitboxAliveOnly    = CFG.hitboxAliveOnly ~= false
+CFG.hitboxVisible      = CFG.hitboxVisible == true
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

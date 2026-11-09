@@ -1,7 +1,7 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **36 short files** (`src/`, largest is 967 lines) plus a short **loader** and a committed static/Fengari validation harness.
+The original 1,300-line script is split into **37 short files** (`src/`, largest is 967 lines) plus a short **loader** and a committed static/Fengari validation harness.
 
 ## Load it (one line)
 
@@ -49,6 +49,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **Silent aim / manipulation are guns only** | Aiming → Gun | See [Bow mods](#bow-mods-instant-charge--no-cooldown). The bow Shoot remote hook, bow gun specs, arrow prediction and draw/hold state are gone; `saLockActive()` bails out while any bow is equipped. |
 | **Two bow mods: instant charge + no cooldown** | Gun Mods → Bow Mods | Only those two features from the pasted bow-mods script were ported — instant full draw and `SHOT_GAP`/`REDRAW_GAP`/`MIN_DRAW` + `lastShot` clearing. NoDrop, instant reload, no recoil, infinite ammo, no air block and everything else were **excluded**. See [Bow mods](#bow-mods-instant-charge--no-cooldown). |
 | **Hipfire No Recoil (camera + kick + bloom)** | Gun Mods → Hipfire No Recoil | See [Hipfire No Recoil](#hipfire-no-recoil). One standalone always-on toggle zeroes live camera climb, gun kick and spread bloom, and reversibly patches gun-def spread / bloom / climb / shake / recover constants. Originals are restored on OFF / unload. |
+| **Hitbox Expander v2 (silent / R6-R15)** | Aiming → Hitbox Expander v2 | See [Hitbox Expander v2](#hitbox-expander-v2). Toggle + target / mode dropdowns and scale / cap / distance / team / alive / visibility controls. Self-healing Size hooks, reversible originals and accessory CanQuery restore. |
 | **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Now mirrors **either** the Player or NPC pipeline, including archetype colours. Survives spawn, respawn, re-execute and unload. |
 | **Best ESP preset for Players + NPCs** | ESP → ESP Features · ESP Preview panel | See [Best ESP](#best-esp-players--npcs). One **Apply Best ESP** button enables the curated readable feature set for BOTH pipelines, **Print ESP Features** audits every flag / binding, and the preview gains **Preview Kind**, **Simulate Aim Target**, a visibility frame, per-tag colours, tag backdrops and an off-screen arrow. |
 | **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
@@ -151,6 +152,28 @@ Hit-part selection is independent of silent aim: **Head Only** is ON by default,
 
 `SA.HipfireNoRecoilScan()` forces one live + def rescan, `SA.HipfireNoRecoilRestore()` restores all saved values, `SA.HipfireNoRecoilState()` reports enabled / always-on / live states / def tables / patched counts / `getgc` + `setreadonly` capability, and `SA.PrintHipfireNoRecoil()` prints the same diagnostic. Config key: `CFG.hipfireNoRecoil`. Validation covers full def patching, live zeroing, late-weapon rescan, OFF restore, a second ON cycle saving the current value, and full unload; see [Testing](#testing).
 
+### Hitbox Expander v2
+
+**Enable Hitbox Expander** (Aiming → Hitbox Expander v2) is a standalone, default-OFF feature. It covers **R6/R15** rigs: `Head`, `UpperTorso`, `LowerTorso` and R6 `Torso`, selected by the **Target Parts** dropdown (`Head` / `Torso` / `Both`). It is **silent** by default — the only visual change, when **Show Expanded Parts (client only)** is ON, is `LocalTransparencyModifier = 0.55`, which never replicates to other clients.
+
+Controls and their `CFG` keys:
+
+| Control | Key | Default | Effect |
+|---|---|---|---|
+| Enable Hitbox Expander | `hitboxEnabled` | OFF | Master switch; `H` keybind |
+| Target Parts | `hitboxTarget` | `Both` | `Head` / `Torso` / `Both` |
+| Scale Mode | `hitboxMode` | `fixed` | `fixed` = uniform cube in studs; `multiply` = original size × Scale |
+| Scale (studs / x) | `hitboxScale` | 8 | 1–30; cube side or multiplier |
+| Multiply Cap (studs) | `hitboxCap` | 8 | 1–30; largest-axis cap in `multiply` mode |
+| Max Distance (0 = unlimited) | `hitboxMaxDist` | 300 | 0–2000 studs; skip distant characters |
+| Team Check | `hitboxTeamCheck` | ON | Skips `SA.IsTeammate()` / same-`Team` players |
+| Alive Only | `hitboxAliveOnly` | ON | Skips dead Humanoids |
+| Show Expanded Parts | `hitboxVisible` | OFF | Client-only faint tint |
+
+Every affected part gets `CanCollide = false`, `CanTouch = false`, `CanQuery = true`, and an instant `GetPropertyChangedSignal("Size")` hook that re-applies the target size if the server reverts it — the **self-healing** 1–2 frame window. Hat / hair `Accessory` Handles are set `CanQuery = false` so they cannot eat the raycast. All originals (size, collision/query/touch flags, transparency modifier and accessory `CanQuery`) are saved in `_G`, so turning the toggle OFF, **Restore Hitboxes**, or **Unload Everything (FULL)** puts every value back and disconnects the hooks. `getgenv().hitbox` is still published for compatibility with the pasted script's global table.
+
+`SA.HitboxScan()` forces one pass, `SA.HitboxRestore()` restores all originals, `SA.HitboxState()` reports every setting plus tracked parts / accessories / hooks / scans, and `SA.PrintHitbox()` prints the diagnostic. The main loop uses the generation-guarded `bindRender` instead of a raw Heartbeat connection, and `table.clear` was replaced with a portable clear loop so the split parts stay Lua 5.3 / Fengari-safe. Validation covers fixed / multiply / cap, target and distance filters, team / alive gates, self-healing, accessory silencing, OFF restore and full unload; see [Testing](#testing).
+
 ### Clean ESP (outlines only)
 
 The screenshot-style ESP showed large dark pills behind every name / state / weapon tag. **Clean ESP** is now ON by default. It removes dark tag backdrops and chams fill, and uses **outlines only**: a thin full box outline, a chams outline and a black text stroke. Corner boxes, skeleton, head dot, tracers, off-screen arrows, rainbow and distance fade are switched off by the `Apply Clean ESP` preset, so the view is no longer covered by stacked rectangles.
@@ -169,7 +192,7 @@ Visual → **Nearest HUD → Manip Crosshair Popup** adds a small badge just abo
 
 ### Committed Fengari validation suite
 
-`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 1,788 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`, including Hipfire No Recoil live / def / late-rescan / OFF + full-unload restore coverage. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 36-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 43 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
+`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 2,110 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`, including Hipfire No Recoil live / def / late-rescan / OFF + full-unload restore coverage and Hitbox Expander fixed / multiply / cap / filters / self-healing / restore coverage. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 37-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 52 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
 
 ### Adaptive performance mode
 
@@ -837,13 +860,13 @@ loader.lua  ──fetch──▶  01_config.lua
 
 `setfenv` (when the executor offers it) keeps those shared names in an isolated table so they don't pollute globals; without it the same names simply go into normal globals. Compile errors now also report **which part** the failing line came from.
 
-Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / **attachments** / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; `08_attachments.lua` is the 12-attachment auto-tune scanner; `20_bow_mods.lua` is the two-feature bow-mods GC scan; `20_hipfire_no_recoil.lua` is the reversible full-scope hipfire no-recoil scanner; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
+Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / **attachments** / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `11–13` gained the lead marker, visibility colours and scanner labels; `08_attachments.lua` is the 12-attachment auto-tune scanner; `20_bow_mods.lua` is the two-feature bow-mods GC scan; `20_hipfire_no_recoil.lua` is the reversible full-scope hipfire no-recoil scanner; `20_hitbox_expander.lua` is the silent self-healing hitbox expander; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
 
 ## Files
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, NPC manipulation, crate FOV, player warning, trigger / auto fire, Force Head, bow-mods, hipfire no recoil, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 569 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, NPC manipulation, crate FOV, player warning, trigger / auto fire, Force Head, bow-mods, hipfire no recoil, hitbox expander, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 594 |
 | `src/02_drawing.lua` | per-kind capability probing, ScreenGui proxy, screen-space Tahoma `Text` draw, no-op fallback, draw diagnostics, **draw pool + write-failure tracking** | 477 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking, **pinned target / priority / bone / no-target reason**, **public NPC classifier**, **Force Head**, **Trigger Bone / TriggerTarget + VIS LOS** | 383 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
@@ -871,13 +894,14 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
 | `src/20_hipfire_no_recoil.lua` | **Hipfire No Recoil (standalone)**: full-scope live camera recoil / gun kick / spread bloom enforcer, **reversible** def patches with saved originals + restore, generation-guarded GC rescan | 204 |
-| `src/21_ui_aiming.lua` | Atlanta setup + **re-execution-safe keybind wrapper**, Aiming tab (Target / Ballistics / Wall Pen / attachments / Manipulation), **NPC manipulation**, **Trigger / Auto Fire + hit-part controls + VIS / silent-aim independent labels**, **Force Head**, **FOV preset + target priority / bone / pin / no-target UX** | 495 |
+| `src/20_hitbox_expander.lua` | **Hitbox Expander v2 (R6/R15)**: silent client-side size / collision / query expansion, **self-healing** Size hooks, accessory neutralisation, saved originals + full restore | 333 |
+| `src/21_ui_aiming.lua` | Atlanta setup + **re-execution-safe keybind wrapper**, Aiming tab (Target / Ballistics / Wall Pen / attachments / Manipulation), **NPC manipulation**, **Trigger / Auto Fire + hit-part controls + VIS / silent-aim independent labels**, **Force Head**, **Hitbox Expander v2 toggles / sliders / diagnostics**, **FOV preset + target priority / bone / pin / no-target UX** | 524 |
 | `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **real-model source selection + side-by-side Player vs NPC compare**, **clean-mode mirroring**, per-tag labels, vis frame, arrow, backdrops | 644 |
 | `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, Preview Kind / Target / Best ESP controls, source/compare rebuild, `SA.EspPreview*` API | 319 |
 | `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / **crate FOV-aware toggle + state** / features / **Clean + Best ESP presets** / 48 colourpickers / diagnostics, **ESP decluttering + live count controls** | 401 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + Bow Mods section (2 toggles + diagnostics) + feature keybinds, **Hipfire No Recoil toggle / rescan / restore**, **Live Gun Tuning / Overrides controls** | 100 |
 | `src/24_ui_visual.lua` | Visual tab, **top-N nearest HUD + NPC-aware Manip Crosshair Popup + 100m player warning**, **Force Head / Fire Assist diagnostics**, **Performance Mode + FPS overlay + all-keybind console / rebind / conflicts** | 967 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **self-check panel (NPC manipulation, crate FOV, player warning, fire assist, Force Head, manip popup + clean ESP)**, **full unload + warning / fire-assist disposal + hipfire def restore**, UI init / auto-load | 707 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **self-check panel (NPC manipulation, crate FOV, player warning, fire assist, Force Head, manip popup + clean ESP)**, **full unload + warning / fire-assist disposal + hipfire def restore + hitbox restore**, UI init / auto-load | 711 |
 | `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 57 |
 ## Testing
 

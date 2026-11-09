@@ -500,7 +500,8 @@ end
 local ISA = {
     Part = { BasePart = true, Part = true },
     Model = { Model = true }, Humanoid = { Humanoid = true },
-    Tool = { Tool = true }, TextLabel = { TextLabel = true },
+    Tool = { Tool = true }, Accessory = { Accessory = true },
+    TextLabel = { TextLabel = true },
     TextButton = { TextButton = true, TextLabel = true },
     Frame = { Frame = true }, ScreenGui = { ScreenGui = true },
     Camera = { Camera = true }, ViewportFrame = { ViewportFrame = true },
@@ -517,6 +518,10 @@ local ISA = {
 
 local INST_META = {}
 INST_META.__index = function(t, k)
+    if k == "Size" then
+        local props = rawget(t, "_props")
+        return props and props.Size or nil
+    end
     if k == "IsA" then
         return function(self, cls)
             local map = ISA[self.ClassName]
@@ -596,7 +601,10 @@ INST_META.__index = function(t, k)
             local function cp(n)
                 local o = Instance.new(n.ClassName)
                 for kk, vv in pairs(n) do
-                    if kk ~= "children" and kk ~= "Parent" and kk ~= "events" then
+                    if kk == "_props" then
+                        o._props = {}
+                        for pk, pv in pairs(vv) do o._props[pk] = pv end
+                    elseif kk ~= "children" and kk ~= "Parent" and kk ~= "events" then
                         o[kk] = vv
                     end
                 end
@@ -653,6 +661,15 @@ INST_META.__index = function(t, k)
     if k == "GetState" then
         return function() return Enum.HumanoidStateType.Running end
     end
+    if k == "GetPropertyChangedSignal" then
+        return function(self, prop)
+            self._propSignals = self._propSignals or {}
+            if not self._propSignals[prop] then
+                self._propSignals[prop] = new_event()
+            end
+            return self._propSignals[prop]
+        end
+    end
     if k == "Activate" then
         return function()
             if MOCK_TOOL_ACTIVATE_FAIL then
@@ -692,6 +709,14 @@ INST_META.__index = function(t, k)
     return rawget(t, k)
 end
 INST_META.__newindex = function(t, k, v)
+    if k == "Size" then
+        local props = rawget(t, "_props")
+        if not props then props = {}; rawset(t, "_props", props) end
+        props.Size = v
+        local sigs = rawget(t, "_propSignals")
+        if sigs and sigs.Size then sigs.Size:Fire() end
+        return
+    end
     if k == "Parent" then
         local old = rawget(t, "Parent")
         if old and old.children then
@@ -716,14 +741,21 @@ function Instance.new(class)
         Health = 100, MaxHealth = 100, Visible = true,
         Position = Vector3.new(0, 0, 0), CFrame = CFrame.new(0, 3, 0),
         ViewportSize = Vector2.new(1280, 720),
-        Size = UDim2.new(0, 0, 0, 0),
     }, INST_META)
+    o._props = { Size = UDim2.new(0, 0, 0, 0) }
     for _, ev in ipairs({ "MouseButton2Click", "MouseButton1Down", "MouseButton1Click",
                           "InputBegan", "InputEnded", "Activated", "CharacterAdded",
                           "ChildAdded", "ChildRemoved", "DescendantAdded",
                           "DescendantRemoving", "PlayerAdded", "PlayerRemoving",
-                          "RenderStepped", "AncestryChanged" }) do
+                          "RenderStepped", "Heartbeat", "AncestryChanged" }) do
         o[ev] = new_event()
+    end
+    if class == "Part" or class == "MeshPart" or class == "UnionOperation" then
+        o.Size = Vector3.new(2, 1, 1)
+        o.CanCollide = true
+        o.CanQuery = true
+        o.CanTouch = true
+        o.LocalTransparencyModifier = 0
     end
     return o
 end
@@ -873,6 +905,48 @@ farPlayer.DisplayName = "FarGuyDisplay"
 farPlayer.UserId = 3
 farPlayer.Character = farChar
 farPlayer.Parent = Players
+
+-- Optional Team objects for the hitbox expander teamCheck tests. Left
+-- unassigned by default so the rest of the suite sees plr.Team == nil.
+MOCK_TEAM_RED = { Name = "Red" }
+MOCK_TEAM_BLUE = { Name = "Blue" }
+
+-- One R15-style hat accessory whose Handle must be silenced + restored.
+MOCK_HITBOX_ACCESSORY = Instance.new("Accessory")
+MOCK_HITBOX_ACCESSORY.Name = "Hat"
+MOCK_HITBOX_HANDLE = Instance.new("Part")
+MOCK_HITBOX_HANDLE.Name = "Handle"
+MOCK_HITBOX_HANDLE.CanQuery = true
+MOCK_HITBOX_HANDLE.Parent = MOCK_HITBOX_ACCESSORY
+MOCK_HITBOX_ACCESSORY.Parent = otherChar
+
+-- Reset the mock rig between hitbox test cycles / after full unload.
+function mock_hitbox_reset()
+    local plrs = Players:GetPlayers()
+    for i = 2, #plrs do
+        local char = plrs[i].Character
+        if char then
+            for _, name in ipairs({ "Head", "UpperTorso", "LowerTorso" }) do
+                local part = char:FindFirstChild(name)
+                if part then
+                    part.Size = Vector3.new(2, 1, 1)
+                    part.CanCollide = true
+                    part.CanTouch = true
+                    part.CanQuery = true
+                    part.LocalTransparencyModifier = 0
+                end
+            end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.Health = 100 end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.Position = Vector3.new(i == 2 and 10 or 30, 0, 0) end
+        end
+        plrs[i].Team = nil
+    end
+    plrs[1].Team = nil
+    MOCK_HITBOX_HANDLE.CanQuery = true
+    if plrs[1].SetAttribute then plrs[1]:SetAttribute("FustMates", nil) end
+end
 
 Players.LocalPlayer = localPlayer
 function Players:GetPlayers() return { localPlayer, otherPlayer, farPlayer } end
