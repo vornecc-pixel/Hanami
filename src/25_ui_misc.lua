@@ -400,7 +400,7 @@ function SA.SelfCheck()
         { "FOV", "FovState" }, { "preview", "EspPreviewDiag" },
         { "nearest HUD", "NearestWindowState" }, { "best ESP", "EspFeatureDiag" },
         { "gun diff", "GunDiff" }, { "perf", "PerfState" },
-        { "manip popup", "ManipPopupState" },
+        { "manip popup", "ManipPopupState" }, { "clean ESP", "CleanEspState" },
     }
     for _, d in ipairs(diagCalls) do
         local ok = false

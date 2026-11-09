@@ -441,11 +441,20 @@ local function pvApplyStyleTo(ui, isNpc)
     local thick    = math.max(tonumber(CFG.espBoxThickness) or 1, 1)
     local ts       = math.clamp(tonumber(CFG.espTextSize) or 11, 6, 30)
     local rowH     = math.floor(ts + 3)   -- EXACTLY drawEntity()'s spacing
-    local outlineOn = CFG.espTextOutline == true and 0 or 1
+    -- Mirror drawEntity()'s clean-mode effective values so the floating
+    -- preview never shows dark pills the real ESP no longer draws.
+    local cleanEsp  = CFG.espCleanMode ~= false
+    local showBox   = cleanEsp or CFG.espShowBox == true
+    local cornerBox = (not cleanEsp) and CFG.espCornerBox == true
+    local showFill  = (not cleanEsp) and CFG.espShowFill == true
+    local showOutline = cleanEsp or CFG.espShowOutline == true
+    local textOutline = cleanEsp or CFG.espTextOutline == true
+    local backdrop  = (not cleanEsp) and CFG.espTagBackdrop == true
+    local outlineOn = textOutline and 0 or 1
     -- Simulate a target at 85% of Max Distance when Distance Fade is ON.
     local fade      = CFG.espFade and fadeAmount(maxDist * 0.85, maxDist) or 0
     local textAlpha = math.clamp(fade, 0, 0.9)
-    local badgeT    = CFG.espTagBackdrop == true and math.clamp(0.45 + fade, 0, 1) or 1
+    local badgeT    = backdrop and math.clamp(0.45 + fade, 0, 1) or 1
 
     pcall(function()
         if ui.boxStroke then
@@ -457,7 +466,7 @@ local function pvApplyStyleTo(ui, isNpc)
             ui.outlineStroke.Color = outlineCol
             -- Thickness 0 works on every Roblox build (UIStroke.Enabled
             -- is newer); it hides the second outline when disabled.
-            ui.outlineStroke.Thickness = CFG.espShowOutline == true
+            ui.outlineStroke.Thickness = showOutline
                 and math.max(thick - 1, 1) or 0
             ui.outlineStroke.Transparency = fade
         end
@@ -466,9 +475,9 @@ local function pvApplyStyleTo(ui, isNpc)
             ui.visFrameStroke.Thickness = thick
             ui.visFrameStroke.Transparency = fade
         end
-        ui.box.Visible = CFG.espShowBox == true and CFG.espCornerBox ~= true
-        ui.cornersFrame.Visible = CFG.espShowBox == true and CFG.espCornerBox == true
-        ui.visFrame.Visible = CFG.espShowBox == true and visCheck
+        ui.box.Visible = showBox and not cornerBox
+        ui.cornersFrame.Visible = showBox and cornerBox
+        ui.visFrame.Visible = showBox and visCheck
         for _, c in ipairs(ui.corners) do
             c.BackgroundColor3 = boxCol
             c.BackgroundTransparency = fade
@@ -570,7 +579,7 @@ local function pvApplyStyleTo(ui, isNpc)
         ui.hpFill.BackgroundTransparency = fade
     end)
 
-    ui.visDot.Visible = CFG.espShowBox == true and visCheck
+    ui.visDot.Visible = showBox and visCheck
     ui.visDot.BackgroundColor3 = visCheck and base or espC("playerVisDot")
     pcall(function() ui.visDot.BackgroundTransparency = fade end)
 
@@ -604,7 +613,7 @@ local function pvApplyStyleTo(ui, isNpc)
     if parts then
         for _, e in ipairs(parts) do
             pcall(function()
-                e.part.Color = CFG.espShowFill == true
+                e.part.Color = showFill
                     and e.original:Lerp(fillCol, 0.55) or e.original
             end)
         end

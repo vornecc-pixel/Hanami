@@ -115,6 +115,8 @@ end)
 
 bindToggle(featSec, "Per-Element Colours", "espPerElementColors",
     "ON (default): every element uses its own picker. OFF: the green/red visibility colour paints everything")
+bindToggle(featSec, "Clean ESP (outlines only)", "espCleanMode",
+    "ON (default): no dark tag pills / chams fill; thin box + chams outline + text stroke only. OFF restores every individual widget")
 featSec:label({ name = "Visible check: outer frame + dot + VIS tag" })
 bindToggle(featSec, "Box Outline", "espShowBox")
 bindToggle(featSec, "Corner Boxes", "espCornerBox")
@@ -165,6 +167,7 @@ local BEST_ESP = {
     npcShowDist = true, npcShowHealth = true, npcShowTool = true,
     npcShowState = true, npcUseTypeColors = true,
     -- Shared visual features
+    espCleanMode = false,
     espPerElementColors = true, espShowBox = true, espCornerBox = true,
     espShowFill = true, espShowOutline = false, espShowSkeleton = true,
     espShowHeadDot = true, espShowTracer = true, espShowOffscreen = true,
@@ -180,7 +183,46 @@ function SA.ApplyBestEsp()
     end
     -- Re-open the floating preview so the result is visible immediately.
     if SA.EspPreviewSet then pcall(SA.EspPreviewSet, true) end
-    print("[esp] Best ESP applied (Player + NPC): 15 visual features ON")
+    print("[esp] Best ESP applied (Player + NPC): clean mode OFF, 15 visual features ON")
+end
+
+-- ── CLEAN ESP PRESET (outline-only) ─────────────────────────────────
+-- The screenshot-style dark pills covered the top of the screen. This
+-- preset keeps ONLY outlines: no tag backdrops, no chams fill, no corner
+-- boxes / skeleton / tracers / arrows, and a black text stroke instead of
+-- a dark rectangle behind every label.
+local CLEAN_ESP = {
+    espCleanMode = true, espPerElementColors = true,
+    espShowBox = true, espCornerBox = false,
+    espShowFill = false, espShowOutline = true,
+    espShowSkeleton = false, espShowHeadDot = false,
+    espShowTracer = false, espShowOffscreen = false,
+    espHighlightTarget = true, espRainbow = false, espFade = false,
+    espShowHealthText = false, espTextOutline = true,
+    espTagSide = true, espTagBackdrop = false, espPreview = true,
+}
+
+function SA.ApplyCleanEsp()
+    for k, v in pairs(CLEAN_ESP) do
+        pcall(setFlag, k, v)
+        CFG[k] = v
+    end
+    if SA.EspPreviewSet then pcall(SA.EspPreviewSet, true) end
+    print("[esp] Clean ESP applied: dark pills / fill removed, outlines only")
+end
+
+function SA.CleanEspState()
+    local clean = CFG.espCleanMode ~= false
+    return {
+        enabled = clean,
+        backdrop = (not clean) and CFG.espTagBackdrop == true,
+        box = clean or CFG.espShowBox == true,
+        cornerBox = (not clean) and CFG.espCornerBox == true,
+        fill = (not clean) and CFG.espShowFill == true,
+        outline = clean or CFG.espShowOutline == true,
+        textOutline = clean or CFG.espTextOutline == true,
+        preset = CLEAN_ESP,
+    }
 end
 
 function SA.EspFeatureDiag()
@@ -191,7 +233,7 @@ function SA.EspFeatureDiag()
         { "NPC", { "npcEspEnabled", "npcVisibleCheck", "npcShowName",
             "npcShowDist", "npcShowHealth", "npcShowTool", "npcShowState",
             "npcUseTypeColors" } },
-        { "SHARED", { "espPerElementColors", "espShowBox", "espCornerBox",
+        { "SHARED", { "espCleanMode", "espPerElementColors", "espShowBox", "espCornerBox",
             "espShowFill", "espShowOutline", "espShowSkeleton", "espShowHeadDot",
             "espShowTracer", "espShowOffscreen", "espHighlightTarget",
             "espRainbow", "espFade", "espArrowFOV", "espShowHealthText",
@@ -205,9 +247,11 @@ function SA.EspFeatureDiag()
         print(string.format("[%-6s] %s", g[1], table.concat(bits, " | ")))
     end
     local missing = {}
-    for k in pairs(BEST_ESP) do
-        if not library.config_flags["hn_" .. k] then
-            missing[#missing + 1] = k
+    for _, tbl in ipairs({ BEST_ESP, CLEAN_ESP }) do
+        for k in pairs(tbl) do
+            if not library.config_flags["hn_" .. k] then
+                missing[#missing + 1] = k
+            end
         end
     end
     table.sort(missing)
@@ -218,7 +262,8 @@ function SA.EspFeatureDiag()
     print("══════════════════════════════════════")
 end
 
-featSec:label({ name = "── BEST ESP · PLAYERS + NPCS ──" })
+featSec:label({ name = "── CLEAN / BEST ESP PRESETS ──" })
+addButton(featSec, "Apply Clean ESP", function() SA.ApplyCleanEsp() end)
 addButton(featSec, "Apply Best ESP", function() SA.ApplyBestEsp() end)
 addButton(featSec, "Print ESP Features", function() SA.EspFeatureDiag() end)
 

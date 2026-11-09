@@ -274,11 +274,16 @@ local SA_CFG_SHIPPED = {
     crateMaxDist       = 3000,
 
     -- esp visual features (shared by players, NPCs and crates)
+    -- CLEAN MODE is ON by default: no dark tag pills / chams fill, only
+    -- thin outlines plus text stroke. Toggle it off to restore the old
+    -- busy look; saved older configs are overridden by the effective
+    -- values in 18_esp_fx_draw.lua, not silently edited here.
+    espCleanMode        = true,
     espPerElementColors = true,
     espShowBox          = true,
     espCornerBox        = false,
-    espShowFill         = true,
-    espShowOutline      = false,
+    espShowFill         = false,
+    espShowOutline      = true,
     espShowSkeleton     = false,
     espShowHeadDot      = false,
     espShowTracer       = false,
@@ -296,7 +301,7 @@ local SA_CFG_SHIPPED = {
     espTextOutline      = true,
     -- New ESP text layout (Tahoma, weapon below the box, tags at corner)
     espTagSide          = true,    -- VIS/WALL, state, HP beside top-right corner
-    espTagBackdrop      = true,    -- dark pill behind each side tag
+    espTagBackdrop      = false,   -- dark pill behind each side tag (OFF in clean mode)
     npcUseTypeColors    = false,
 
     -- ESP preview panel (Atlanta's floating "ESP Preview" window)
@@ -378,14 +383,15 @@ for k, v in pairs({
     crateMaxDist = 3000,
     showFov = true, fovFilled = false, fovTransparency = 50, fovThickness = 1,
     fovCenterMode = "Mouse", forceGuiDrawing = true,
+    espCleanMode = true,
     espPerElementColors = true, espShowBox = true, espCornerBox = false,
-    espShowFill = true, espShowOutline = false, espShowSkeleton = false,
+    espShowFill = false, espShowOutline = true, espShowSkeleton = false,
     espShowHeadDot = false, espShowTracer = false, espShowOffscreen = false,
     espHighlightTarget = true, espRainbow = false, espRainbowSpeed = 2,
     espFade = false, espFadeStart = 60, espBoxThickness = 1,
     espTracerOrigin = "Bottom", espArrowFOV = true, espTextSize = 11,
     espShowHealthText = false, espTextOutline = true,
-    espTagSide = true, espTagBackdrop = true,
+    espTagSide = true, espTagBackdrop = false,
     espPreview = true, espPreviewSpin = true, espPreviewSpeed = 25,
     espPreviewKind = "Player", espPreviewTarget = false,
     nearestWindow = true,
@@ -494,6 +500,7 @@ CFG.nearestScale       = saClampNum(CFG.nearestScale, 0.6, 1.8, 1)
 CFG.nearestTransparency= saClampNum(CFG.nearestTransparency, 0, 80, 12)
 CFG.showNoTargetReason = CFG.showNoTargetReason == true
 CFG.showManipPopup    = CFG.showManipPopup ~= false
+CFG.espCleanMode      = CFG.espCleanMode ~= false
 CFG.espOnlyNearest     = CFG.espOnlyNearest == true
 CFG.espNearestCount    = saClampNum(CFG.espNearestCount, 1, 20, 5)
 CFG.espOnlyAimTarget   = CFG.espOnlyAimTarget == true

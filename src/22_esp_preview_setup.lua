@@ -146,6 +146,10 @@ function SA.EspPreviewDiag()
     print("  viewport:", pv.root and (pv.root.Visible and "visible" or "hidden") or "MISSING")
     print("  style   :", tostring(pv.styleErr or "ok"),
         "| embedded:", tostring(pv.embedded == true))
+    print("  clean  :", tostring(CFG.espCleanMode ~= false),
+        "| backdrops", tostring(CFG.espTagBackdrop),
+        "| fill", tostring(CFG.espShowFill),
+        "| chams outline", tostring(CFG.espShowOutline))
     print("  features: box", tostring(CFG.espShowBox),
         "| corners", tostring(CFG.espCornerBox),
         "| skeleton", tostring(CFG.espShowSkeleton),

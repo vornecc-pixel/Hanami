@@ -22,6 +22,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
+| **Clean ESP (outlines only)** | ESP → ESP Features | Default ON. Removes the dark tag pills and chams fill that covered the top of the screen; keeps a thin box outline, chams outline and black text stroke. `Apply Clean ESP` / `SA.CleanEspState()` and a one-click toggle are included. |
 | **Manipulation crosshair popup** | Visual → Nearest HUD | Small READY / BLOCKED / OFF badge above `SA.AimPoint()` (the FOV/crosshair reference). `SA.ManipPossible()` is a read-only probe: it checks clear LOS, 8-direction peek and CanQuery wall bypass without spending the ray budget or changing `CanQuery`. Toggle, refresh and print controls included. |
 | **BETTER quality-of-life pass** | all five tabs | See [BETTER quality-of-life pass](#better-quality-of-life-pass). Native config profiles, self-check panel, real full unload, top-N HUD, all-keybind console, ESP decluttering, aim/FOV UX, real-model side-by-side Preview, committed Fengari tests, adaptive performance and live gun tuning. |
 | **Native Atlanta config profiles** | Misc → Config Profiles | Save / load / delete / export / import / reset / auto-load in Atlanta's own `configs` directory. Every `hn_*` flag (including keybind tables) round-trips through `library:get_config()` / `library:load_config()`. |
@@ -46,7 +47,7 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **Best ESP preset for Players + NPCs** | ESP → ESP Features · ESP Preview panel | See [Best ESP](#best-esp-players--npcs). One **Apply Best ESP** button enables the curated readable feature set for BOTH pipelines, **Print ESP Features** audits every flag / binding, and the preview gains **Preview Kind**, **Simulate Aim Target**, a visibility frame, per-tag colours, tag backdrops and an off-screen arrow. |
 | **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
 | **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, and one shared shot resolver keeps the FOV circle as the reference point. **Guns only** — bows are skipped. |
-| **Tahoma ESP layout (weapon below, flags at the corner)** | ESP → ESP Features | See [ESP text layout](#esp-text-layout-tahoma-weapon-below-flags-at-the-corner). Player/NPC/crate labels are now screen-space Tahoma `TextLabel`s anchored to the box geometry: name above, distance at the top-left corner, **weapon below the box**, and `VIS`/`WALL`, state and HP stacked beside the top-right corner. The world-anchored BillboardGui text is hidden so nothing is drawn twice. The floating ESP Preview mirrors the same layout. |
+| **Tahoma ESP layout (weapon below, flags at the corner)** | ESP → ESP Features | See [ESP text layout](#esp-text-layout-tahoma-weapon-below-flags-at-the-corner). Player/NPC/crate labels are now screen-space Tahoma `TextLabel`s anchored to the box geometry: name above, distance at the top-left corner, **weapon below the box**, and `VIS`/`WALL`, state and HP stacked beside the top-right corner. The world-anchored BillboardGui text is hidden so nothing is drawn twice. The floating ESP Preview mirrors the same layout. Clean ESP mode keeps the same labels but removes their dark background pills, leaving only text outlines. |
 | **Classic manip sliders + recommendation back** | Aiming → Wall Penetration | See [Best settings for wall penetration](#best-settings-for-wall-penetration). Six sliders again — **Range 0–300 studs**, **Base Peek 4–6 only**, Parts 0–8, Budget 8–128, Hysteresis 0–12, Max Peek Delta 2–12 — and the old `75 / 4 / 3 / 64 / 5 / 6` recommendation button. The dead "Adaptive Peek Cap" is gone and every remaining slider has a real, clamped effect. |
 | **Actually compiles in the executor** | loader | See [Luau 200-local-register fix](#7-the-luau-200-local-register-compile-error). The old join hit `Out of local registers ... exceeded limit 200` at `playerSec` and never ran. The loader now hoists column-1 `local`s into the chunk environment, so the main chunk needs zero local registers. |
 | **FOV circle fixed + made the aim reference** | Visual → FOV Circle / Snapline | See [FOV fixes](#fov-fixes--one-reference-point). Now defaults ON, draws through a reliable ScreenGui backend, and its centre + radius are the single reference used by silent aim, snapline, tracers and arrows. |
@@ -106,6 +107,12 @@ Aiming gains **FOV Preset** (Custom / Legit / Blatant / Sniper), **Target Priori
 
 The floating Preview can clone a **real-model** source: Local Character, Nearest Player, Nearest NPC or Aim Target. **Side-by-side Player vs NPC** builds a second server-model clone with its own overlay set, shifts the two models to x ± 2.4, widens the orbit camera to 11 studs and rebuilds whenever source / kind / compare changes. `pv.ui2`, `pv.model2` and both part lists are disposed on rebuild and unload. `pv.styleErr` is cleared only on a successful styling pass.
 
+### Clean ESP (outlines only)
+
+The screenshot-style ESP showed large dark pills behind every name / state / weapon tag. **Clean ESP** is now ON by default. It removes dark tag backdrops and chams fill, and uses **outlines only**: a thin full box outline, a chams outline and a black text stroke. Corner boxes, skeleton, head dot, tracers, off-screen arrows, rainbow and distance fade are switched off by the `Apply Clean ESP` preset, so the view is no longer covered by stacked rectangles.
+
+`CFG.espCleanMode` uses **effective values** in `src/18_esp_fx_draw.lua` and the floating ESP Preview: an older saved profile with `espTagBackdrop = true` / `espShowFill = true` still renders clean until the user explicitly turns **Clean ESP (outlines only)** OFF. `SA.ApplyCleanEsp()`, `SA.CleanEspState()` and **ESP → Apply Clean ESP** expose the preset; **Apply Best ESP** deliberately turns clean mode OFF for users who want the busy curated look. Misc → Self-Check reports the clean-mode state.
+
 ### Manipulation crosshair popup
 
 Visual → **Nearest HUD → Manip Crosshair Popup** adds a small badge just above the crosshair. It follows `SA.AimPoint()` (mouse or screen-centre, the same reference as the FOV circle) and reports whether bullet manipulation can currently find a shot:
@@ -118,7 +125,7 @@ Visual → **Nearest HUD → Manip Crosshair Popup** adds a small badge just abo
 
 ### Committed Fengari validation suite
 
-`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 1,220 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 35-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 31 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
+`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 1,295 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 35-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 32 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
 
 ### Adaptive performance mode
 
@@ -656,7 +663,7 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 
 ```
 Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (classic) · Attachments (Auto) · Overrides & Diagnostics
-ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features · Colours (Player / NPC / Crate / Global)
+ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features (incl. Clean / Best ESP presets) · Colours (Player / NPC / Crate / Global)
 Gun Mods → Gun Mods · State Overrides · Bow Mods (Enable / Instant Charge / No Cooldown)
 Visual   → FOV Circle / Snapline · Debug · Nearest HUD (incl. Manip Crosshair Popup) · Performance Mode · Keybinds
 Misc     → Info · Quick Actions
@@ -792,7 +799,7 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 526 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, bow-mods, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 533 |
 | `src/02_drawing.lua` | per-kind capability probing, ScreenGui proxy, screen-space Tahoma `Text` draw, no-op fallback, draw diagnostics, **draw pool + write-failure tracking** | 477 |
 | `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking, **pinned target / priority / bone / no-target reason** | 266 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
@@ -814,18 +821,18 @@ Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script wi
 | `src/16_esp_crates_registry.lua` | live crate registry, **crate-state debug**, walker diagnostics | 113 |
 | `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, structured `o.tx` text, highlight gate) + events | 90 |
 | `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry, **draw-pool reuse** | 135 |
-| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text (name / dist / weapon / corner tags), NPC archetype / crate kind colours, boxes, chams, skeleton, tracers, FOV arrows, fade, **cross-runtime `SA.Atan2`** | 306 |
+| `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text (name / dist / weapon / corner tags), NPC archetype / crate kind colours, boxes, **clean outline-only mode**, chams, skeleton, tracers, FOV arrows, fade, **cross-runtime `SA.Atan2`** | 319 |
 | `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with per-player error isolation, **ESP decluttering filters + live per-kind counts** | 226 |
 | `src/19_render_loop.lua` | master render loop: rotating success-only build queue, 4 guarded passes, FX pass, **Adaptive pacing / rolling FPS / entity cap** | 157 |
 | `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
 | `src/21_ui_aiming.lua` | Atlanta setup + **re-execution-safe keybind wrapper**, binding helpers, Aiming tab (Target / Ballistics / classic Wall Pen sliders / tap-fire / attachments / Manipulation), **FOV preset + target priority / bone / pin / no-target UX** | 466 |
-| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **real-model source selection + side-by-side Player vs NPC compare**, per-tag labels, vis frame, arrow, backdrops | 635 |
-| `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, Preview Kind / Target / Best ESP controls, source/compare rebuild, `SA.EspPreview*` API | 315 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / 48 colourpickers / diagnostics, **ESP decluttering + live count controls** | 353 |
+| `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **real-model source selection + side-by-side Player vs NPC compare**, **clean-mode mirroring**, per-tag labels, vis frame, arrow, backdrops | 644 |
+| `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, Preview Kind / Target / Best ESP controls, source/compare rebuild, `SA.EspPreview*` API | 319 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / features / **Clean + Best ESP presets** / 48 colourpickers / diagnostics, **ESP decluttering + live count controls** | 398 |
 | `src/23_ui_gunmods.lua` | Gun Mods tab + Bow Mods section (2 toggles + diagnostics) + feature keybinds, **Live Gun Tuning / Overrides controls** | 80 |
 | `src/24_ui_visual.lua` | Visual tab (FOV / snapline / debug), **top-N nearest HUD + health/state/team/corner/scale controls + Manip Crosshair Popup**, **Performance Mode + FPS overlay + all-keybind console / rebind / conflicts** | 813 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **in-game self-check panel (incl. manip popup)**, **full unload + popup disposal**, UI init / auto-load | 698 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **in-game self-check panel (incl. manip popup + clean ESP)**, **full unload + popup disposal**, UI init / auto-load | 698 |
 | `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 57 |
 ## Testing
 

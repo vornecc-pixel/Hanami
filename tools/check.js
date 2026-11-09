@@ -95,7 +95,7 @@ const newKeys = [
   'espOnlyAimTarget', 'espTeamMode', 'espShowLiveCount', 'targetPriority',
   'fovPreset', 'targetBoneMode', 'espPreviewSource', 'espPreviewCompare',
   'perfMode', 'perfEspRebuildMs', 'perfMaxEntities', 'perfShowFps',
-  'gunDiffOnScan', 'gunOverrideString', 'showManipPopup',
+  'gunDiffOnScan', 'gunOverrideString', 'showManipPopup', 'espCleanMode',
 ];
 const config = read('src/01_config.lua');
 const shipped = config.slice(
@@ -152,13 +152,14 @@ for (const name of files) {
     `README ${name} says ${row.lines} lines, actual ${lineCounts.get(name)}`);
 }
 const requiredDescriptions = {
-  'src/01_config.lua': ['profiles', 'self-check', 'perf'],
+  'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean'],
   'src/05_manipulation.lua': ['popup', 'probe'],
   'src/08_prediction.lua': ['gun diff', 'override'],
+  'src/18_esp_fx_draw.lua': ['clean', 'outline'],
   'src/19_render_loop.lua': ['adaptive', 'fps'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone'],
-  'src/22_esp_preview.lua': ['real-model', 'side-by-side'],
-  'src/22_ui_esp.lua': ['declutter', 'live count'],
+  'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
+  'src/22_ui_esp.lua': ['declutter', 'live count', 'clean'],
   'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup'],
   'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload'],
 };
@@ -181,6 +182,8 @@ const requiredDocs = [
   'side-by-side',
   'Adaptive performance mode',
   'Manipulation crosshair popup',
+  'Clean ESP',
+  'outlines only',
   'Live gun diff',
   '## Testing',
   'npm ci && npm test',

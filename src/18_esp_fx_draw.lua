@@ -19,6 +19,19 @@ local function drawEntity(cam, o, opt)
     local isTarget  = opt.target and CFG.espHighlightTarget
     local g         = opt.geom
 
+    -- CLEAN ESP: the screenshot-style dark pills / filled chams covered
+    -- the whole top of the screen. When clean mode is ON (default), force
+    -- thin outlines + text stroke and ignore the busy saved values. The
+    -- user can disable this one toggle in ESP -> ESP Features to restore
+    -- every individual widget's own setting.
+    local cleanEsp   = CFG.espCleanMode ~= false
+    local backdrop   = (not cleanEsp) and CFG.espTagBackdrop == true
+    local showBox    = cleanEsp or CFG.espShowBox == true
+    local cornerBox  = (not cleanEsp) and CFG.espCornerBox == true
+    local showFill   = (not cleanEsp) and CFG.espShowFill == true
+    local showOutline= cleanEsp or CFG.espShowOutline == true
+    local textOutline= cleanEsp or CFG.espTextOutline == true
+
     -- crates only define a few palette keys; fall back to the shared
     -- player<Element> picker so skeleton / head dot / health aren't white
     local function col(suffix)
@@ -48,7 +61,7 @@ local function drawEntity(cam, o, opt)
     -- hidden, so nothing is rendered twice.
     local ts      = math.clamp(CFG.espTextSize or 11, 6, 30)
     local rowH    = math.floor(ts + 3)
-    local outline = CFG.espTextOutline == true
+    local outline = textOutline
     local tx      = o.tx or {}
 
     -- Read label visibility BEFORE hiding them: the refreshes rewrite
@@ -114,7 +127,7 @@ local function drawEntity(cam, o, opt)
         Vector2.new(1, 0), "Right", math.max(ts - 2, 6), col("Distance"), false)
     showText("txWeapon", tx.weapon and ("[ " .. tx.weapon .. " ]") or nil,
         cx, g.y + g.h + 4, textWidth(tx.weapon or "") + 16, rowH,
-        Vector2.new(0.5, 0), "Center", ts, col("Info"), CFG.espTagBackdrop == true)
+        Vector2.new(0.5, 0), "Center", ts, col("Info"), backdrop)
 
     local tags = tx.tags or {}
     for i, tag in ipairs(tags) do
@@ -135,29 +148,29 @@ local function drawEntity(cam, o, opt)
             textWidth(tag.text), rowH,
             side and Vector2.new(0, 0) or Vector2.new(0.5, 0),
             side and "Left" or "Center", ts, tagColor,
-            CFG.espTagBackdrop == true)
+            backdrop)
     end
 
     -- chams
     if o.highlight then
         o.highlight.FillColor = fillCol
         o.highlight.OutlineColor = outlineCol
-        o.highlight.FillTransparency = CFG.espShowFill and math.clamp(0.7 + t, 0, 1) or 1
-        o.highlight.OutlineTransparency = CFG.espShowOutline and math.clamp(t, 0, 1) or 1
+        o.highlight.FillTransparency = showFill and math.clamp(0.7 + t, 0, 1) or 1
+        o.highlight.OutlineTransparency = showOutline and math.clamp(t, 0, 1) or 1
     end
 
     -- box: reuse the 4 prebuilt lines for full boxes, lazily create the
     -- 8 corner segments (or a crate's own 4 lines) when needed
     local prebuilt = o.lines and { "top", "bottom", "left", "right" } or nil
-    if CFG.espShowBox and g.onScreen then
-        if prebuilt and not CFG.espCornerBox then
+    if showBox and g.onScreen then
+        if prebuilt and not cornerBox then
             for _, k in ipairs(prebuilt) do
                 local l = o.lines[k]
                 l.Color = boxCol; l.Transparency = t; l.Thickness = thick
             end
         else
             if prebuilt then for _, k in ipairs(prebuilt) do o.lines[k].Visible = false end end
-            for i, s in ipairs(boxSegments(g, CFG.espCornerBox)) do
+            for i, s in ipairs(boxSegments(g, cornerBox)) do
                 local l = getDraw(o, "box" .. i, "Line")
                 if l then
                     l.From = Vector2.new(s[1], s[2]); l.To = Vector2.new(s[3], s[4])
@@ -173,7 +186,7 @@ local function drawEntity(cam, o, opt)
     -- visibility frame: a larger outline painted with the user's
     -- green/red pick. This keeps the visible-check colours unmistakable
     -- even when every element is using its own per-element colour.
-    if opt.checkVisible and CFG.espShowBox and g.onScreen then
+    if opt.checkVisible and showBox and g.onScreen then
         local pad = 3
         local frame = boxSegments({ x = g.x - pad, y = g.y - pad,
                                     w = g.w + pad * 2, h = g.h + pad * 2 }, false)
@@ -199,7 +212,7 @@ local function drawEntity(cam, o, opt)
 
     -- small dot beside the box: ALWAYS shows the visibility colour even in
     -- per-element mode, so the user's green/red pick never disappears
-    if g.onScreen and CFG.espShowBox then
+    if g.onScreen and showBox then
         local d = getDraw(o, "visdot", "Circle")
         if d then
             d.Position = Vector2.new(g.x - 6, g.y - 6); d.Radius = 3

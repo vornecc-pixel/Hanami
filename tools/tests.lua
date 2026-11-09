@@ -503,6 +503,43 @@ setFlags({
     crateEnabled = false,
 })
 
+-- ── clean ESP / outline-only preset ─────────────────────────────────
+eq(CFG.espCleanMode, true, "clean ESP default ON")
+local cleanState = SA.CleanEspState()
+eq(cleanState.enabled, true, "clean state enabled")
+eq(cleanState.backdrop, false, "clean hides tag backdrops")
+eq(cleanState.fill, false, "clean hides chams fill")
+eq(cleanState.outline, true, "clean keeps chams outline")
+eq(cleanState.textOutline, true, "clean keeps text stroke")
+eq(cleanState.cornerBox, false, "clean uses full box outline")
+quiet(function() SA.ApplyCleanEsp() end)
+eq(CFG.espTagBackdrop, false, "clean preset: no dark pills")
+eq(CFG.espShowFill, false, "clean preset: no fill")
+eq(CFG.espShowOutline, true, "clean preset: outline on")
+eq(CFG.espCornerBox, false, "clean preset: no corner boxes")
+eq(CFG.espTextOutline, true, "clean preset: text outline")
+eq(CFG.espShowTracer, false, "clean preset: no tracers")
+eq(CFG.espShowOffscreen, false, "clean preset: no arrows")
+
+-- An older saved config with every busy option ON must still render clean
+-- because drawEntity / preview use effective values, not raw CFG.
+setFlags({
+    espTagBackdrop = true, espShowFill = true, espShowOutline = false,
+    espTextOutline = false, espCornerBox = true, espShowBox = false,
+})
+cleanState = SA.CleanEspState()
+eq(cleanState.backdrop, false, "clean overrides saved backdrops")
+eq(cleanState.fill, false, "clean overrides saved fill")
+eq(cleanState.outline, true, "clean overrides saved outline")
+eq(cleanState.box, true, "clean forces box outline")
+eq(cleanState.cornerBox, false, "clean overrides corner boxes")
+eq(cleanState.textOutline, true, "clean overrides text outline")
+quiet(function() setFlag("espCleanMode", false) end)
+eq(SA.CleanEspState().enabled, false, "clean mode can be disabled")
+eq(SA.CleanEspState().backdrop, true, "busy look returns when clean off")
+quiet(function() SA.ApplyCleanEsp() end)
+eq(CFG.espCleanMode, true, "clean preset restored")
+
 -- ── real-model, side-by-side ESP Preview ─────────────────────────────
 ok(type(pv) == "table", "preview state")
 ok(pv.ui ~= nil and pv.ui2 ~= nil, "two overlay sets")
@@ -571,7 +608,8 @@ local buttonNames = {
     "Refresh Nearest HUD", "Print FOV State", "Print Gun Table",
     "Print Bow Mods State", "Print Attachments", "Print Manip State (classic)",
     "Print Silent Aim (v7.7)", "Print Current Target", "Print Prediction",
-    "Print ESP Features", "Print Why No Target", "Print Draw Backend",
+    "Print ESP Features", "Apply Clean ESP", "Apply Best ESP",
+    "Print Why No Target", "Print Draw Backend",
     "Print Live Ping", "Print Player ESP State", "Rebuild Player ESP",
     "Rebuild ESP Preview", "Show ESP Preview Panel", "Print Gun Spec",
     "Print Crate Names (debug)", "Print Crate States (debug)",
