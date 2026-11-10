@@ -204,6 +204,15 @@ local SA_CFG_SHIPPED = {
     fustBowManipMaxDist = 60,
     fustBowOriginRadius = 12,
 
+    -- SECOND silent-aim version: workspace.Raycast / Spherecast hook.
+    -- Default OFF; aggressive mode adds the two-pass wallbang.
+    raycastAimEnabled      = false,
+    raycastAimAggressive   = false,
+    raycastAimFov          = 180,
+    raycastAimTargetPart   = "Head",
+    raycastAimMinRayMag    = 30,
+    raycastAimCharCount    = 2,
+
     -- triggerbot / auto fire (guns only; both OFF by default)
     triggerbot       = false,
     autoFire         = false,
@@ -409,6 +418,9 @@ for k, v in pairs({
     fustBowTargetPart = "Head", fustBowManipulation = true,
     fustBowManipPeek = 4, fustBowManipMaxDist = 60,
     fustBowOriginRadius = 12,
+    raycastAimEnabled = false, raycastAimAggressive = false,
+    raycastAimFov = 180, raycastAimTargetPart = "Head",
+    raycastAimMinRayMag = 30, raycastAimCharCount = 2,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
     espVisibleCheck = true, espShowTool = true, espShowState = true,
@@ -617,6 +629,14 @@ CFG.fustBowManipulation = CFG.fustBowManipulation ~= false
 CFG.fustBowManipPeek    = saClampNum(CFG.fustBowManipPeek, 0, 12, 4)
 CFG.fustBowManipMaxDist = saClampNum(CFG.fustBowManipMaxDist, 0, 200, 60)
 CFG.fustBowOriginRadius = saClampNum(CFG.fustBowOriginRadius, 1, 40, 12)
+CFG.raycastAimEnabled      = CFG.raycastAimEnabled == true
+CFG.raycastAimAggressive   = CFG.raycastAimAggressive == true
+CFG.raycastAimFov          = saClampNum(CFG.raycastAimFov, 10, 360, 180)
+CFG.raycastAimTargetPart   = ({ Head=true, HumanoidRootPart=true,
+                                UpperTorso=true, Torso=true })[CFG.raycastAimTargetPart]
+                            and CFG.raycastAimTargetPart or "Head"
+CFG.raycastAimMinRayMag    = saClampNum(CFG.raycastAimMinRayMag, 1, 500, 30)
+CFG.raycastAimCharCount    = saClampNum(CFG.raycastAimCharCount, 1, 8, 2)
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

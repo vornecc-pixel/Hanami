@@ -381,6 +381,7 @@ function SA.SelfCheck()
         { "fire assist", "FireAssistState" },
         { "force head", "ForceHeadState" },
         { "fust bow", "FustBowState" },
+        { "raycast aim", "RaycastAimState" },
         { "draw sync", "DrawSyncStats" },
         { "esp perf", "EspPerfState" },
         { "esp frame budget", "EspFrameBudget" },
@@ -465,6 +466,7 @@ function SA.FullUnload()
     pcall(function() if SA.DisposePlayerWarning then SA.DisposePlayerWarning() end end)
     pcall(function() if SA.DisposeFireAssist then SA.DisposeFireAssist() end end)
     pcall(function() if SA.FustBowDispose then SA.FustBowDispose() end end)
+    pcall(function() if SA.RaycastAimDispose then SA.RaycastAimDispose() end end)
     pcall(function() RunService:UnbindFromRenderStep(snapName) end)
     pcall(function() RunService:UnbindFromRenderStep(restoreName) end)
     pcall(function() SA.TapRestore(_G.__saTapCF, _G.__saTapCam) end)
@@ -501,6 +503,7 @@ function SA.FullUnload()
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saFustBow = nil
+    _G.__saRaycastAim = nil
     return true
 end
 

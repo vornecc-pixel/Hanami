@@ -97,6 +97,10 @@ const requiredDist = [
   'SA.FustBowDispose', 'fustBowEnabled', 'hookfunction',
   'Shoot.FireServer', 'solveAim', 'findPeek', 'Fust.Items',
   'peek-origin', 'arrowLife',
+  'SA.RaycastAimState', 'SA.RaycastAimRefresh', 'SA.RaycastAimRestore',
+  'SA.RaycastAimDispose', 'raycastAimEnabled', 'workspace.Raycast',
+  'workspace.Spherecast', 'isBulletRaycast', 'aggressiveRedirect',
+  'buildTargetOnlyParams', 'Include-only-players',
   'pvFindSourceModel', 'pvCloneModel', 'pvBuildOverlays', 'pvApplyStyleTo',
   'SA.DrawDiag', 'SA.DrawBackend', 'SA.EspPreviewRefresh',
 ];
@@ -148,8 +152,10 @@ const newKeys = [
   'fustBowEnabled', 'fustBowFov', 'fustBowTargetPart',
   'fustBowManipulation', 'fustBowManipPeek', 'fustBowManipMaxDist',
   'fustBowOriginRadius',
+  'raycastAimEnabled', 'raycastAimAggressive', 'raycastAimFov',
+  'raycastAimTargetPart', 'raycastAimMinRayMag', 'raycastAimCharCount',
 ];
-assert(newKeys.length === 59, `expected 59 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 65, `expected 65 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -207,7 +213,8 @@ for (const name of files) {
 const requiredDescriptions = {
   'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean',
     'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
-    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow'],
+    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow',
+    'raycast aim'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching',
     'per-property'],
   'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list'],
@@ -220,6 +227,8 @@ const requiredDescriptions = {
     'dedicated fust bow part'],
   'src/09_z_fust_bow.lua': ['fust bow', 'ballistic', 'hookfunction',
     'shoot.fireserver', 'peek-origin', 'fov', 'bow specs', 'state'],
+  'src/09_z_raycast_aim.lua': ['raycast silent aim', 'workspace.raycast',
+    'spherecast', 'two-pass', 'wallbang', 'bullet signature', 'fov', 'state'],
   'src/13_esp_players_refresh.lua': ['per-player', 'cached player rig', 'vis'],
   'src/14_esp_npcs.lua': ['npc esp', 'cached rig'],
   'src/15_esp_npcs_refresh.lua': ['npc esp', 'cached rig', 'vis'],
@@ -233,7 +242,8 @@ const requiredDescriptions = {
     'frame budget'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
     'trigger', 'auto fire', 'wall check', 'force head',
-    'silent-aim independent', 'npc hitbox', 'hitbox', 'fust bow'],
+    'silent-aim independent', 'npc hitbox', 'hitbox', 'fust bow',
+    'raycast aim'],
   'src/20_hitbox_expander.lua': ['hitbox', 'players + npcs', 'r6/r15',
     'npc', 'hrp fallback', 'self-healing', 'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
@@ -244,7 +254,7 @@ const requiredDescriptions = {
   'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
     'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget',
-    'fust bow'],
+    'fust bow', 'raycast aim'],
 };
 for (const [name, needles] of Object.entries(requiredDescriptions)) {
   const description = rowByName.get(name).description.toLowerCase();
@@ -307,9 +317,9 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '2,809 assertions',
-  'all 59 new CFG keys',
-  '37-part list',
+  '3,042 assertions',
+  'all 65 new CFG keys',
+  '38-part list',
   '### Fust bow ballistic silent aim',
   'Fust Bow Ballistic Aim',
   'SA.FustBowState()',
@@ -320,6 +330,17 @@ const requiredDocs = [
   'hookfunction',
   'peek-origin',
   'Fust.Items',
+  '### Raycast silent aim (second version)',
+  'Enable Raycast Silent Aim',
+  'Aggressive (Wallbang)',
+  'SA.RaycastAimState()',
+  'SA.RaycastAimRefresh()',
+  'SA.RaycastAimRestore()',
+  'SA.RaycastAimDispose()',
+  'raycastAimEnabled',
+  'workspace.Raycast',
+  'workspace.Spherecast',
+  'Include-only-players',
   'ESP 60 FPS frame-budget pass',
   'SA.EspFrameBudget()',
   'per-property instance writes',

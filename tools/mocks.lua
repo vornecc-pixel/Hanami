@@ -13,6 +13,10 @@ MOCK_RAYCAST_CALLS = 0
 MOCK_FUST_SHOTS = 0
 MOCK_FUST_LAST_ARGS = nil
 MOCK_FUST_BLOCKED = false
+MOCK_RAY_AIM_BLOCKED = false
+MOCK_RAY_AIM_CALLS = 0
+MOCK_RAY_AIM_DIRS = {}
+MOCK_RAY_AIM_LAST_PARAMS = nil
 
 local function wrap_callback(fn)
     return function(...)
@@ -431,13 +435,15 @@ function fireServerOriginal(self, ...)
     MOCK_FUST_LAST_ARGS = table.pack(...)
     return true
 end
+-- Each hookable function maps to the Instance field it replaces. This lets
+-- one mock model both the Fust RemoteEvent and workspace raycast methods.
 function hookfunction(a, b)
     if b == nil then return a end
-    local owner = hookOwners[a] or hookOwners[b]
-    if owner then
-        owner.FireServer = b
-        hookOwners[a] = owner
-        hookOwners[b] = owner
+    local info = hookOwners[a] or hookOwners[b]
+    if info then
+        info.owner[info.field] = b
+        hookOwners[a] = info
+        hookOwners[b] = info
     end
     return a
 end
@@ -864,11 +870,73 @@ local fustShoot = Instance.new("RemoteEvent")
 fustShoot.Name = "Shoot"
 fustShoot.Parent = remotesFolder
 fustShoot.FireServer = fireServerOriginal
-hookOwners[fireServerOriginal] = fustShoot
+hookOwners[fireServerOriginal] = { owner = fustShoot, field = "FireServer" }
 MOCK_FUST_SHOOT = fustShoot
 MOCK_FUST_REMOTES = remotesFolder
 MOCK_FUST_FUST = fustFolder
 MOCK_FUST_RS = ReplicatedStorage
+
+MOCK_RAY_AIM_WALL = Instance.new("Part")
+MOCK_RAY_AIM_WALL.Name = "MockRayAimWall"
+MOCK_RAY_AIM_WALL.Parent = WorkspaceService
+
+local function rayAimHit(origin, dir, instance)
+    return {
+        Instance = instance,
+        Normal = Vector3.new(0, 0, -1),
+        Position = origin + dir * 0.5,
+        Distance = 0.5,
+    }
+end
+
+local function rayAimWallLogic(origin, dir, params)
+    MOCK_RAY_AIM_CALLS = MOCK_RAY_AIM_CALLS + 1
+    MOCK_RAY_AIM_DIRS[#MOCK_RAY_AIM_DIRS + 1] = dir
+    MOCK_RAY_AIM_LAST_PARAMS = params
+    if MOCK_MANIP_BLOCKED and MOCK_MANIP_WALL then
+        local filters = params and params.FilterDescendantsInstances or {}
+        for _, f in ipairs(filters) do
+            if f == MOCK_MANIP_WALL then return nil end
+        end
+        return rayAimHit(origin, dir, MOCK_MANIP_WALL)
+    end
+    if MOCK_FUST_BLOCKED and MOCK_CAMERA then
+        local cam = MOCK_CAMERA.CFrame.Position
+        if (origin - cam).Magnitude < 0.01 then
+            return rayAimHit(origin, dir, MOCK_FUST_WALL)
+        end
+        return nil
+    end
+    if MOCK_RAY_AIM_BLOCKED then
+        local include = params and params.FilterType == Enum.RaycastFilterType.Include
+        if include and params.FilterDescendantsInstances then
+            for _, c in ipairs(params.FilterDescendantsInstances) do
+                if typeof(c) == "Instance" and c:IsA("Model")
+                    and c:FindFirstChildOfClass("Humanoid") then
+                    return rayAimHit(origin, dir, c)
+                end
+            end
+        end
+        return rayAimHit(origin, dir, MOCK_RAY_AIM_WALL)
+    end
+    return nil
+end
+
+local function mockWorkspaceRaycast(self, origin, dir, params)
+    MOCK_RAYCAST_CALLS = (MOCK_RAYCAST_CALLS or 0) + 1
+    return rayAimWallLogic(origin, dir, params)
+end
+local function mockWorkspaceSpherecast(self, origin, radius, dir, params)
+    MOCK_RAYCAST_CALLS = (MOCK_RAYCAST_CALLS or 0) + 1
+    return rayAimWallLogic(origin, dir, params)
+end
+WorkspaceService.Raycast = mockWorkspaceRaycast
+WorkspaceService.Spherecast = mockWorkspaceSpherecast
+hookOwners[mockWorkspaceRaycast] = { owner = WorkspaceService, field = "Raycast" }
+hookOwners[mockWorkspaceSpherecast] = { owner = WorkspaceService, field = "Spherecast" }
+MOCK_WORKSPACE_RAYCAST = mockWorkspaceRaycast
+MOCK_WORKSPACE_SPHERECAST = mockWorkspaceSpherecast
+
 local StatsService = service("Stats")
 service("HttpService")
 
@@ -1029,6 +1097,14 @@ function mock_fust_reset()
     farPlayer.Team = nil
     MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
     SA.FustBowRefresh()
+end
+
+function mock_ray_aim_reset()
+    MOCK_RAY_AIM_BLOCKED = false
+    MOCK_RAY_AIM_CALLS = 0
+    MOCK_RAY_AIM_DIRS = {}
+    MOCK_RAY_AIM_LAST_PARAMS = nil
+    SA.RaycastAimRefresh()
 end
 
 function mock_hitbox_reset()

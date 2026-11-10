@@ -90,6 +90,7 @@ end
 if run == 3 then
     eq(SA.Unloaded, false, "unload guard must reset on re-execute")
     ok(_G.__saFustBow ~= nil, "Fust bow state rebuilt after full unload")
+    ok(_G.__saRaycastAim ~= nil, "raycast aim state rebuilt after full unload")
     eq(SA.Alive, true, "alive must reset on re-execute")
     ok(_G.__saShared ~= nil, "shared state rebuilt after full unload")
     ok(_G.__saCFG ~= nil, "CFG rebuilt after full unload")
@@ -111,6 +112,7 @@ if run > 1 then
     ok(SA.ManipPopupState and SA.ManipPopupState().built == true,
         "manip popup rebuilt after re-execute")
     eq(SA.FustBowState().hooked, true, "re-execute reinstalls the Fust bow hook")
+    eq(SA.RaycastAimState().hooked, true, "re-execute reinstalls raycast hooks")
     -- The wrapper is installed once on the library, with the stock methods
     -- preserved, so repeated loads cannot stack wrapper call chains.
     ok(library.__saKeybindWrapperInstalled == true
@@ -155,6 +157,8 @@ local newKeys = {
     "fustBowEnabled", "fustBowFov", "fustBowTargetPart",
     "fustBowManipulation", "fustBowManipPeek", "fustBowManipMaxDist",
     "fustBowOriginRadius",
+    "raycastAimEnabled", "raycastAimAggressive", "raycastAimFov",
+    "raycastAimTargetPart", "raycastAimMinRayMag", "raycastAimCharCount",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -168,6 +172,10 @@ eq(CFG.fustBowEnabled, false, "Fust bow ballistic aim default OFF")
 eq(SA.FustBowState().hooked, true, "hookfunction installed at startup")
 eq(SA.FustBowState().remotesReady, true, "Fust Shoot remote resolved")
 eq(SA.FustBowState().rewrites >= 0, true, "Fust bow state exposes counters")
+eq(CFG.raycastAimEnabled, false, "raycast silent aim default OFF")
+eq(CFG.raycastAimAggressive, false, "aggressive wallbang default OFF")
+eq(SA.RaycastAimState().hooked, true, "workspace raycast hooks installed at startup")
+eq(SA.RaycastAimState().mode, "true", "default true redirect mode")
 ok(SA.FlagCount() > 40, "Atlanta flag count")
 contains(SA.FlagSnapshot(), "hn_menu_bind", "flag snapshot")
 ok(count(SA.AllKeybinds) >= 7, "all keybinds registered")
@@ -728,6 +736,151 @@ setFlags({
 })
 MOCK_FUST_TOOL:SetAttribute("ItemId", savedFust.toolId)
 mock_fust_reset()
+
+-- ── Second silent-aim version: workspace.Raycast / Spherecast hook ───
+local savedRay = {
+    enabled = CFG.raycastAimEnabled,
+    aggressive = CFG.raycastAimAggressive,
+    fov = CFG.raycastAimFov,
+    targetPart = CFG.raycastAimTargetPart,
+    minRayMag = CFG.raycastAimMinRayMag,
+    charCount = CFG.raycastAimCharCount,
+}
+mock_ray_aim_reset()
+eq(SA.RaycastAimState().enabled, false, "raycast aim default OFF")
+eq(SA.RaycastAimState().method,
+    "hookfunction on workspace.Raycast + Spherecast", "hook method")
+eq(SA.RaycastAimState().errors, 0, "no hook errors")
+ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST,
+    "Raycast replaced by the silent-aim wrapper")
+ok(workspace.Spherecast ~= MOCK_WORKSPACE_SPHERECAST,
+    "Spherecast replaced by the silent-aim wrapper")
+eq(SA.RaycastAim.Enabled, false, "control surface reads Enabled")
+eq(SA.RaycastAim.FOV, 180, "control surface reads FOV")
+SA.RaycastAim.Enabled = true
+eq(CFG.raycastAimEnabled, true, "control surface writes Enabled")
+SA.RaycastAim.Enabled = false
+eq(CFG.raycastAimEnabled, false, "control surface restores Enabled")
+
+local rayOrigin = Vector3.new(0, 3, 0)
+local bulletDir = Vector3.new(0, 0, 100)
+local bulletParams = RaycastParams.new()
+bulletParams.FilterType = Enum.RaycastFilterType.Exclude
+bulletParams.FilterDescendantsInstances = {
+    Players:GetPlayers()[1].Character,
+    Players:GetPlayers()[2].Character,
+    Players:GetPlayers()[3].Character,
+}
+local thinParams = RaycastParams.new()
+thinParams.FilterType = Enum.RaycastFilterType.Exclude
+thinParams.FilterDescendantsInstances = { Players:GetPlayers()[2].Character }
+local function rayAimReset()
+    MOCK_RAY_AIM_BLOCKED = false
+    MOCK_RAY_AIM_CALLS = 0
+    MOCK_RAY_AIM_DIRS = {}
+    MOCK_RAY_AIM_LAST_PARAMS = nil
+end
+local redirects0 = SA.RaycastAimState().redirects
+local wallbangs0 = SA.RaycastAimState().wallbangs
+
+-- OFF: every ray is forwarded untouched.
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+eq(MOCK_RAY_AIM_CALLS, 1, "original raycast called while OFF")
+eq(MOCK_RAY_AIM_DIRS[1], bulletDir, "direction untouched while OFF")
+eq(SA.RaycastAimState().redirects, redirects0, "no redirect while OFF")
+
+-- true mode: single-pass redirect toward the FOV target.
+setFlags({ raycastAimEnabled = true, raycastAimAggressive = false })
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+eq(MOCK_RAY_AIM_CALLS, 1, "true redirect calls original once")
+eq(#MOCK_RAY_AIM_DIRS, 1, "one redirected ray")
+ok(MOCK_RAY_AIM_DIRS[1].X > 0, "redirect aims toward target X")
+ok(MOCK_RAY_AIM_DIRS[1].Z < 100, "redirect replaces the original direction")
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "redirect counted")
+eq(SA.RaycastAimState().lastMode, "true", "true mode recorded")
+
+-- Bullet signature gates: short ray, bad params, too few rigs.
+rayAimReset()
+workspace:Raycast(rayOrigin, Vector3.new(0, 0, 10), bulletParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "MIN_RAY_MAG gate")
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, {})
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "non-RaycastParams gate")
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, thinParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1,
+    "player-count filter gate")
+
+-- Config knobs: FOV, magnitude, char count, target part.
+setFlags({ raycastAimFov = 10 })
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "FOV gate")
+setFlags({ raycastAimFov = 180 })
+setFlags({ raycastAimMinRayMag = 200 })
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "MIN_RAY_MAG knob gate")
+setFlags({ raycastAimMinRayMag = 30 })
+setFlags({ raycastAimCharCount = 4 })
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "CHAR_COUNT knob gate")
+setFlags({ raycastAimCharCount = 2 })
+setFlags({ raycastAimTargetPart = "HumanoidRootPart" })
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+eq(SA.RaycastAimState().lastTargetPart, "HumanoidRootPart",
+    "target part knob")
+setFlags({ raycastAimTargetPart = "Head" })
+
+-- aggressive mode: two-pass Include-only-players wallbang.
+setFlags({ raycastAimAggressive = true })
+rayAimReset()
+MOCK_RAY_AIM_BLOCKED = true
+local hit = workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+eq(MOCK_RAY_AIM_CALLS, 2, "aggressive calls original twice")
+eq(#MOCK_RAY_AIM_DIRS, 2, "both passes redirected")
+ok(MOCK_RAY_AIM_DIRS[1].X > 0 and MOCK_RAY_AIM_DIRS[2].X > 0,
+    "both passes aim at the target")
+ok(hit ~= nil, "aggressive returns the target-only hit")
+eq(hit.Instance, Players:GetPlayers()[2].Character,
+    "target-only hit belongs to the FOV target")
+eq(SA.RaycastAimState().wallbangs, wallbangs0 + 1, "wallbang counted")
+eq(SA.RaycastAimState().lastMode, "aggressive", "aggressive mode recorded")
+
+-- Spherecast uses the same detection / two-pass logic.
+setFlags({ raycastAimAggressive = false })
+MOCK_RAY_AIM_BLOCKED = false
+rayAimReset()
+workspace:Spherecast(rayOrigin, 2, bulletDir, bulletParams)
+eq(MOCK_RAY_AIM_CALLS, 1, "sphere true redirect single pass")
+ok(MOCK_RAY_AIM_DIRS[1].X > 0, "sphere redirect aims at target")
+setFlags({ raycastAimAggressive = true })
+rayAimReset()
+MOCK_RAY_AIM_BLOCKED = true
+local sphereHit = workspace:Spherecast(rayOrigin, 2, bulletDir, bulletParams)
+eq(MOCK_RAY_AIM_CALLS, 2, "aggressive sphere two-pass")
+ok(sphereHit ~= nil, "aggressive sphere returns target hit")
+
+-- Dispose / restore / re-hook.
+eq(SA.RaycastAimDispose().hooked, false, "dispose marks hooks inactive")
+eq(workspace.Raycast, MOCK_WORKSPACE_RAYCAST, "dispose restores Raycast")
+eq(workspace.Spherecast, MOCK_WORKSPACE_SPHERECAST,
+    "dispose restores Spherecast")
+eq(SA.RaycastAimRestore().hooked, true, "restore reinstalls hooks")
+ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST, "hooks active again")
+setFlags({
+    raycastAimEnabled = savedRay.enabled,
+    raycastAimAggressive = savedRay.aggressive,
+    raycastAimFov = savedRay.fov,
+    raycastAimTargetPart = savedRay.targetPart,
+    raycastAimMinRayMag = savedRay.minRayMag,
+    raycastAimCharCount = savedRay.charCount,
+})
+mock_ray_aim_reset()
 
 CFG.fovCenterMode = "Mouse"
 CFG.fov = 150
@@ -1692,7 +1845,8 @@ for _, name in ipairs(removedOutputAPIs) do
 end
 local keptStateAPIs = {
     "SelfCheck", "SelfCheckState", "FustBowState", "FustBowRefresh",
-    "FustBowRestore", "FustBowDispose", "EspPerfState", "EspFrameBudget",
+    "FustBowRestore", "FustBowDispose", "RaycastAimState", "RaycastAimRefresh",
+    "RaycastAimRestore", "RaycastAimDispose", "EspPerfState", "EspFrameBudget",
     "HitboxState", "HitboxScan", "HitboxRestore", "DrawSyncStats",
     "DrawSyncPending", "DrawDiag", "DrawWriteFailures", "KeybindConflicts",
     "ConfigCoverage", "SilentAimState", "FireAssistState", "ForceHeadState",
@@ -1784,16 +1938,25 @@ else
         "full unload: hitbox expanded before unload")
     setFlags({
         masterEnabled = true, gunEnabled = true, fustBowEnabled = true,
+        raycastAimEnabled = true,
     })
     SA.FustBowRefresh()
+    SA.RaycastAimRefresh()
     ok(MOCK_FUST_SHOOT.FireServer ~= fireServerOriginal,
         "full unload: Fust bow hook active before unload")
+    ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST,
+        "full unload: raycast aim hook active before unload")
     local unloaded, why = SA.FullUnload()
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 2,
         "full unload restores hitbox originals")
     eq(MOCK_FUST_SHOOT.FireServer, fireServerOriginal,
         "full unload restores the original FireServer")
     eq(_G.__saFustBow, nil, "full unload clears Fust bow state")
+    eq(workspace.Raycast, MOCK_WORKSPACE_RAYCAST,
+        "full unload restores workspace.Raycast")
+    eq(workspace.Spherecast, MOCK_WORKSPACE_SPHERECAST,
+        "full unload restores workspace.Spherecast")
+    eq(_G.__saRaycastAim, nil, "full unload clears raycast aim state")
     ok(unloaded == true, "full unload: " .. tostring(why))
     eq(SA.Alive, false, "unload stops loops")
     eq(SA.Unloaded, true, "unload guard")
