@@ -9,6 +9,7 @@ local gmCol1 = GunTab:column()
 local gmSec = gmCol1:section({ name = "Gun Mods (GC Scan)" })
 
 local gmToggle = bindToggle(gmSec, "Enable Gun Mods", "gmEnabled", "Needs getgc + setreadonly")
+gmSec:label({ name = "Timing-safe: 0.001 s minimum, finite equipAt" })
 SA.FeatureKeybind(gmToggle, "Enable Gun Mods", "hn_bind_gmEnabled",
     Enum.KeyCode.G, "gmEnabled")
 bindToggle(gmSec, "Instant Equip", "gmInstantEquip")
@@ -22,6 +23,10 @@ bindToggle(gmSec2, "Force Auto", "gmForceAuto")
 bindToggle(gmSec2, "No Recoil", "gmNoRecoil")
 bindToggle(gmSec2, "No Sway", "gmNoSway")
 bindToggle(gmSec2, "No Kick", "gmNoKick")
+addButton(gmSec2, "Restore Gun Timings", function()
+    if SA.GunModsRestore then SA.GunModsRestore() end
+end)
+gmSec2:label({ name = "Originals are restored when a mod or master is OFF" })
 
 -- ── BOW MODS (ONLY instant charge + no cooldown) ────────────────────
 -- Bows are excluded from silent aim / manipulation; these two toggles

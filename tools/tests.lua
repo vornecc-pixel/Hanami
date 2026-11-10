@@ -91,6 +91,7 @@ if run == 3 then
     eq(SA.Unloaded, false, "unload guard must reset on re-execute")
     ok(_G.__saFustBow ~= nil, "Fust bow state rebuilt after full unload")
     ok(_G.__saRaycastAim ~= nil, "raycast aim state rebuilt after full unload")
+    ok(_G.__saGunMods ~= nil, "gun mods state rebuilt after full unload")
     eq(SA.Alive, true, "alive must reset on re-execute")
     ok(_G.__saShared ~= nil, "shared state rebuilt after full unload")
     ok(_G.__saCFG ~= nil, "CFG rebuilt after full unload")
@@ -159,6 +160,7 @@ local newKeys = {
     "fustBowOriginRadius",
     "raycastAimEnabled", "raycastAimAggressive", "raycastAimFov",
     "raycastAimTargetPart", "raycastAimMinRayMag", "raycastAimCharCount",
+    "noCameraSnap",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -173,6 +175,10 @@ eq(SA.FustBowState().hooked, true, "hookfunction installed at startup")
 eq(SA.FustBowState().remotesReady, true, "Fust Shoot remote resolved")
 eq(SA.FustBowState().rewrites >= 0, true, "Fust bow state exposes counters")
 eq(CFG.raycastAimEnabled, false, "raycast silent aim default OFF")
+eq(CFG.noCameraSnap, true, "No Camera Snap default ON")
+eq(SA.SilentAimState().noCameraSnap, true, "No Camera Snap active at startup")
+eq(SA.SilentAimState().cameraSnapBlocked, true, "camera CFrame writes blocked at startup")
+eq(SA.SilentAimState().shotResolverLive, true, "shot resolver stays live at startup")
 eq(CFG.raycastAimAggressive, false, "aggressive wallbang default OFF")
 eq(SA.RaycastAimState().hooked, true, "workspace raycast hooks installed at startup")
 eq(SA.RaycastAimState().mode, "true", "default true redirect mode")
@@ -1142,6 +1148,162 @@ MOCK_TOOL_ACTIVATE_FAIL = false
 MOCK_MOUSE_FAIL = false
 pcall(function() ws.CurrentCamera.CFrame = CFrame.new(0, 3, 0) end)
 
+-- ── No Camera Snap + reversible gun mods ────────────────────────────
+local noSnap = { saved = {
+    masterEnabled = CFG.masterEnabled, gunEnabled = CFG.gunEnabled,
+    gunShotOnly = CFG.gunShotOnly, gunCooldown = CFG.gunCooldown,
+    prediction = CFG.prediction, hitChance = CFG.hitChance,
+    distance = CFG.distance, fov = CFG.fov, fovCenterMode = CFG.fovCenterMode,
+    targetPriority = CFG.targetPriority, targetBone = CFG.targetBone,
+    targetBoneMode = CFG.targetBoneMode, targetNpcs = CFG.targetNpcs,
+    teamCheck = CFG.teamCheck, wallCheck = CFG.wallCheck,
+    manipulation = CFG.manipulation, triggerbot = CFG.triggerbot,
+    autoFire = CFG.autoFire, triggerHeadOnly = CFG.triggerHeadOnly,
+    triggerRandomPart = CFG.triggerRandomPart,
+    triggerPart = CFG.triggerPart, triggerUseManip = CFG.triggerUseManip,
+    fireWallCheck = CFG.fireWallCheck, noCameraSnap = CFG.noCameraSnap,
+    gmEnabled = CFG.gmEnabled, gmInstantEquip = CFG.gmInstantEquip,
+    gmInstantAds = CFG.gmInstantAds, gmNoSpread = CFG.gmNoSpread,
+    gmForceAuto = CFG.gmForceAuto, gmNoRecoil = CFG.gmNoRecoil,
+    gmNoSway = CFG.gmNoSway, gmNoKick = CFG.gmNoKick,
+}, pin = SA.PinnedTarget }
+
+mock_gm_reset()
+setFlags({
+    noCameraSnap = true, masterEnabled = true, gunEnabled = true,
+    gunShotOnly = false, gunCooldown = 0, prediction = false,
+    hitChance = 100, distance = 0, fov = 220, fovCenterMode = "Mouse",
+    targetPriority = "Pinned", targetBone = "Head", targetBoneMode = "Global",
+    targetNpcs = false, teamCheck = false, wallCheck = false,
+    manipulation = false, triggerbot = false, autoFire = false,
+    triggerHeadOnly = true, triggerRandomPart = false, triggerPart = "Head",
+    triggerUseManip = false, fireWallCheck = true,
+})
+UserInputService.GetMouseLocation = function() return Vector2.new(641, 345) end
+noSnap.model = Players:GetPlayers()[2].Character
+noSnap.bone = noSnap.model:FindFirstChild("Head")
+SA.PinnedTarget = { model = noSnap.model, bone = noSnap.bone,
+    pos = noSnap.bone.Position, name = noSnap.model.Name }
+MOCK_MANIP_BLOCKED = false
+mock_advance_time(0.2)
+mock_cam_cframe_reset()
+
+-- The legacy resolver may resolve a target and re-write its shot data, but
+-- it must not make a single camera.CFrame assignment while the mode is ON.
+quiet(function() mock_frame(0.016) end)
+eq(MOCK_CAM_CFRAME_WRITES, 0, "No Camera Snap ON writes zero camera CFrames")
+noSnap.shot = SA.ResolveShot()
+ok(noSnap.shot ~= nil, "No Camera Snap keeps target resolution live")
+eq(noSnap.shot.model, noSnap.model, "No Camera Snap resolves the pinned model")
+eq(noSnap.shot.bone.Name, "Head", "No Camera Snap keeps the resolved bone")
+ok(SA.Target.lastShot ~= nil, "No Camera Snap records last shot target")
+eq(SA.SilentAimState().noCameraSnap, true, "state reports No Camera Snap ON")
+
+-- Triggerbot still fires with No Camera Snap ON; only its camera sandwich
+-- is removed. The VIS target gate and Tool-first FireOnce stay intact.
+CFG.triggerbot = true
+mock_advance_time(0.2)
+noSnap.shotsBefore = SA.FireAssistState().shots
+mock_cam_cframe_reset()
+eq(SA.FireAssistTick(true), true, "Triggerbot still fires with No Camera Snap")
+eq(SA.FireAssistState().shots, noSnap.shotsBefore + 1,
+    "Triggerbot shot count with No Camera Snap")
+eq(MOCK_CAM_CFRAME_WRITES, 0, "Triggerbot camera sandwich disabled")
+eq(SA.FireAssistState().backend, "tool", "Triggerbot Tool-first backend kept")
+
+-- OFF is the legacy v7.7 sandwich: the same frame resolves a shot AND
+-- writes camera.CFrame. Turning it back ON restores any in-flight snap.
+setFlag("noCameraSnap", false)
+mock_advance_time(0.2)
+mock_cam_cframe_reset()
+quiet(function() mock_frame(0.016) end)
+ok(MOCK_CAM_CFRAME_WRITES >= 1, "camera sandwich writes when No Camera Snap OFF")
+noSnap.shot = SA.ResolveShot()
+ok(noSnap.shot ~= nil, "legacy camera sandwich keeps target resolution")
+setFlag("noCameraSnap", true)
+mock_cam_cframe_reset()
+eq(MOCK_CAM_CFRAME_WRITES, 0, "switching No Camera Snap ON is clean")
+
+-- Gun mods: all seven toggles patch only shape-matched tables. Timing
+-- values stay finite and > 0 (0 / -math.huge caused the "stuck gun").
+setFlags({
+    gmEnabled = true, gmInstantEquip = true, gmInstantAds = true,
+    gmNoSpread = true, gmForceAuto = true, gmNoRecoil = true,
+    gmNoSway = true, gmNoKick = true,
+})
+quiet(function() mock_frame(0.016) end)
+noSnap.gm = SA.GunModsState()
+ok(noSnap.gm.scanned == true, "gun mods GC scan completed")
+ok(noSnap.gm.configTables >= 1, "gun mods config table shape matched")
+ok(noSnap.gm.defs >= 1, "gun defs table shape matched")
+ok(noSnap.gm.recoilLive >= 1, "recoil live state shape matched")
+ok(noSnap.gm.spreadLive >= 1, "spread live state shape matched")
+ok(noSnap.gm.swayLive >= 1, "sway live state shape matched")
+eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.001, "Instant Equip uses non-zero min time")
+eq(MOCK_GM_CONFIG.HOLSTER_TIME, 0.001, "Holster uses non-zero min time")
+eq(MOCK_GM_CONFIG.AdsTime, 0.001, "Instant ADS uses non-zero min time")
+eq(MOCK_GM_CONFIG.AdsOutTime, 0.001, "ADS-out uses non-zero min time")
+eq(MOCK_GM_CONFIG.adsTime, 0.001, "lowercase adsTime uses non-zero min time")
+eq(MOCK_GM_CONFIG.MOVE_SPREAD, 0, "No Spread zeroes MOVE_SPREAD")
+eq(MOCK_GM_CONFIG.AirSpread, 0, "No Spread zeroes AirSpread")
+eq(MOCK_GM_CONFIG.RecoilClimb, 0, "No Recoil zeroes RecoilClimb")
+eq(MOCK_GM_CONFIG.KICK_BACK, 0, "No Kick zeroes KICK_BACK")
+eq(MOCK_GM_CONFIG.SWAY, 0, "No Sway zeroes SWAY")
+eq(MOCK_GM_CONFIG.TREMBLE_AFTER, 9999, "No Sway delays tremble")
+eq(MOCK_GM_DEF.spread, 0, "No Spread zeroes gun-def spread")
+eq(MOCK_GM_DEF.adsSpread, 0, "No Spread zeroes gun-def adsSpread")
+eq(MOCK_GM_DEF.auto, true, "Force Auto patches only the gun def")
+eq(MOCK_GM_LIVE.recoil, 0, "No Recoil zeroes live recoil")
+eq(MOCK_GM_LIVE.kick, 0, "No Kick zeroes live kick")
+eq(MOCK_GM_LIVE.SpreadPx, 0, "No Spread zeroes live SpreadPx")
+ok(MOCK_GM_LIVE.equipAt > -math.huge, "equipAt is finite, not -math.huge")
+ok(MOCK_GM_LIVE.equipAt < math.huge, "equipAt has no infinite overflow")
+ok(MOCK_GM_LIVE.equipAt <= os.clock(), "equipAt is a finite past timestamp")
+eq(MOCK_GM_LIVE.sway.X, 0, "No Sway zeroes live sway vector")
+eq(MOCK_GM_LIVE.lean, 0, "No Sway zeroes live lean")
+eq(MOCK_GM_LIVE.ads, 0.5, "Instant Ads does not overwrite live ads spring")
+eq(noSnap.gm.errors, 0, "gun mods render tick has no errors")
+
+-- Turning the master OFF restores EVERY saved original, including auto.
+setFlags({ gmEnabled = false })
+quiet(function() mock_frame(0.016) end)
+eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.55, "gun mods restore original equip time")
+eq(MOCK_GM_CONFIG.AdsTime, 0.28, "gun mods restore original ADS time")
+eq(MOCK_GM_CONFIG.MOVE_SPREAD, 3, "gun mods restore original move spread")
+eq(MOCK_GM_CONFIG.RecoilClimb, 1.2, "gun mods restore original recoil climb")
+eq(MOCK_GM_CONFIG.SWAY, 1, "gun mods restore original sway")
+eq(MOCK_GM_CONFIG.TREMBLE_AFTER, 4, "gun mods restore original tremble")
+eq(MOCK_GM_DEF.spread, 2, "gun mods restore original gun-def spread")
+eq(MOCK_GM_DEF.auto, false, "gun mods restore original auto flag")
+eq(SA.GunModsState().patched, 0, "gun mods saved-original map is empty")
+eq(isreadonly(MOCK_GM_CONFIG), false, "gun mods leave writable tables writable")
+
+-- A single toggle must not patch unrelated constants / live fields.
+mock_gm_reset()
+setFlags({
+    gmEnabled = true, gmInstantEquip = true, gmInstantAds = false,
+    gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
+    gmNoSway = false, gmNoKick = false,
+})
+quiet(function() mock_frame(0.016) end)
+eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.001, "targeted Instant Equip patches equip")
+eq(MOCK_GM_CONFIG.AdsTime, 0.28, "targeted Instant Equip leaves ADS alone")
+eq(MOCK_GM_CONFIG.RecoilClimb, 1.2, "targeted Instant Equip leaves recoil alone")
+eq(MOCK_GM_DEF.auto, false, "targeted Instant Equip leaves auto alone")
+eq(MOCK_GM_LIVE.SpreadPx, 12, "targeted Instant Equip leaves SpreadPx alone")
+eq(SA.GunModsState().errors, 0, "targeted gun mods tick has no errors")
+setFlags({ gmEnabled = false })
+quiet(function() mock_frame(0.016) end)
+eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.55, "targeted gun mod is reversible")
+mock_gm_reset()
+
+-- Restore everything the block touched, including the UI flag setters.
+setFlags(noSnap.saved)
+SA.PinnedTarget = noSnap.pin
+UserInputService.GetMouseLocation = nil
+MOCK_MANIP_BLOCKED = false
+mock_cam_cframe_reset()
+
 -- ── Hitbox Expander v2: silent, self-healing, reversible ───────────
 do
     quiet(function() SA.HitboxRestore() end)
@@ -1942,6 +2104,15 @@ else
     })
     SA.FustBowRefresh()
     SA.RaycastAimRefresh()
+    mock_gm_reset()
+    setFlags({
+        gmEnabled = true, gmInstantEquip = true, gmNoSpread = true,
+        gmInstantAds = false, gmForceAuto = false, gmNoRecoil = false,
+        gmNoSway = false, gmNoKick = false,
+    })
+    quiet(function() mock_frame(0.016) end)
+    eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.001,
+        "full unload: gun mod active before unload")
     ok(MOCK_FUST_SHOOT.FireServer ~= fireServerOriginal,
         "full unload: Fust bow hook active before unload")
     ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST,
@@ -1957,6 +2128,11 @@ else
     eq(workspace.Spherecast, MOCK_WORKSPACE_SPHERECAST,
         "full unload restores workspace.Spherecast")
     eq(_G.__saRaycastAim, nil, "full unload clears raycast aim state")
+    eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.55,
+        "full unload restores original gun timing")
+    eq(MOCK_GM_CONFIG.MOVE_SPREAD, 3,
+        "full unload restores original spread constants")
+    eq(_G.__saGunMods, nil, "full unload clears gun mods state")
     ok(unloaded == true, "full unload: " .. tostring(why))
     eq(SA.Alive, false, "unload stops loops")
     eq(SA.Unloaded, true, "unload guard")

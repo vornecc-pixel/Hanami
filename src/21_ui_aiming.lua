@@ -301,6 +301,15 @@ local fovPresetDropdown = masterSec:dropdown({
 })
 
 bindToggle(gunSec, "Gun Silent Aim", "gunEnabled")
+local noSnapToggle = bindToggle(gunSec, "No Camera Snap", "noCameraSnap",
+    "ON: keep target resolution + shot rewriting, but NEVER write camera.CFrame. OFF: v7.7 camera sandwich")
+-- Restore any in-flight sandwich BEFORE the mode becomes active. Profiles,
+-- quick actions and keybinds all go through this same hn_ setter.
+local noSnapFlagSetter = library.config_flags["hn_noCameraSnap"]
+library.config_flags["hn_noCameraSnap"] = function(v)
+    if SA.SetNoCameraSnap then pcall(SA.SetNoCameraSnap, v) end
+    if noSnapFlagSetter then noSnapFlagSetter(v) end
+end
 bindToggle(gunSec, "Only While Firing", "gunShotOnly")
 bindToggle(gunSec, "Wall Check", "wallCheck",
     "Strict LOS-only silent-aim shots. Fire Assist Wall Check is a separate toggle; bypassed while Manipulation is ON")

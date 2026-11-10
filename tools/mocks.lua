@@ -428,7 +428,11 @@ function setclipboard(s) clipboard = tostring(s) end
 function getclipboard() return clipboard end
 function getgenv() return _G end
 function gethui() return game:GetService("CoreGui") end
-function setreadonly(t) return t end
+-- Some executors expose isreadonly(); model it so gun mods can restore
+-- only the tables they actually had to unfreeze.
+local mockReadonly = setmetatable({}, { __mode = "k" })
+function setreadonly(t, state) mockReadonly[t] = state == true; return t end
+function isreadonly(t) return mockReadonly[t] == true end
 local hookOwners = {}
 function fireServerOriginal(self, ...)
     MOCK_FUST_SHOTS = MOCK_FUST_SHOTS + 1
@@ -455,6 +459,67 @@ function getconnections(ev)
     for i, c in ipairs(ev._connections) do out[i] = c end
     return out
 end
+-- Shape-matched tables for the reversible gun-mods rewrite. Values here
+-- are the game's ORIGINALS; the mod must never permanently mutate them.
+local function gmFreshConfig()
+    return {
+        EQUIP_TIME = 0.55, HOLSTER_TIME = 0.4,
+        AdsTime = 0.28, AdsOutTime = 0.22, adsTime = 0.28,
+        MOVE_SPREAD = 3, AirSpread = 5, AdsMoveMult = 0.6, AimRun = 0.8,
+        KICK_RECOVER = 9,
+        RecoilClimb = 1.2, RecoilRecover = 8, RecoilTail = 0.4,
+        VisualBloom = 0.7, ShakeMax = 1.5, ShakeDur = 0.2,
+        KICK_PITCH = 2, KICK_BACK = 0.6, ADS_KICK = 1, ADS_KICK_ROLL = 0.4,
+        SWAY = 1, SWAY_MAX = 3, SWAY_ROT = 0.5, SWAY_ROT_MAX = 2,
+        BOB_WALK = 0.4, BOB_IDLE = 0.1, BOB_ROLL = 0.2,
+        LEAN = 1.5, LEAN_SHIFT = 0.6, ADS_LEAN = 0.5, ADS_LAND = 0.3,
+        ADS_INERTIA = 0.4, ADS_SWAY = 0.5, TREMBLE_MAX = 1,
+        TREMBLE_AFTER = 4,
+    }
+end
+local function gmFreshDef()
+    return {
+        name = "Mock Rifle", speed = 1400, spread = 2,
+        adsSpread = 0.5, moveSpread = 1, auto = false,
+    }
+end
+local function gmFreshLive()
+    return {
+        recoil = 3, recoilYaw = 1, RecoilPend = 2, RecoilYawPend = 0.7,
+        shakeUntil = 1.5, shakeStrength = 2,
+        kick = 2, kickV = 1, kickBack = 0.5, kickPitch = 1, kickRoll = 0.4,
+        SpreadPx = 12, equipAt = 100,
+        sway = Vector3.new(1, 2, 3), swayV = Vector3.new(0.2, 0.1, 0.3),
+        swayRot = Vector3.new(0.1, 0.2, 0.3),
+        swayRotV = Vector3.new(0.02, 0.03, 0.04),
+        lean = 1, leanV = 0.5, land = 0.4, landV = 0.2,
+        bobPhase = 1, ads = 0.5, AdsV = 0.2,
+    }
+end
+MOCK_GM_CONFIG = gmFreshConfig()
+MOCK_GM_DEF = gmFreshDef()
+MOCK_GM_LIVE = gmFreshLive()
+
+function mock_gm_reset()
+    if SA and SA.GunModsRestore then pcall(SA.GunModsRestore) end
+    MOCK_GM_CONFIG = gmFreshConfig()
+    MOCK_GM_DEF = gmFreshDef()
+    MOCK_GM_LIVE = gmFreshLive()
+    local state = _G.__saGunMods
+    if state then
+        state.saved, state.unlocked = {}, {}
+        state.config, state.defs = {}, {}
+        state.recoilLive, state.spreadLive = {}, {}
+        state.swayLive, state.adsLive = {}, {}
+        state.scanned, state.wasOn, state.signature = false, false, ""
+    end
+end
+
+function mock_cam_cframe_reset()
+    if MOCK_CAMERA then MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0) end
+    MOCK_CAM_CFRAME_WRITES = 0
+end
+
 function getgc()
     return {
         { GUNS = {
@@ -464,6 +529,7 @@ function getgc()
                               adsSpread = 0.1, moveSpread = 1, reload = 3,
                               pellets = 1, damageMult = 1, s2Damage = 80 },
         } },
+        MOCK_GM_CONFIG, MOCK_GM_DEF, MOCK_GM_LIVE,
     }
 end
 
@@ -753,9 +819,25 @@ INST_META.__index = function(t, k)
     for _, c in ipairs(t.children or {}) do
         if c.Name == k then return c end
     end
+    -- Camera.CFrame lives in _props so every assignment reaches
+    -- __newindex; a raw field would bypass the no-snap write counter.
+    if k == "CFrame" then
+        local props = rawget(t, "_props")
+        if props and props.CFrame ~= nil then return props.CFrame end
+    end
     return rawget(t, k)
 end
+MOCK_CAM_CFRAME_WRITES = 0
 INST_META.__newindex = function(t, k, v)
+    if k == "CFrame" then
+        if t == MOCK_CAMERA then
+            MOCK_CAM_CFRAME_WRITES = MOCK_CAM_CFRAME_WRITES + 1
+        end
+        local props = rawget(t, "_props")
+        if not props then props = {}; rawset(t, "_props", props) end
+        props.CFrame = v
+        return
+    end
     if k == "Size" then
         local props = rawget(t, "_props")
         if not props then props = {}; rawset(t, "_props", props) end
@@ -789,10 +871,13 @@ function Instance.new(class)
         Parent = nil, children = {}, attributes = {},
         Archivable = true, Transparency = 0, Color = Color3.new(1, 1, 1),
         Anchored = false, Health = 100, MaxHealth = 100, Visible = true,
-        Position = Vector3.new(0, 0, 0), CFrame = CFrame.new(0, 3, 0),
+        Position = Vector3.new(0, 0, 0),
         ViewportSize = Vector2.new(1280, 720),
     }, INST_META)
-    o._props = { Size = UDim2.new(0, 0, 0, 0) }
+    o._props = {
+        Size = UDim2.new(0, 0, 0, 0),
+        CFrame = CFrame.new(0, 3, 0),
+    }
     for _, ev in ipairs({ "MouseButton2Click", "MouseButton1Down", "MouseButton1Click",
                           "InputBegan", "InputEnded", "Activated", "CharacterAdded",
                           "ChildAdded", "ChildRemoved", "DescendantAdded",

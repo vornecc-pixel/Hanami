@@ -107,6 +107,42 @@ local function saLockActive()
     return SA.IsEquippedBow() ~= true
 end
 
+-- ── NO CAMERA SNAP mode ─────────────────────────────────────────────
+-- SA.ResolveShot() and the raycast / Fust bow shot-rewriting hooks stay
+-- fully live. Every camera.CFrame assignment below is gated. A one-time
+-- CFrame restoration may happen while switching the mode ON, before the
+-- mode becomes active; once active, this part makes ZERO CFrame writes.
+local function saCamBlocked()
+    return CFG.noCameraSnap == true
+end
+
+-- Restore only while No Camera Snap is OFF. When already ON, just clear
+-- stale state without touching the camera. SA.SetNoCameraSnap(true) calls
+-- this BEFORE flipping the flag so a mid-fire sandwich is put back.
+function SA.NoCameraSnapRestore()
+    if not saCamBlocked() then
+        if snapped and realCFrame then
+            local camera = ws.CurrentCamera
+            if camera then pcall(function() camera.CFrame = realCFrame end) end
+        end
+        if _G.__saTapCF and _G.__saTapCam then
+            pcall(function() _G.__saTapCam.CFrame = _G.__saTapCF end)
+        end
+    end
+    snapped, realCFrame = false, nil
+    saSnappedThisFrame = false
+    _G.__saTapCF, _G.__saTapCam, _G.__saTapAt = nil, nil, nil
+    return true
+end
+
+function SA.SetNoCameraSnap(on)
+    local enabled = on == true
+    if enabled and not saCamBlocked() then pcall(SA.NoCameraSnapRestore) end
+    CFG.noCameraSnap = enabled
+    if enabled then pcall(SA.NoCameraSnapRestore) end
+    return SA.SilentAimState().noCameraSnap
+end
+
 -- ────────────────────────────────────────────────────────────────────
 -- TARGET RESOLUTION — one path for tap snap and render step (guns only)
 -- The FOV centre/radius come from 02_shared.lua, and the exact ballistic
@@ -156,6 +192,11 @@ function SA.TapSnap()
     end
     local shot = SA.ResolveShot()
     if not shot then return nil, nil end
+    -- Target resolution is kept even with No Camera Snap ON: the shot
+    -- resolver, FOV pick and prediction all still run.
+    SA.Target.lastShot = shot.model
+    SA.Target.lastShotAt = tick()
+    if saCamBlocked() then return nil, nil end
     local camera = shot.camera
     local cf = camera.CFrame
     local ok = pcall(function()
@@ -163,13 +204,13 @@ function SA.TapSnap()
     end)
     if not ok then return nil, nil end
     _G.__saTapCF, _G.__saTapCam, _G.__saTapAt = cf, camera, tick()
-    SA.Target.lastShot = shot.model
-    SA.Target.lastShotAt = tick()
     return cf, camera
 end
 
 function SA.TapRestore(cf, camera)
-    if cf and camera then pcall(function() camera.CFrame = cf end) end
+    if not saCamBlocked() and cf and camera then
+        pcall(function() camera.CFrame = cf end)
+    end
     if cf and _G.__saTapCF == cf then
         _G.__saTapCF, _G.__saTapCam, _G.__saTapAt = nil, nil, nil
     end
@@ -317,6 +358,13 @@ RunService:BindToRenderStep(snapName, snapPrio, function()
 
     local shot = SA.ResolveShot()
     if not shot then return end
+    SA.Target.lastShot = shot.model
+    SA.Target.lastShotAt = tick()
+    if saCamBlocked() then
+        snapped, realCFrame = false, nil
+        saSnappedThisFrame = false
+        return
+    end
     local camPos = shot.camera.CFrame.Position
     if not realCFrame then realCFrame = shot.camera.CFrame end
     local ok = pcall(function()
@@ -324,13 +372,14 @@ RunService:BindToRenderStep(snapName, snapPrio, function()
     end)
     if ok then snapped = true end
     saSnappedThisFrame = ok
-    if ok then
-        SA.Target.lastShot = shot.model
-        SA.Target.lastShotAt = tick()
-    end
 end)
 
 RunService:BindToRenderStep(restoreName, restorePrio, function()
+    if saCamBlocked() then
+        snapped, realCFrame = false, nil
+        saManipRestore()
+        return
+    end
     if not SA.Alive then
         if snapped and realCFrame then
             local camera = ws.CurrentCamera
@@ -363,6 +412,9 @@ function SA.SilentAimState()
         snapped = snapped, snappedThisFrame = saSnappedThisFrame,
         snapBind = snapName, restoreBind = restoreName,
         snapPriority = snapPrio, restorePriority = restorePrio,
+        noCameraSnap = saCamBlocked(),
+        cameraSnapBlocked = saCamBlocked(),
+        shotResolverLive = true,
     }
 end
 
@@ -491,14 +543,15 @@ function SA.FireAssistTick(force)
         return false
     end
     local original = camera.CFrame
-    if aim then
+    local canSnap = aim and not saCamBlocked()
+    if canSnap then
         pcall(function() camera.CFrame = CFrame.lookAt(origin, aim) end)
     end
     -- Keep the v7.7 render-step snap alive for the frame that receives the
     -- synthetic click; isFiring() uses this same timestamp.
     firing.last = tick()
     local fired, backend = SA.FireOnce()
-    if aim then pcall(function() camera.CFrame = original end) end
+    if canSnap then pcall(function() camera.CFrame = original end) end
     saFireAssist.backend = backend or "unknown"
     if fired then
         saFireAssist.shots = (saFireAssist.shots or 0) + 1

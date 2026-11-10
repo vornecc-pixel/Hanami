@@ -177,6 +177,9 @@ _G.__saEspColors = ESP_COLORS
 
 local SA_CFG_SHIPPED = {
     masterEnabled = true,
+    -- No Camera Snap: keep target resolution + shot rewriting, but never
+    -- assign camera.CFrame. ON by default; turn OFF for the v7.7 sandwich.
+    noCameraSnap = true,
 
     -- targeting
     fov        = 220,
@@ -410,6 +413,7 @@ for k, v in pairs(SA_CFG_SHIPPED) do SA.CFG_DEFAULTS[k] = v end
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
+    noCameraSnap = true,
     manipulation = false, manipNpcs = true,
     manipDist = 30, manipPeek = 4,
     manipMaxParts = 3, manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
@@ -637,6 +641,7 @@ CFG.raycastAimTargetPart   = ({ Head=true, HumanoidRootPart=true,
                             and CFG.raycastAimTargetPart or "Head"
 CFG.raycastAimMinRayMag    = saClampNum(CFG.raycastAimMinRayMag, 1, 500, 30)
 CFG.raycastAimCharCount    = saClampNum(CFG.raycastAimCharCount, 1, 8, 2)
+CFG.noCameraSnap           = CFG.noCameraSnap ~= false
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

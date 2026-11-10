@@ -450,6 +450,7 @@ function SA.FullUnload()
     pcall(function() setFlag("showFov", false) end)
     pcall(function() setFlag("masterEnabled", false) end)
     pcall(function() setFlag("gmEnabled", false) end)
+    pcall(function() if SA.GunModsRestore then SA.GunModsRestore() end end)
     pcall(function() setFlag("hitboxEnabled", false) end)
     pcall(function() setFlag("bowModsEnabled", false) end)
     pcall(function() setFlag("bowInstantCharge", false) end)
@@ -469,6 +470,7 @@ function SA.FullUnload()
     pcall(function() if SA.RaycastAimDispose then SA.RaycastAimDispose() end end)
     pcall(function() RunService:UnbindFromRenderStep(snapName) end)
     pcall(function() RunService:UnbindFromRenderStep(restoreName) end)
+    pcall(function() if SA.NoCameraSnapRestore then SA.NoCameraSnapRestore() end end)
     pcall(function() SA.TapRestore(_G.__saTapCF, _G.__saTapCam) end)
     pcall(function() saManipRestore() end)
     SA.Alive = false
@@ -504,6 +506,7 @@ function SA.FullUnload()
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saFustBow = nil
     _G.__saRaycastAim = nil
+    _G.__saGunMods = nil
     return true
 end
 
