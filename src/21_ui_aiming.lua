@@ -313,10 +313,7 @@ bindToggle(gunSec, "Target NPCs", "targetNpcs",
 bindToggle(gunSec, "Tap-Fire Reorder (Fix A/B)", "saTapReorder",
     "Snap the camera BEFORE the game's fire handlers run; needs getconnections. Falls back to the render-step snap")
 bindSlider(gunSec, "Tap Window (s)", "saTapWindow", 0.1, 1, 0.05, "s")
-bindToggle(gunSec, "Ghetto Gun Desync", "ghettoGunDesync",
-    "Default OFF: hide + anchor the equipped Tool, camera viewmodel and local arms while Gun Silent Aim is ON. Bullets still use the camera-snap resolver; originals restore on OFF / bow / unload")
-gunSec:label({ name = "Ghetto desync is cosmetic: no remote hook or shot rewrite" })
-gunSec:label({ name = "Silent aim + manipulation: GUNS ONLY (bows skipped)" })
+gunSec:label({ name = "Camera-snap resolver + gun manipulation: GUNS ONLY" })
 
 -- Triggerbot + Auto Fire. Part modes are independent of silent aim's
 -- Force Head / Target Bone settings; manipulation support is a strict gate.
@@ -493,4 +490,32 @@ addButton(hitSec, "Rescan Characters", function()
 end)
 addButton(hitSec, "Restore Hitboxes", function()
     SA.HitboxRestore()
+end)
+
+-- ── AIMING : column 5 (Fust bow ballistic aim) ─────────────────────
+local fustCol = Aiming:column()
+local fustSec = fustCol:section({ name = "Fust Bow" })
+
+local fustToggle = fustSec:toggle({
+    name = "Fust Bow Ballistic Aim", flag = "hn_fustBowEnabled",
+    enabled = CFG.fustBowEnabled, default = CFG.fustBowEnabled,
+    tooltip = "Default OFF: hookfunction on Fust Remotes.Shoot.FireServer; ballistic silent aim for bows only",
+    callback = function(v)
+        CFG.fustBowEnabled = v
+        if v then SA.FustBowRefresh() end
+    end,
+})
+library.config_flags["hn_fustBowEnabled"] = function(v) setToggle(fustToggle, v) end
+bindToggle(fustSec, "Peek-Origin Wallbang", "fustBowManipulation",
+    "8-direction peek from the camera; rewrite the shot origin only when a clear peek is found")
+bindSlider(fustSec, "FOV (px)", "fustBowFov", 50, 800, 10, "px")
+bindDropdown(fustSec, "Target Part", "fustBowTargetPart",
+    { "Head", "HumanoidRootPart", "UpperTorso" })
+bindSlider(fustSec, "Peek (studs)", "fustBowManipPeek", 0, 12, 0.5, "")
+bindSlider(fustSec, "Max Peek Distance", "fustBowManipMaxDist", 0, 200, 5, "")
+bindSlider(fustSec, "Origin Radius", "fustBowOriginRadius", 1, 40, 1, "")
+fustSec:label({ name = "Fust.Items specs: hunting 220/50 · compound 290/40 · crossbow 320/28" })
+fustSec:label({ name = "Guns are untouched; shots stay silent with no console output" })
+addButton(fustSec, "Rehook Fust Bow", function()
+    SA.FustBowRefresh()
 end)

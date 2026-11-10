@@ -22,9 +22,10 @@
 --                        are zeroed, and live state (u14).lastShot is kept
 --                        at -math.huge so the fire gate never blocks.
 --
--- Bows are NOT part of silent aim / manipulation: 09_silent_aim.lua bails
--- out through SA.IsEquippedBow(). This file only changes the bow's own
--- charge / cooldown timing; it never touches aim, targets or hit-scan.
+-- This file only changes the bow's own charge / cooldown timing; it never
+-- touches aim, targets or hit-scan. Ballistic silent aim / peek-origin
+-- wallbang for Fust bows is a separate, default-OFF hook in
+-- 09_z_fust_bow.lua; the camera-snap gun resolver stays guns-only.
 --
 -- Like 20_gun_mods.lua this uses a generation-guarded GC scan plus a
 -- per-frame state pass. rawget/rawset bypass __index/__newindex on plain

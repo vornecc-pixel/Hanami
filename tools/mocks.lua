@@ -10,6 +10,9 @@ event_errors = 0
 mock_clock = 0
 MOCK_W2V_CALLS = 0
 MOCK_RAYCAST_CALLS = 0
+MOCK_FUST_SHOTS = 0
+MOCK_FUST_LAST_ARGS = nil
+MOCK_FUST_BLOCKED = false
 
 local function wrap_callback(fn)
     return function(...)
@@ -422,7 +425,22 @@ function getclipboard() return clipboard end
 function getgenv() return _G end
 function gethui() return game:GetService("CoreGui") end
 function setreadonly(t) return t end
-function hookfunction(fn) return fn end
+local hookOwners = {}
+function fireServerOriginal(self, ...)
+    MOCK_FUST_SHOTS = MOCK_FUST_SHOTS + 1
+    MOCK_FUST_LAST_ARGS = table.pack(...)
+    return true
+end
+function hookfunction(a, b)
+    if b == nil then return a end
+    local owner = hookOwners[a] or hookOwners[b]
+    if owner then
+        owner.FireServer = b
+        hookOwners[a] = owner
+        hookOwners[b] = owner
+    end
+    return a
+end
 function getconnections(ev)
     if not ev or not ev._connections then return {} end
     -- Executors return a snapshot; disconnecting one entry must not mutate
@@ -505,6 +523,9 @@ local ISA = {
     CoreGui = { CoreGui = true }, StringValue = { StringValue = true },
     IntValue = { IntValue = true }, ObjectValue = { ObjectValue = true },
     Workspace = { Workspace = true }, Players = { Players = true },
+    ReplicatedStorage = { ReplicatedStorage = true },
+    Folder = { Folder = true }, RemoteEvent = { RemoteEvent = true },
+    Terrain = { Terrain = true },
     RunService = { RunService = true }, UserInputService = { UserInputService = true },
     Stats = { Stats = true }, HttpService = { HttpService = true },
 }
@@ -523,6 +544,11 @@ INST_META.__index = function(t, k)
         return function(self, cls)
             local map = ISA[self.ClassName]
             return map and map[cls] == true or self.ClassName == cls
+        end
+    end
+    if k == "WaitForChild" then
+        return function(self, name, timeout)
+            return self:FindFirstChild(name)
         end
     end
     if k == "FindFirstChild" then
@@ -646,17 +672,31 @@ INST_META.__index = function(t, k)
     if k == "Raycast" then
         return function(_, origin, dir, params)
             MOCK_RAYCAST_CALLS = (MOCK_RAYCAST_CALLS or 0) + 1
-            if not MOCK_MANIP_BLOCKED or not MOCK_MANIP_WALL then return nil end
-            local filters = params and params.FilterDescendantsInstances or {}
-            for _, f in ipairs(filters) do
-                if f == MOCK_MANIP_WALL then return nil end
+            if MOCK_MANIP_BLOCKED and MOCK_MANIP_WALL then
+                local filters = params and params.FilterDescendantsInstances or {}
+                for _, f in ipairs(filters) do
+                    if f == MOCK_MANIP_WALL then return nil end
+                end
+                return {
+                    Instance = MOCK_MANIP_WALL,
+                    Normal = Vector3.new(0, 0, -1),
+                    Position = origin + dir * 0.5,
+                    Distance = 0.5,
+                }
             end
-            return {
-                Instance = MOCK_MANIP_WALL,
-                Normal = Vector3.new(0, 0, -1),
-                Position = origin + dir * 0.5,
-                Distance = 0.5,
-            }
+            if MOCK_FUST_BLOCKED and MOCK_CAMERA then
+                local cam = MOCK_CAMERA.CFrame.Position
+                if (origin - cam).Magnitude < 0.01 then
+                    return {
+                        Instance = MOCK_FUST_WALL,
+                        Normal = Vector3.new(0, 0, -1),
+                        Position = origin + dir * 0.5,
+                        Distance = 0.5,
+                    }
+                end
+                return nil
+            end
+            return nil
         end
     end
     if k == "GetState" then
@@ -763,6 +803,7 @@ function Instance.new(class)
         o.CanQuery = true
         o.CanTouch = true
         o.LocalTransparencyModifier = 0
+        o.AssemblyLinearVelocity = Vector3.zero
     end
     return o
 end
@@ -805,6 +846,29 @@ MOCK_MANIP_WALL = Instance.new("Part")
 MOCK_MANIP_WALL.Name = "MockManipWall"
 MOCK_MANIP_WALL.CanQuery = true
 MOCK_MANIP_WALL.Parent = WorkspaceService
+WorkspaceService.Terrain = Instance.new("Terrain")
+WorkspaceService.Terrain.Name = "Terrain"
+
+MOCK_FUST_WALL = Instance.new("Part")
+MOCK_FUST_WALL.Name = "MockFustWall"
+MOCK_FUST_WALL.Parent = WorkspaceService
+
+local ReplicatedStorage = service("ReplicatedStorage")
+local fustFolder = Instance.new("Folder")
+fustFolder.Name = "Fust"
+fustFolder.Parent = ReplicatedStorage
+local remotesFolder = Instance.new("Folder")
+remotesFolder.Name = "Remotes"
+remotesFolder.Parent = fustFolder
+local fustShoot = Instance.new("RemoteEvent")
+fustShoot.Name = "Shoot"
+fustShoot.Parent = remotesFolder
+fustShoot.FireServer = fireServerOriginal
+hookOwners[fireServerOriginal] = fustShoot
+MOCK_FUST_SHOOT = fustShoot
+MOCK_FUST_REMOTES = remotesFolder
+MOCK_FUST_FUST = fustFolder
+MOCK_FUST_RS = ReplicatedStorage
 local StatsService = service("Stats")
 service("HttpService")
 
@@ -871,6 +935,8 @@ local function make_character(name, x, toolName)
 end
 
 local myChar = make_character("LocalCharacter", 0, "AssaultRifle")
+MOCK_FUST_TOOL = myChar:FindFirstChildOfClass("Tool")
+MOCK_FUST_TOOL:SetAttribute("ItemId", nil)
 local otherChar = make_character("NearestGuyCharacter", 10, "AssaultRifle")
 local farChar = make_character("FarGuyCharacter", 30, "Pistol")
 local npcChar = make_character("Guard", 20, "AssaultRifle")
@@ -953,6 +1019,18 @@ MOCK_HITBOX_NPC_HANDLE.Parent = MOCK_HITBOX_NPC_ACCESSORY
 MOCK_HITBOX_NPC_ACCESSORY.Parent = npcChar
 
 -- Reset the mock rig between hitbox test cycles / after full unload.
+function mock_fust_reset()
+    MOCK_FUST_BLOCKED = false
+    MOCK_FUST_SHOTS = 0
+    MOCK_FUST_LAST_ARGS = nil
+    if MOCK_FUST_TOOL then MOCK_FUST_TOOL:SetAttribute("ItemId", nil) end
+    localPlayer.Team = nil
+    otherPlayer.Team = nil
+    farPlayer.Team = nil
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    SA.FustBowRefresh()
+end
+
 function mock_hitbox_reset()
     local plrs = Players:GetPlayers()
     for i = 2, #plrs do
@@ -1011,33 +1089,12 @@ camera.CFrame = CFrame.new(0, 3, 0)
 camera.ViewportSize = Vector2.new(1280, 720)
 camera.Parent = WorkspaceService
 WorkspaceService.CurrentCamera = camera
+MOCK_CAMERA = camera
 
--- Ghetto Gun Desync fixtures: a Tool with a Part + MeshPart, a camera
--- viewmodel with a Part + MeshPart, and the local character's R6/R15 arms.
--- All are ordinary mock Instances with the real property names Hanami uses.
-local function mock_ghetto_part(name, className, parent)
-    local part = Instance.new(className)
-    part.Name = name
-    part.Anchored = false
-    part.Transparency = 0
-    part.LocalTransparencyModifier = 0
-    part.Parent = parent
-    return part
-end
-local mockGhettoTool = myChar:FindFirstChildOfClass("Tool")
-local mockGhettoViewModel = Instance.new("Model")
-mockGhettoViewModel.Name = "ViewModel"
-mockGhettoViewModel.Parent = camera
-MOCK_GHETTO_PARTS = {
-    toolHandle = mock_ghetto_part("Handle", "Part", mockGhettoTool),
-    toolBarrel = mock_ghetto_part("Barrel", "MeshPart", mockGhettoTool),
-    vmGun = mock_ghetto_part("Gun", "Part", mockGhettoViewModel),
-    vmHand = mock_ghetto_part("RightHand", "MeshPart", mockGhettoViewModel),
-    leftArm = myChar:FindFirstChild("Left Arm"),
-    rightArm = myChar:FindFirstChild("Right Arm"),
-    leftUpperArm = mock_ghetto_part("LeftUpperArm", "Part", myChar),
-    rightUpperArm = mock_ghetto_part("RightUpperArm", "Part", myChar),
-}
+-- The local Tool gets a Fust ItemId only inside the Fust bow tests;
+-- MOCK_FUST_TOOL above is that same Tool. The ReplicatedStorage.Fust
+-- Remotes.Shoot RemoteEvent above is the single hookfunction target.
+
 
 game = {
     GetService = function(_, name) return service(name) end,

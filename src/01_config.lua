@@ -192,7 +192,17 @@ local SA_CFG_SHIPPED = {
     gunEnabled     = true,
     gunShotOnly    = true,
     gunCooldown    = 0,
-    ghettoGunDesync = false,    -- cosmetic hide + anchor while gun silent aim is ON
+
+    -- Fust bow: ballistic silent aim + peek-origin wallbang (default OFF).
+    -- hookfunction is installed once on Fust Remotes.Shoot.FireServer, but
+    -- the intercept is gated by fustBowEnabled and only rewrites bow shots.
+    fustBowEnabled      = false,
+    fustBowFov          = 400,
+    fustBowTargetPart   = "Head",
+    fustBowManipulation = true,
+    fustBowManipPeek    = 4,
+    fustBowManipMaxDist = 60,
+    fustBowOriginRadius = 12,
 
     -- triggerbot / auto fire (guns only; both OFF by default)
     triggerbot       = false,
@@ -395,7 +405,10 @@ for k, v in pairs({
     manipDist = 30, manipPeek = 4,
     manipMaxParts = 3, manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
     saTapReorder = true, saTapWindow = 0.35,
-    ghettoGunDesync = false,
+    fustBowEnabled = false, fustBowFov = 400,
+    fustBowTargetPart = "Head", fustBowManipulation = true,
+    fustBowManipPeek = 4, fustBowManipMaxDist = 60,
+    fustBowOriginRadius = 12,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
     espVisibleCheck = true, espShowTool = true, espShowState = true,
@@ -595,7 +608,15 @@ CFG.hitboxTeamCheck    = CFG.hitboxTeamCheck ~= false
 CFG.hitboxAliveOnly    = CFG.hitboxAliveOnly ~= false
 CFG.hitboxVisible      = CFG.hitboxVisible == true
 CFG.hitboxNpcs         = CFG.hitboxNpcs ~= false
-CFG.ghettoGunDesync    = CFG.ghettoGunDesync == true
+CFG.fustBowEnabled      = CFG.fustBowEnabled == true
+CFG.fustBowFov          = saClampNum(CFG.fustBowFov, 50, 800, 400)
+CFG.fustBowTargetPart   = ({ Head=true, HumanoidRootPart=true,
+                              UpperTorso=true })[CFG.fustBowTargetPart]
+                          and CFG.fustBowTargetPart or "Head"
+CFG.fustBowManipulation = CFG.fustBowManipulation ~= false
+CFG.fustBowManipPeek    = saClampNum(CFG.fustBowManipPeek, 0, 12, 4)
+CFG.fustBowManipMaxDist = saClampNum(CFG.fustBowManipMaxDist, 0, 200, 60)
+CFG.fustBowOriginRadius = saClampNum(CFG.fustBowOriginRadius, 1, 40, 12)
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

@@ -19,9 +19,9 @@
 --   Fix B  Tool.Activated connection reorder for games that fire from the
 --          tool's Activated handler instead of InputBegan.
 --   Tap window widened 0.2 -> 0.35 (and InputEnded now stamps `last`).
---   GUNS ONLY: whenever a bow is equipped, saLockActive() is false, so no
---          camera snap, no shot resolver and no manipulation runs. The old
---          bow Shoot remote hook / draw-hold state is gone entirely.
+--   GUNS ONLY (camera-snap resolver): whenever a bow is equipped THIS
+--          resolver skips camera snap, shot resolution and manipulation.
+--          Ballistic Fust bow shots use the separate hook in 09_z_fust_bow.lua.
 --   Manipulation v4: see 05_manipulation.lua (8 peek directions,
 --          adaptive peek, filter includes the target model, higher caps).
 --
@@ -63,12 +63,12 @@ end
 local getconnectionsFn = executorFn("getconnections")
 
 -- ────────────────────────────────────────────────────────────────────
--- RE-EXECUTION PURGE — bow aim is gone
--- SA persists in _G (01_config.lua), so an older Hanami run can leave a
--- Shoot remote hook alive whose wrapper calls SA.BowShot(data). Explicitly
--- neutralise every retired entry point instead of inheriting the old bow
--- aim closure. BowShot becomes a pass-through: the stale wrapper forwards
--- the untouched data and never rewrites an arrow's direction.
+-- RE-EXECUTION PURGE — retired bow-aim entry points
+-- SA persists in _G (01_config.lua), so a much older Hanami run can leave
+-- a Shoot remote wrapper that calls SA.BowShot(data). Neutralise those
+-- retired entry points. The CURRENT bow hook lives in 09_z_fust_bow.lua:
+-- its own hookfunction wrapper is generation-guarded and restored by
+-- SA.FustBowDispose(), so it is deliberately not touched here.
 -- ────────────────────────────────────────────────────────────────────
 function SA.BowShot(data) return data end
 function SA.InstallBowHook() return false end
@@ -246,7 +246,7 @@ saInstallInputReorder()
 local function saHookToolTap(tool)
     if not tool or not tool:IsA("Tool") then return end
     if not getconnectionsFn then return end
-    -- Bows are never hooked: silent aim is guns only.
+    -- Gun tap-fire Fix B is guns only; the Fust bow hook is separate.
     if type(SA.IsBowTool) == "function" and SA.IsBowTool(tool) then return end
     local hooked = false
     pcall(function() hooked = tool:GetAttribute("__saTapHooked") == true end)

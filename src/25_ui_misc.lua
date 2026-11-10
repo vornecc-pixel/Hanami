@@ -380,7 +380,7 @@ function SA.SelfCheck()
         { "player warning", "PlayerWarningState" },
         { "fire assist", "FireAssistState" },
         { "force head", "ForceHeadState" },
-        { "ghetto gun", "GhettoGunState" },
+        { "fust bow", "FustBowState" },
         { "draw sync", "DrawSyncStats" },
         { "esp perf", "EspPerfState" },
         { "esp frame budget", "EspFrameBudget" },
@@ -464,7 +464,7 @@ function SA.FullUnload()
     pcall(function() if SA.DisposeManipPopup then SA.DisposeManipPopup() end end)
     pcall(function() if SA.DisposePlayerWarning then SA.DisposePlayerWarning() end end)
     pcall(function() if SA.DisposeFireAssist then SA.DisposeFireAssist() end end)
-    pcall(function() if SA.GhettoGunDispose then SA.GhettoGunDispose() end end)
+    pcall(function() if SA.FustBowDispose then SA.FustBowDispose() end end)
     pcall(function() RunService:UnbindFromRenderStep(snapName) end)
     pcall(function() RunService:UnbindFromRenderStep(restoreName) end)
     pcall(function() SA.TapRestore(_G.__saTapCF, _G.__saTapCam) end)
@@ -500,7 +500,7 @@ function SA.FullUnload()
     _G.__saEspObjects, _G.__saNpcObjects, _G.__saCrateObjects = nil, nil, nil
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
-    _G.__saGhettoGun = nil
+    _G.__saFustBow = nil
     return true
 end
 

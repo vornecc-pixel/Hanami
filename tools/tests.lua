@@ -89,7 +89,7 @@ if run == 2 then
 end
 if run == 3 then
     eq(SA.Unloaded, false, "unload guard must reset on re-execute")
-    ok(_G.__saGhettoGun ~= nil, "ghetto state rebuilt after full unload")
+    ok(_G.__saFustBow ~= nil, "Fust bow state rebuilt after full unload")
     eq(SA.Alive, true, "alive must reset on re-execute")
     ok(_G.__saShared ~= nil, "shared state rebuilt after full unload")
     ok(_G.__saCFG ~= nil, "CFG rebuilt after full unload")
@@ -110,7 +110,7 @@ if run > 1 then
     ok(after < 40, "render listener count is bounded")
     ok(SA.ManipPopupState and SA.ManipPopupState().built == true,
         "manip popup rebuilt after re-execute")
-    eq(SA.GhettoGunState().parts, 0, "re-execute starts with no ghetto parts")
+    eq(SA.FustBowState().hooked, true, "re-execute reinstalls the Fust bow hook")
     -- The wrapper is installed once on the library, with the stock methods
     -- preserved, so repeated loads cannot stack wrapper call chains.
     ok(library.__saKeybindWrapperInstalled == true
@@ -152,7 +152,9 @@ local newKeys = {
     "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
     "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
     "hitboxVisible", "hitboxNpcs", "fireWallCheck", "espDataRefreshMs",
-    "ghettoGunDesync",
+    "fustBowEnabled", "fustBowFov", "fustBowTargetPart",
+    "fustBowManipulation", "fustBowManipPeek", "fustBowManipMaxDist",
+    "fustBowOriginRadius",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -162,9 +164,10 @@ for _, key in ipairs(newKeys) do
     ok(library.flags["hn_" .. key] ~= nil, "uninitialised flag " .. key)
 end
 eq(#SA.ConfigCoverage(), 0, "hn_* config coverage")
-eq(CFG.ghettoGunDesync, false, "ghetto gun desync default OFF")
-eq(SA.GhettoGunState().enabled, false, "ghetto gun state default OFF")
-eq(SA.GhettoGunState().parts, 0, "ghetto gun starts with no tracked parts")
+eq(CFG.fustBowEnabled, false, "Fust bow ballistic aim default OFF")
+eq(SA.FustBowState().hooked, true, "hookfunction installed at startup")
+eq(SA.FustBowState().remotesReady, true, "Fust Shoot remote resolved")
+eq(SA.FustBowState().rewrites >= 0, true, "Fust bow state exposes counters")
 ok(SA.FlagCount() > 40, "Atlanta flag count")
 contains(SA.FlagSnapshot(), "hn_menu_bind", "flag snapshot")
 ok(count(SA.AllKeybinds) >= 7, "all keybinds registered")
@@ -600,137 +603,131 @@ CFG.targetBone = "Hrp"
 eq(SA.ResolveTargetBone(), "Hrp", "Force Head OFF restores Target Bone")
 CFG.forceHead = true
 
--- ── Ghetto Gun Desync: hide + anchor, continuous gate, full restore ──
-local savedGhetto = CFG.ghettoGunDesync
-local savedGhettoMaster = CFG.masterEnabled
-local savedGhettoGunEnabled = CFG.gunEnabled
-local savedGhettoMouse = UserInputService.GetMouseLocation
-local savedGhettoManipWall = MOCK_MANIP_BLOCKED
-local savedGhettoCFG = {
-    fov = CFG.fov, fovCenterMode = CFG.fovCenterMode,
-    targetNpcs = CFG.targetNpcs, teamCheck = CFG.teamCheck,
-    wallCheck = CFG.wallCheck, prediction = CFG.prediction,
-    distance = CFG.distance, hitChance = CFG.hitChance,
-    gunCooldown = CFG.gunCooldown, targetPriority = CFG.targetPriority,
-    manipulation = CFG.manipulation,
+-- ── Fust bow: hookfunction, ballistic rewrite, peek-origin wallbang ──
+local savedFust = {
+    enabled = CFG.fustBowEnabled, fov = CFG.fustBowFov,
+    targetPart = CFG.fustBowTargetPart,
+    manipulation = CFG.fustBowManipulation,
+    peek = CFG.fustBowManipPeek, maxDist = CFG.fustBowManipMaxDist,
+    originRadius = CFG.fustBowOriginRadius,
+    toolId = MOCK_FUST_TOOL:GetAttribute("ItemId"),
 }
-local function assertGhettoPart(part, anchored, transparency, ltm, label)
-    ok(part ~= nil, label .. " part exists")
-    eq(part.Anchored, anchored, label .. " Anchored")
-    eq(part.Transparency, transparency, label .. " Transparency")
-    eq(part.LocalTransparencyModifier, ltm,
-        label .. " LocalTransparencyModifier")
-end
-local function assertAllGhettoParts(anchored, transparency, ltm, label)
-    for key, part in pairs(MOCK_GHETTO_PARTS) do
-        assertGhettoPart(part, anchored, transparency, ltm, label .. ": " .. key)
-    end
-end
+mock_fust_reset()
+eq(SA.FustBowState().enabled, false, "Fust bow default OFF")
+eq(SA.FustBowState().hooked, true, "hookfunction installed on Shoot.FireServer")
+eq(SA.FustBowState().method, "hookfunction on Shoot.FireServer", "hook method")
+eq(SA.FustBowState().scope, "Fust bows only (players)", "bow-only scope")
+eq(SA.FustBowState().bows, 6, "three Fust bow specs + ItemId aliases")
+near(SA.FustBowState().arrowLife, 4.5, 0.001, "arrow life")
+eq(SA.FustBowState().errors, 0, "no intercept errors")
+ok(MOCK_FUST_SHOOT.FireServer ~= fireServerOriginal,
+    "hookfunction replaced FireServer")
 
--- Start from known originals: the mock fixtures are local-only objects.
-for _, part in pairs(MOCK_GHETTO_PARTS) do
-    part.Anchored = false
-    part.Transparency = 0
-    part.LocalTransparencyModifier = 0
-end
-local enemyArm = Players:GetPlayers()[2].Character:FindFirstChild("Left Arm")
-assertGhettoPart(enemyArm, false, 0, 0, "enemy arm before ghetto")
-local ghettoTool = MOCK_GHETTO_PARTS.toolHandle.Parent
-local savedGhettoToolName = ghettoTool.Name
+local fustCam = Vector3.new(0, 3, 0)
+local shots0 = SA.FustBowState().shots
+local rewrites0 = SA.FustBowState().rewrites
+local peeks0 = SA.FustBowState().peeks
+MOCK_FUST_TOOL:SetAttribute("ItemId", "hunting_bow")
 
+-- OFF: the hook forwards untouched arguments.
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().shots, shots0 + 1, "one shot forwarded while OFF")
+eq(MOCK_FUST_LAST_ARGS[1], fustCam, "origin untouched while OFF")
+eq(MOCK_FUST_LAST_ARGS[2].Z, 220, "velocity untouched while OFF")
+eq(SA.FustBowState().rewrites, rewrites0, "no rewrite while OFF")
+
+-- ON with a clear line: gravity-compensated velocity rewrite only.
+setFlags({ fustBowEnabled = true, fustBowManipulation = false })
+MOCK_FUST_BLOCKED = false
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().shots, shots0 + 2, "shot forwarded while ON")
+eq(SA.FustBowState().rewrites, rewrites0 + 1, "ballistic velocity rewrite")
+eq(SA.FustBowState().peeks, peeks0, "no peek with clear LOS")
+eq(SA.FustBowState().lastBow, "hunting_bow", "hunting bow spec")
+eq(SA.FustBowState().lastSpeed, 220, "speed from velocity argument")
+eq(SA.FustBowState().lastGravity, 50, "hunting bow gravity")
+near(MOCK_FUST_LAST_ARGS[2].Magnitude, 220, 0.001, "rewrite keeps arrow speed")
+ok(MOCK_FUST_LAST_ARGS[2].Z < 1, "rewrite aims at the target, not -Z")
+eq(MOCK_FUST_LAST_ARGS[1], fustCam, "origin untouched without wallbang")
+
+-- Behind cover: 8-direction peek rewrites velocity AND the near-camera origin.
+MOCK_FUST_BLOCKED = true
+setFlags({ fustBowManipulation = true })
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().rewrites, rewrites0 + 2, "wallbang still rewrites velocity")
+eq(SA.FustBowState().peeks, peeks0 + 1, "peek origin rewrite")
+ok(SA.FustBowState().lastPeek > 0, "peek distance reported")
+ok(MOCK_FUST_LAST_ARGS[1] ~= fustCam, "origin moved to the peek")
+near((MOCK_FUST_LAST_ARGS[1] - fustCam).Magnitude, 0.5, 0.001,
+    "first clear peek is 0.5 studs")
+eq(SA.FustBowState().lastReason, "velocity + peek origin", "state reason")
+
+-- Manipulation OFF behind cover: LOS gate leaves the shot untouched.
+setFlags({ fustBowManipulation = false })
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().rewrites, rewrites0 + 2, "no rewrite without LOS")
+eq(SA.FustBowState().peeks, peeks0 + 1, "no peek without manipulation")
+
+-- No Fust bow equipped: guns are never rewritten by this hook.
+MOCK_FUST_TOOL:SetAttribute("ItemId", nil)
+setFlags({ fustBowManipulation = true })
+MOCK_FUST_BLOCKED = false
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().rewrites, rewrites0 + 2, "no rewrite without a Fust bow")
+eq(MOCK_FUST_LAST_ARGS[2].Z, 220, "velocity untouched without a bow")
+
+-- Crossbow spec and a velocity-only call (no near-camera origin argument).
+MOCK_FUST_TOOL:SetAttribute("ItemId", "crossbow")
+MOCK_FUST_BLOCKED = true
+MOCK_FUST_SHOOT:FireServer(Vector3.new(0, 0, 320))
+eq(SA.FustBowState().lastBow, "crossbow", "crossbow spec")
+eq(SA.FustBowState().lastGravity, 28, "crossbow gravity")
+eq(SA.FustBowState().lastSpeed, 320, "crossbow speed")
+eq(SA.FustBowState().peeks, peeks0 + 1, "no origin argument to rewrite")
+eq(MOCK_FUST_LAST_ARGS.n, 1, "velocity-only arguments forwarded")
+
+-- Config knobs: FOV, target part, peek range, clear-LOS and generation.
+eq(SA.FustBowState().generation, SA.Generation, "hook is generation-guarded")
+eq(SA.FustBowState().reason, "active", "hook reports active reason")
+MOCK_FUST_BLOCKED = false
+local extra0 = SA.FustBowState().rewrites
+setFlags({ fustBowFov = 50, fustBowTargetPart = "HumanoidRootPart" })
+eq(SA.FustBowState().fov, 50, "FOV is configurable")
+eq(SA.FustBowState().targetPart, "HumanoidRootPart",
+    "target part is configurable")
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().rewrites, extra0 + 1, "Hrp target still rewrites")
+setFlags({ fustBowFov = 1 })
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().rewrites, extra0 + 1,
+    "FOV gate declines an off-screen target")
+setFlags({ fustBowFov = 400, fustBowTargetPart = "Head" })
+setFlags({ fustBowManipMaxDist = 1 })
+MOCK_FUST_BLOCKED = true
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().peeks, peeks0 + 1, "max peek distance gate")
+setFlags({ fustBowManipMaxDist = 60 })
+MOCK_FUST_BLOCKED = false
+MOCK_FUST_SHOOT:FireServer(fustCam, Vector3.new(0, 0, 220))
+eq(SA.FustBowState().peeks, peeks0 + 1, "clear LOS needs no peek")
+
+-- Dispose / restore / re-hook, then return to the saved settings.
+eq(SA.FustBowDispose().hooked, false, "dispose marks hook inactive")
+eq(MOCK_FUST_SHOOT.FireServer, fireServerOriginal,
+    "dispose restores the original FireServer")
+eq(SA.FustBowRestore().hooked, true, "restore re-installs the hook")
+ok(MOCK_FUST_SHOOT.FireServer ~= fireServerOriginal, "hook active again")
 setFlags({
-    masterEnabled = true, gunEnabled = true, ghettoGunDesync = true,
+    fustBowEnabled = savedFust.enabled,
+    fustBowFov = savedFust.fov,
+    fustBowTargetPart = savedFust.targetPart,
+    fustBowManipulation = savedFust.manipulation,
+    fustBowManipPeek = savedFust.peek,
+    fustBowManipMaxDist = savedFust.maxDist,
+    fustBowOriginRadius = savedFust.originRadius,
 })
-CFG.fovCenterMode = "Mouse"
-CFG.fov = 150
-CFG.targetNpcs = false
-CFG.teamCheck = false
-CFG.wallCheck = true
-CFG.prediction = false
-CFG.distance = 0
-CFG.hitChance = 100
-CFG.gunCooldown = 0
-CFG.targetPriority = "Crosshair"
-CFG.manipulation = false
-MOCK_MANIP_BLOCKED = false
-UserInputService.GetMouseLocation = function() return Vector2.new(641, 345) end
-mock_advance_time(0.2)
-local ghettoOn = SA.GhettoGunRefresh()
-eq(ghettoOn.enabled, true, "ghetto toggle ON")
-eq(ghettoOn.gate, true, "ghetto gate follows gun silent aim")
-eq(ghettoOn.active, true, "ghetto active without firing")
-eq(ghettoOn.reason, "active", "ghetto active reason")
-eq(ghettoOn.method, "hide + anchor", "ghetto uses hide + anchor")
-eq(ghettoOn.scope, "tool + camera viewmodel + local arms",
-    "ghetto covers Tool + viewmodel + local arms")
-eq(ghettoOn.bullets, "camera-snap resolver", "bullets stay on resolver")
-eq(ghettoOn.parts, 8, "8 tool / viewmodel / arm BaseParts")
-eq(ghettoOn.toolParts, 2, "2 equipped Tool parts")
-eq(ghettoOn.viewmodelParts, 2, "2 camera viewmodel parts")
-eq(ghettoOn.armParts, 4, "4 local R6/R15 arm parts")
-ok(ghettoOn.writes > 0, "ghetto writes applied")
-assertAllGhettoParts(true, 1, 1, "ghetto applied")
-assertGhettoPart(enemyArm, false, 0, 0, "enemy arm untouched by ghetto")
-eq(SA.SilentAimState().ghettoGun, true, "silent aim reports ghetto toggle")
-eq(SA.SilentAimState().ghettoActive, true, "silent aim reports ghetto active")
-eq(SA.SilentAimState().lock, true, "camera-snap lock stays ON with ghetto")
-ok(SA.ResolveShot() ~= nil, "shot resolver still returns a target with ghetto ON")
-
--- The normal render tick refreshes on a 12-frame interval, not every frame.
-local scansBefore = SA.GhettoGunState().scans
-for _ = 1, ghettoOn.intervalFrames do SA.GhettoGunTick(false) end
-ok(SA.GhettoGunState().scans > scansBefore, "ghetto frame-paced refresh")
-
--- A removed Tool part leaves scope and restores only its own originals.
-local savedToolPartParent = MOCK_GHETTO_PARTS.toolHandle.Parent
-MOCK_GHETTO_PARTS.toolHandle.Parent = nil
-local ghettoStale = SA.GhettoGunRefresh()
-eq(ghettoStale.parts, 7, "removed tool part leaves ghetto scope")
-assertGhettoPart(MOCK_GHETTO_PARTS.toolHandle, false, 0, 0,
-    "removed tool part")
-assertGhettoPart(MOCK_GHETTO_PARTS.toolBarrel, true, 1, 1,
-    "remaining tool part")
-MOCK_GHETTO_PARTS.toolHandle.Parent = savedToolPartParent
-local ghettoBack = SA.GhettoGunRefresh()
-eq(ghettoBack.parts, 8, "reattached tool part returns to ghetto scope")
-assertGhettoPart(MOCK_GHETTO_PARTS.toolHandle, true, 1, 1,
-    "reattached tool part")
-
--- Bow gate restores immediately, and does not touch the camera resolver.
-ghettoTool.Name = "Hunting Bow"
-local ghettoBow = SA.GhettoGunRefresh()
-eq(ghettoBow.gate, false, "bow disables ghetto gate")
-eq(ghettoBow.active, false, "bow disables ghetto active state")
-eq(ghettoBow.reason, "bow equipped (guns only)", "bow gate reason")
-assertAllGhettoParts(false, 0, 0, "bow restored")
-ghettoTool.Name = savedGhettoToolName
-mock_advance_time(0.2)
-SA.GhettoGunRefresh()
-assertAllGhettoParts(true, 1, 1, "gun restored")
-
--- Master OFF and the dedicated toggle OFF both restore originals.
-setFlags({ masterEnabled = false })
-local ghettoMasterOff = SA.GhettoGunRefresh()
-eq(ghettoMasterOff.gate, false, "master OFF disables ghetto")
-eq(ghettoMasterOff.reason, "master OFF", "master OFF ghetto reason")
-assertAllGhettoParts(false, 0, 0, "master OFF restored")
-setFlags({ masterEnabled = true, ghettoGunDesync = false })
-local ghettoToggleOff = SA.GhettoGunRefresh()
-eq(ghettoToggleOff.enabled, false, "ghetto toggle OFF")
-eq(ghettoToggleOff.reason, "toggle OFF", "toggle OFF ghetto reason")
-assertAllGhettoParts(false, 0, 0, "toggle OFF restored")
-
--- Restore the earlier test state before the fire-assist regressions.
-setFlags({
-    masterEnabled = savedGhettoMaster,
-    gunEnabled = savedGhettoGunEnabled,
-    ghettoGunDesync = savedGhetto,
-})
-for key, value in pairs(savedGhettoCFG) do CFG[key] = value end
-UserInputService.GetMouseLocation = savedGhettoMouse
-MOCK_MANIP_BLOCKED = savedGhettoManipWall
-SA.GhettoGunRefresh()
-mock_advance_time(0.2)
+MOCK_FUST_TOOL:SetAttribute("ItemId", savedFust.toolId)
+mock_fust_reset()
 
 CFG.fovCenterMode = "Mouse"
 CFG.fov = 150
@@ -1682,7 +1679,7 @@ local removedOutputAPIs = {
     "PrintDrawSyncStats", "PrintForceHeadState", "PrintScan",
     "PrintManipNpcState", "PrintAttachments", "PrintPrediction",
     "PrintGunSpec", "PrintGunDiff", "PrintGunOverrides", "PrintGunTable",
-    "PrintFireAssist", "PrintGhettoGun", "PlayerEspDiag", "PrintCrateStates",
+    "PrintFireAssist", "PlayerEspDiag", "PrintCrateStates",
     "PrintCrateCandidates", "PrintCrateFovState", "PrintEspFrameBudget",
     "PrintEspPerfState", "PrintHitbox", "FeatureBindDiag", "EspPreviewDiag",
     "EspFeatureDiag", "NearestWindowDiag", "PrintManipPopup",
@@ -1694,8 +1691,8 @@ for _, name in ipairs(removedOutputAPIs) do
     eq(SA[name], nil, "removed output API: " .. name)
 end
 local keptStateAPIs = {
-    "SelfCheck", "SelfCheckState", "GhettoGunState", "GhettoGunRefresh",
-    "GhettoGunRestore", "GhettoGunDispose", "EspPerfState", "EspFrameBudget",
+    "SelfCheck", "SelfCheckState", "FustBowState", "FustBowRefresh",
+    "FustBowRestore", "FustBowDispose", "EspPerfState", "EspFrameBudget",
     "HitboxState", "HitboxScan", "HitboxRestore", "DrawSyncStats",
     "DrawSyncPending", "DrawDiag", "DrawWriteFailures", "KeybindConflicts",
     "ConfigCoverage", "SilentAimState", "FireAssistState", "ForceHeadState",
@@ -1786,23 +1783,17 @@ else
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 8,
         "full unload: hitbox expanded before unload")
     setFlags({
-        masterEnabled = true, gunEnabled = true, ghettoGunDesync = true,
+        masterEnabled = true, gunEnabled = true, fustBowEnabled = true,
     })
-    SA.GhettoGunRefresh()
-    eq(MOCK_GHETTO_PARTS.toolHandle.Anchored, true,
-        "full unload: ghetto gun applied before unload")
-    eq(MOCK_GHETTO_PARTS.toolHandle.Transparency, 1,
-        "full unload: ghetto gun hidden before unload")
+    SA.FustBowRefresh()
+    ok(MOCK_FUST_SHOOT.FireServer ~= fireServerOriginal,
+        "full unload: Fust bow hook active before unload")
     local unloaded, why = SA.FullUnload()
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 2,
         "full unload restores hitbox originals")
-    eq(MOCK_GHETTO_PARTS.toolHandle.Anchored, false,
-        "full unload restores ghetto Anchored")
-    eq(MOCK_GHETTO_PARTS.toolHandle.Transparency, 0,
-        "full unload restores ghetto Transparency")
-    eq(MOCK_GHETTO_PARTS.toolHandle.LocalTransparencyModifier, 0,
-        "full unload restores ghetto LocalTransparencyModifier")
-    eq(_G.__saGhettoGun, nil, "full unload clears ghetto state")
+    eq(MOCK_FUST_SHOOT.FireServer, fireServerOriginal,
+        "full unload restores the original FireServer")
+    eq(_G.__saFustBow, nil, "full unload clears Fust bow state")
     ok(unloaded == true, "full unload: " .. tostring(why))
     eq(SA.Alive, false, "unload stops loops")
     eq(SA.Unloaded, true, "unload guard")
