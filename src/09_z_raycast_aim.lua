@@ -7,10 +7,30 @@
 -- ────────────────────────────────────────────────────────────────────
 -- RAYCAST SILENT AIM — a separate, independent silent-aim version.
 --
--- Hooks workspace.Raycast and workspace.Spherecast with hookfunction.
--- Bullet raycasts are detected by signature (long direction, a real
--- RaycastParams, and a filter holding one Humanoid Model per player),
--- then redirected toward the nearest valid target inside the FOV cone.
+-- THREE RAYS, SEPARATED:
+--   1. tracer ray  — cosmetic. Muzzle origin, velocity direction,
+--      exclude-all-characters params. Drives bullet holes / impact FX /
+--      impact sound. Redirecting it changes nothing functional.
+--   2. damage ray  — inside the VM dispatch. Camera / near-camera origin,
+--      camera look direction with spread, 0-1 character Models in the
+--      Exclude filter. THIS is the ray that decides who gets damaged.
+--   3. remote      — InventoryAction:FireServer(...) may carry a
+--      client-sent direction. If the server trusts the client hit, ray #2
+--      is enough; if it re-raycasts from that argument, the remote
+--      argument must be hooked too (no guessed layout here).
+--
+-- The retired CHAR_COUNT >= 2 test was the tracer ray's signature: its
+-- filter excludes every player. The damage ray excludes only self and
+-- maybe teammates, so it has 0-1 character Models. Detection is now by
+-- camera alignment: long enough to be a shot, close to the camera, and
+-- pointing roughly where the player looks. A <= 1 character filter cap
+-- plus SA.MarkInternalRayParams keep tracer and Hanami's own LOS /
+-- manipulation / Fust peek probes out of the redirect path.
+--
+-- Redirecting only ray #2 can leave a cosmetic mismatch: the hit registers
+-- on the target while the tracer keeps its original direction, so the
+-- bullet hole and impact sound still come from the wall behind the old
+-- aim. That is expected and harmless to the damage result.
 --
 -- Two modes:
 --   true       single-pass redirect; the game's collision filter still
@@ -30,16 +50,22 @@ local ra = _G.__saRaycastAim or {
     oldRaycast = nil, oldSpherecast = nil, originals = nil,
     passRay = nil, passSphere = nil,
     rayWrapped = nil, sphereWrapped = nil,
-    redirects = 0, wallbangs = 0, bulletRays = 0, errors = 0,
+    redirects = 0, wallbangs = 0, aimRays = 0, errors = 0,
     lastTargetPart = nil, lastMode = nil, lastReason = "idle",
 }
 _G.__saRaycastAim = ra
 ra.generation = SA.Generation or 0
+-- Re-executing after the CHAR_COUNT build keeps its counter value.
+ra.aimRays = ra.aimRays or ra.bulletRays or 0
+ra.bulletRays = ra.aimRays
 
 ra.keys = {
     Enabled = "raycastAimEnabled", Aggressive = "raycastAimAggressive",
     TargetPart = "raycastAimTargetPart", FOV = "raycastAimFov",
-    MIN_RAY_MAG = "raycastAimMinRayMag", CHAR_COUNT = "raycastAimCharCount",
+    MIN_RAY_MAG = "raycastAimMinRayMag",
+    MAX_ORIGIN_DIST = "raycastAimMaxOriginDist",
+    ALIGN_DOT = "raycastAimAlignDot",
+    MAX_FILTER_CHARS = "raycastAimMaxFilterChars",
 }
 ra.newCC = (type(newcclosure) == "function") and newcclosure
     or function(f) return f end
@@ -51,29 +77,41 @@ ra.clamp = math.clamp or function(v, lo, hi)
     return math.max(lo, math.min(hi, v))
 end
 
--- ── detection ───────────────────────────────────────────────────────
--- Fust's bullet params exclude every player character, so the filter
--- holds one Humanoid Model per player. A floor of the live player count
--- keeps ESP / manipulation / LOS probes (which filter only 1–2 rigs)
--- from being mistaken for bullets. CFG.raycastAimCharCount can tighten it.
-ra.isBulletRaycast = function(origin, direction, params)
-    if typeof(direction) ~= "Vector3" then return false end
-    if direction.Magnitude < CFG.raycastAimMinRayMag then return false end
-    if typeof(params) ~= "RaycastParams" then return false end
+-- ── damage-ray detection by camera alignment ────────────────────────
+-- A real RaycastParams with an Exclude filter holding at most
+-- CFG.raycastAimMaxFilterChars Humanoid Models is the damage ray. The
+-- tracer's exclude-all-characters filter and all of Hanami's own probes
+-- are rejected before any redirection is considered.
+ra.filterCharCount = function(params)
     local filter = params.FilterDescendantsInstances
-    if type(filter) ~= "table" then return false end
-    local minChars = CFG.raycastAimCharCount
-    local playerCount = #Players:GetPlayers()
-    if playerCount > minChars then minChars = playerCount end
+    if type(filter) ~= "table" then return math.huge end
     local chars = 0
     for _, v in ipairs(filter) do
         if typeof(v) == "Instance" and v:IsA("Model")
             and v:FindFirstChildOfClass("Humanoid") then
             chars = chars + 1
-            if chars >= minChars then return true end
         end
     end
-    return false
+    return chars
+end
+
+ra.isAimRaycast = function(origin, direction, params)
+    if typeof(origin) ~= "Vector3" then return false end
+    if typeof(direction) ~= "Vector3" then return false end
+    if typeof(params) ~= "RaycastParams" then return false end
+    if SA.InternalRayParams and SA.InternalRayParams[params] then
+        return false
+    end
+    if ra.filterCharCount(params) > CFG.raycastAimMaxFilterChars then
+        return false
+    end
+    if direction.Magnitude < CFG.raycastAimMinRayMag then return false end
+    local cam = ws.CurrentCamera
+    if not cam or not cam.CFrame then return false end
+    if (origin - cam.CFrame.Position).Magnitude > CFG.raycastAimMaxOriginDist then
+        return false
+    end
+    return direction.Unit:Dot(cam.CFrame.LookVector) > CFG.raycastAimAlignDot
 end
 
 -- ── target selection ────────────────────────────────────────────────
@@ -183,11 +221,11 @@ ra.rayWrapped = function(self, origin, direction, params)
     end
     if CFG.raycastAimEnabled == true and SA.Alive
         and SA.Generation == ra.generation then
-        local ok, bullet = pcall(ra.isBulletRaycast, origin, direction, params)
+        local ok, aimRay = pcall(ra.isAimRaycast, origin, direction, params)
         if not ok then
             ra.errors = ra.errors + 1
-        elseif bullet then
-            ra.bulletRays = ra.bulletRays + 1
+        elseif aimRay then
+            ra.aimRays = ra.aimRays + 1
             local targetPoint = ra.getClosestTarget(origin)
             if targetPoint then
                 local newDir = targetPoint - origin
@@ -213,11 +251,11 @@ ra.sphereWrapped = function(self, origin, radius, direction, params)
     end
     if CFG.raycastAimEnabled == true and SA.Alive
         and SA.Generation == ra.generation then
-        local ok, bullet = pcall(ra.isBulletRaycast, origin, direction, params)
+        local ok, aimRay = pcall(ra.isAimRaycast, origin, direction, params)
         if not ok then
             ra.errors = ra.errors + 1
-        elseif bullet then
-            ra.bulletRays = ra.bulletRays + 1
+        elseif aimRay then
+            ra.aimRays = ra.aimRays + 1
             local targetPoint = ra.getClosestTarget(origin)
             if targetPoint then
                 local newDir = targetPoint - origin
@@ -274,8 +312,9 @@ ra.install = function()
 end
 
 -- ── control surface ─────────────────────────────────────────────────
--- Mirrors the standalone module's SilentAim.Enabled / .Aggressive /
--- .FOV / .TargetPart / .MIN_RAY_MAG / .CHAR_COUNT fields, backed by CFG.
+-- Mirrors the standalone module's Enabled / Aggressive / FOV /
+-- TargetPart / MIN_RAY_MAG / MAX_ORIGIN_DIST / ALIGN_DOT /
+-- MAX_FILTER_CHARS fields, backed by CFG.
 SA.RaycastAim = setmetatable({}, {
     __index = function(_, k)
         local key = ra.keys[k]
@@ -296,14 +335,17 @@ function SA.RaycastAimState()
         fov = CFG.raycastAimFov,
         targetPart = CFG.raycastAimTargetPart,
         minRayMag = CFG.raycastAimMinRayMag,
-        charCount = CFG.raycastAimCharCount,
+        maxOriginDist = CFG.raycastAimMaxOriginDist,
+        alignDot = CFG.raycastAimAlignDot,
+        maxFilterChars = CFG.raycastAimMaxFilterChars,
         method = "hookfunction on workspace.Raycast + Spherecast",
         hooked = ra.hooked == true,
         reason = ra.reason,
         generation = ra.generation,
         redirects = ra.redirects,
         wallbangs = ra.wallbangs,
-        bulletRays = ra.bulletRays,
+        aimRays = ra.aimRays,
+        bulletRays = ra.aimRays,
         errors = ra.errors,
         lastTargetPart = ra.lastTargetPart,
         lastMode = ra.lastMode,

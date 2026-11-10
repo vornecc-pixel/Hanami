@@ -68,7 +68,7 @@ end
 -- 0.12 s instead of 30 raycasts every single frame.
 -- ────────────────────────────────────────────────────────────────────
 
-local visParams = RaycastParams.new()
+local visParams = SA.MarkInternalRayParams(RaycastParams.new())
 visParams.FilterType = Enum.RaycastFilterType.Exclude
 visParams.IgnoreWater = true
 local visCache = setmetatable({}, { __mode = "k" })

@@ -159,8 +159,9 @@ local newKeys = {
     "fustBowManipulation", "fustBowManipPeek", "fustBowManipMaxDist",
     "fustBowOriginRadius",
     "raycastAimEnabled", "raycastAimAggressive", "raycastAimFov",
-    "raycastAimTargetPart", "raycastAimMinRayMag", "raycastAimCharCount",
-    "noCameraSnap",
+    "raycastAimTargetPart", "raycastAimMinRayMag",
+    "raycastAimMaxOriginDist", "raycastAimAlignDot",
+    "raycastAimMaxFilterChars", "noCameraSnap",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -750,36 +751,54 @@ local savedRay = {
     fov = CFG.raycastAimFov,
     targetPart = CFG.raycastAimTargetPart,
     minRayMag = CFG.raycastAimMinRayMag,
-    charCount = CFG.raycastAimCharCount,
+    maxOriginDist = CFG.raycastAimMaxOriginDist,
+    alignDot = CFG.raycastAimAlignDot,
+    maxFilterChars = CFG.raycastAimMaxFilterChars,
+    aimRays0 = SA.RaycastAimState().aimRays,
 }
 mock_ray_aim_reset()
 eq(SA.RaycastAimState().enabled, false, "raycast aim default OFF")
 eq(SA.RaycastAimState().method,
     "hookfunction on workspace.Raycast + Spherecast", "hook method")
 eq(SA.RaycastAimState().errors, 0, "no hook errors")
+eq(SA.RaycastAimState().maxOriginDist, 6, "max origin distance default")
+eq(SA.RaycastAimState().alignDot, 0.9, "aim alignment default")
+eq(SA.RaycastAimState().maxFilterChars, 1, "max filter chars default")
 ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST,
     "Raycast replaced by the silent-aim wrapper")
 ok(workspace.Spherecast ~= MOCK_WORKSPACE_SPHERECAST,
     "Spherecast replaced by the silent-aim wrapper")
 eq(SA.RaycastAim.Enabled, false, "control surface reads Enabled")
 eq(SA.RaycastAim.FOV, 180, "control surface reads FOV")
+eq(SA.RaycastAim.MAX_ORIGIN_DIST, 6, "control surface reads MAX_ORIGIN_DIST")
+eq(SA.RaycastAim.ALIGN_DOT, 0.9, "control surface reads ALIGN_DOT")
+eq(SA.RaycastAim.MAX_FILTER_CHARS, 1, "control surface reads MAX_FILTER_CHARS")
 SA.RaycastAim.Enabled = true
 eq(CFG.raycastAimEnabled, true, "control surface writes Enabled")
 SA.RaycastAim.Enabled = false
 eq(CFG.raycastAimEnabled, false, "control surface restores Enabled")
+SA.RaycastAim.MAX_ORIGIN_DIST = 12
+eq(CFG.raycastAimMaxOriginDist, 12, "control surface writes MAX_ORIGIN_DIST")
+SA.RaycastAim.MAX_ORIGIN_DIST = 6
 
+-- Damage-ray signature: camera position, camera-look direction (-Z in the
+-- mock), and only self in the Exclude filter. The old CHAR_COUNT >= 2 test
+-- matched the cosmetic tracer instead.
 local rayOrigin = Vector3.new(0, 3, 0)
-local bulletDir = Vector3.new(0, 0, 100)
-local bulletParams = RaycastParams.new()
-bulletParams.FilterType = Enum.RaycastFilterType.Exclude
-bulletParams.FilterDescendantsInstances = {
+local bulletDir = Vector3.new(0, 0, -100)
+local damageParams = RaycastParams.new()
+damageParams.FilterType = Enum.RaycastFilterType.Exclude
+damageParams.FilterDescendantsInstances = { Players:GetPlayers()[1].Character }
+local tracerParams = RaycastParams.new()
+tracerParams.FilterType = Enum.RaycastFilterType.Exclude
+tracerParams.FilterDescendantsInstances = {
     Players:GetPlayers()[1].Character,
     Players:GetPlayers()[2].Character,
     Players:GetPlayers()[3].Character,
 }
-local thinParams = RaycastParams.new()
-thinParams.FilterType = Enum.RaycastFilterType.Exclude
-thinParams.FilterDescendantsInstances = { Players:GetPlayers()[2].Character }
+local internalParams = SA.MarkInternalRayParams(RaycastParams.new())
+internalParams.FilterType = Enum.RaycastFilterType.Exclude
+internalParams.FilterDescendantsInstances = { Players:GetPlayers()[1].Character }
 local function rayAimReset()
     MOCK_RAY_AIM_BLOCKED = false
     MOCK_RAY_AIM_CALLS = 0
@@ -791,7 +810,7 @@ local wallbangs0 = SA.RaycastAimState().wallbangs
 
 -- OFF: every ray is forwarded untouched.
 rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+workspace:Raycast(rayOrigin, bulletDir, damageParams)
 eq(MOCK_RAY_AIM_CALLS, 1, "original raycast called while OFF")
 eq(MOCK_RAY_AIM_DIRS[1], bulletDir, "direction untouched while OFF")
 eq(SA.RaycastAimState().redirects, redirects0, "no redirect while OFF")
@@ -799,45 +818,73 @@ eq(SA.RaycastAimState().redirects, redirects0, "no redirect while OFF")
 -- true mode: single-pass redirect toward the FOV target.
 setFlags({ raycastAimEnabled = true, raycastAimAggressive = false })
 rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+workspace:Raycast(rayOrigin, bulletDir, damageParams)
 eq(MOCK_RAY_AIM_CALLS, 1, "true redirect calls original once")
 eq(#MOCK_RAY_AIM_DIRS, 1, "one redirected ray")
 ok(MOCK_RAY_AIM_DIRS[1].X > 0, "redirect aims toward target X")
 ok(MOCK_RAY_AIM_DIRS[1].Z < 100, "redirect replaces the original direction")
 eq(SA.RaycastAimState().redirects, redirects0 + 1, "redirect counted")
+eq(SA.RaycastAimState().aimRays, savedRay.aimRays0 + 1, "aim ray counted")
 eq(SA.RaycastAimState().lastMode, "true", "true mode recorded")
 
--- Bullet signature gates: short ray, bad params, too few rigs.
+-- Camera-alignment gates: short ray, bad params, far origin, misaligned
+-- direction, tracer filter, and Hanami's own marked internal params.
 rayAimReset()
-workspace:Raycast(rayOrigin, Vector3.new(0, 0, 10), bulletParams)
+workspace:Raycast(rayOrigin, Vector3.new(0, 0, -10), damageParams)
 eq(SA.RaycastAimState().redirects, redirects0 + 1, "MIN_RAY_MAG gate")
+eq(MOCK_RAY_AIM_DIRS[1].Z, -10, "short ray untouched")
 rayAimReset()
 workspace:Raycast(rayOrigin, bulletDir, {})
 eq(SA.RaycastAimState().redirects, redirects0 + 1, "non-RaycastParams gate")
+eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "bad-params ray untouched")
 rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, thinParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1,
-    "player-count filter gate")
+workspace:Raycast(Vector3.new(0, 3, 20), bulletDir, damageParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "max origin distance gate")
+eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "far-origin ray untouched")
+rayAimReset()
+workspace:Raycast(rayOrigin, Vector3.new(100, 0, 0), damageParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "camera alignment dot gate")
+eq(MOCK_RAY_AIM_DIRS[1].X, 100, "misaligned ray untouched")
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, tracerParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "tracer filter gate")
+eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "cosmetic tracer untouched")
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, internalParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "internal probe params gate")
+eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "internal probe untouched")
 
--- Config knobs: FOV, magnitude, char count, target part.
+-- Config knobs: FOV, magnitude, origin distance, alignment, filter cap,
+-- target part.
 setFlags({ raycastAimFov = 10 })
 rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+workspace:Raycast(rayOrigin, bulletDir, damageParams)
 eq(SA.RaycastAimState().redirects, redirects0 + 1, "FOV gate")
 setFlags({ raycastAimFov = 180 })
 setFlags({ raycastAimMinRayMag = 200 })
 rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+workspace:Raycast(rayOrigin, bulletDir, damageParams)
 eq(SA.RaycastAimState().redirects, redirects0 + 1, "MIN_RAY_MAG knob gate")
 setFlags({ raycastAimMinRayMag = 30 })
-setFlags({ raycastAimCharCount = 4 })
+setFlags({ raycastAimMaxOriginDist = 0.1 })
 rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, bulletParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "CHAR_COUNT knob gate")
-setFlags({ raycastAimCharCount = 2 })
+workspace:Raycast(Vector3.new(0, 3, 2), bulletDir, damageParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "MAX_ORIGIN_DIST knob gate")
+setFlags({ raycastAimMaxOriginDist = 6 })
+setFlags({ raycastAimAlignDot = 1.1 })
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, damageParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1, "ALIGN_DOT knob gate")
+setFlags({ raycastAimAlignDot = 0.9 })
+setFlags({ raycastAimMaxFilterChars = 0 })
+rayAimReset()
+workspace:Raycast(rayOrigin, bulletDir, damageParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 1,
+    "MAX_FILTER_CHARS knob gate")
+setFlags({ raycastAimMaxFilterChars = 1 })
 setFlags({ raycastAimTargetPart = "HumanoidRootPart" })
 rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+workspace:Raycast(rayOrigin, bulletDir, damageParams)
 eq(SA.RaycastAimState().lastTargetPart, "HumanoidRootPart",
     "target part knob")
 setFlags({ raycastAimTargetPart = "Head" })
@@ -846,7 +893,7 @@ setFlags({ raycastAimTargetPart = "Head" })
 setFlags({ raycastAimAggressive = true })
 rayAimReset()
 MOCK_RAY_AIM_BLOCKED = true
-local hit = workspace:Raycast(rayOrigin, bulletDir, bulletParams)
+local hit = workspace:Raycast(rayOrigin, bulletDir, damageParams)
 eq(MOCK_RAY_AIM_CALLS, 2, "aggressive calls original twice")
 eq(#MOCK_RAY_AIM_DIRS, 2, "both passes redirected")
 ok(MOCK_RAY_AIM_DIRS[1].X > 0 and MOCK_RAY_AIM_DIRS[2].X > 0,
@@ -861,15 +908,22 @@ eq(SA.RaycastAimState().lastMode, "aggressive", "aggressive mode recorded")
 setFlags({ raycastAimAggressive = false })
 MOCK_RAY_AIM_BLOCKED = false
 rayAimReset()
-workspace:Spherecast(rayOrigin, 2, bulletDir, bulletParams)
+workspace:Spherecast(rayOrigin, 2, bulletDir, damageParams)
 eq(MOCK_RAY_AIM_CALLS, 1, "sphere true redirect single pass")
 ok(MOCK_RAY_AIM_DIRS[1].X > 0, "sphere redirect aims at target")
 setFlags({ raycastAimAggressive = true })
 rayAimReset()
 MOCK_RAY_AIM_BLOCKED = true
-local sphereHit = workspace:Spherecast(rayOrigin, 2, bulletDir, bulletParams)
+local sphereHit = workspace:Spherecast(rayOrigin, 2, bulletDir, damageParams)
 eq(MOCK_RAY_AIM_CALLS, 2, "aggressive sphere two-pass")
 ok(sphereHit ~= nil, "aggressive sphere returns target hit")
+
+-- Dot-call argument shift stays supported alongside the method form.
+setFlags({ raycastAimAggressive = false })
+MOCK_RAY_AIM_BLOCKED = false
+rayAimReset()
+workspace.Raycast(rayOrigin, bulletDir, damageParams)
+eq(SA.RaycastAimState().redirects, redirects0 + 6, "dot-call redirect")
 
 -- Dispose / restore / re-hook.
 eq(SA.RaycastAimDispose().hooked, false, "dispose marks hooks inactive")
@@ -884,7 +938,9 @@ setFlags({
     raycastAimFov = savedRay.fov,
     raycastAimTargetPart = savedRay.targetPart,
     raycastAimMinRayMag = savedRay.minRayMag,
-    raycastAimCharCount = savedRay.charCount,
+    raycastAimMaxOriginDist = savedRay.maxOriginDist,
+    raycastAimAlignDot = savedRay.alignDot,
+    raycastAimMaxFilterChars = savedRay.maxFilterChars,
 })
 mock_ray_aim_reset()
 

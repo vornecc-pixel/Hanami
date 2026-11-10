@@ -57,7 +57,7 @@ fb.alive = function(plr)
 end
 
 fb.hasLOS = function(origin, pos, ignore)
-    local p = RaycastParams.new()
+    local p = SA.MarkInternalRayParams(RaycastParams.new())
     p.FilterType = Enum.RaycastFilterType.Exclude
     p.FilterDescendantsInstances = { lp.Character, ignore, Workspace.Terrain }
     return Workspace:Raycast(origin, pos - origin, p) == nil
@@ -109,7 +109,7 @@ end
 fb.findPeek = function(origin, targetPos, targetModel, maxPeek)
     local wallFilter = { lp.Character }
     if targetModel then table.insert(wallFilter, targetModel) end
-    local wp = RaycastParams.new()
+    local wp = SA.MarkInternalRayParams(RaycastParams.new())
     wp.FilterType = Enum.RaycastFilterType.Exclude
     wp.FilterDescendantsInstances = wallFilter
     wp.IgnoreWater = true
@@ -131,7 +131,7 @@ fb.findPeek = function(origin, targetPos, targetModel, maxPeek)
 
     local losFilter = { lp.Character }
     if targetModel then table.insert(losFilter, targetModel) end
-    local losParams = RaycastParams.new()
+    local losParams = SA.MarkInternalRayParams(RaycastParams.new())
     losParams.FilterType = Enum.RaycastFilterType.Exclude
     losParams.FilterDescendantsInstances = losFilter
     losParams.IgnoreWater = true

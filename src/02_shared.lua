@@ -178,7 +178,7 @@ function SA.IsNpcModel(model)
     return okNpc and npc == true
 end
 
-local losParams = RaycastParams.new()
+local losParams = SA.MarkInternalRayParams(RaycastParams.new())
 losParams.FilterType = Enum.RaycastFilterType.Exclude
 losParams.IgnoreWater = true
 

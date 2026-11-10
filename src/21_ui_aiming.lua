@@ -534,14 +534,18 @@ local rayCol = Aiming:column()
 local raySec = rayCol:section({ name = "Raycast Silent Aim" })
 
 bindToggle(raySec, "Enable Raycast Silent Aim", "raycastAimEnabled",
-    "Default OFF: hookfunction on workspace.Raycast + Spherecast; redirects Fust bullet raycasts to the FOV target")
+    "Default OFF: hookfunction on workspace.Raycast + Spherecast; redirects the camera-aligned damage ray to the FOV target")
 bindToggle(raySec, "Aggressive (Wallbang)", "raycastAimAggressive",
     "Two-pass redirect with an Include-only-players ray so the shot passes through walls")
 bindSlider(raySec, "FOV (degrees)", "raycastAimFov", 10, 360, 5, "deg")
 bindDropdown(raySec, "Target Part", "raycastAimTargetPart",
     { "Head", "HumanoidRootPart", "UpperTorso", "Torso" })
 bindSlider(raySec, "Min Ray Magnitude", "raycastAimMinRayMag", 1, 500, 5, "")
-bindSlider(raySec, "Min Humanoid Filters", "raycastAimCharCount", 1, 8, 1, "")
+bindSlider(raySec, "Max Origin Distance", "raycastAimMaxOriginDist", 0, 30, 0.5, " studs")
+bindSlider(raySec, "Aim Alignment", "raycastAimAlignDot", 0.5, 1, 0.01, "")
+bindSlider(raySec, "Max Filter Characters", "raycastAimMaxFilterChars", 0, 8, 1, "")
+raySec:label({ name = "Damage ray: camera-near origin + camera-look direction + 0-1 character filter" })
+raySec:label({ name = "Tracer ray excluded: muzzle origin + all-character filter is cosmetic only" })
 raySec:label({ name = "true = single pass (walls block) · aggressive = two-pass wallbang" })
 raySec:label({ name = "Separate from camera-snap gun aim and Fust bow hook" })
 addButton(raySec, "Rehook Raycast Aim", function()
