@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 25_ui_misc.lua — Misc tab, profiles, self-check, keybinds,
+-- Hanami / 25_ui_misc.lua — Misc tab, profiles, state checks, keybinds,
 -- full unload and UI init. Loaded in order by loader.lua. Parts are
 -- joined into ONE chunk; the loader hoists column-1 `local`s to beat
 -- Luau's 200-local cap.
@@ -28,9 +28,6 @@ infoSec:label({ name = "BETTER: profiles · self-check · perf mode · preview c
 local actCol = MiscTab:column()
 local actSec = actCol:section({ name = "Quick Actions" })
 
-addButton(actSec, "Scan All Entities", function()
-    SA.PrintScan()
-end)
 
 addButton(actSec, "Disable All", function()
     setFlag("masterEnabled", false)
@@ -50,19 +47,14 @@ end)
 
 addButton(actSec, "Toggle Manip", function()
     setFlag("manipulation", not CFG.manipulation)
-    print("[sa] manip:", CFG.manipulation and "on" or "off")
 end)
 
-addButton(actSec, "Print Feature Keybinds", function()
-    SA.FeatureBindDiag()
-end)
 
 addButton(actSec, "Reset ESP Colours", function()
     for k, v in pairs(ESP_DEFAULT_COLORS) do
         local setter = library.config_flags["hn_col_" .. k]
         if setter then setter(v, 1) else ESP_COLORS[k] = v end
     end
-    print("[sa] ESP colours reset to defaults")
 end)
 
 -- ────────────────────────────────────────────────────────────────────
@@ -130,7 +122,6 @@ function SA.SaveProfile(name)
     if not ok then return false, tostring(err) end
     CFG.configName, CFG.configProfile = name, name
     SA.LastConfigResult = { profile = name, flags = SA.FlagCount(), bytes = nil }
-    print("[cfg] saved profile:", name, "with", SA.FlagCount(), "flags")
     return true
 end
 
@@ -151,7 +142,6 @@ function SA.LoadProfile(name)
     pcall(function() library:config_list_update() end)
     SA.LastConfigResult = { profile = name, flags = SA.FlagCount(),
                             bytes = #data }
-    print("[cfg] loaded profile:", name, "(" .. SA.FlagCount() .. " flags)")
     return true
 end
 
@@ -165,30 +155,19 @@ function SA.DeleteProfile(name)
         library:config_list_update()
     end)
     if not ok then return false, tostring(err) end
-    print("[cfg] deleted profile:", name)
     return true
 end
 
-function SA.PrintProfiles()
-    print("════════════ HANAMI PROFILES ════════════")
-    print("  dir:", SA.ProfileDir, "| last:", SA.GetLastProfile())
-    for _, n in ipairs(SA.ListProfiles()) do print("   -", n) end
-    print("  flags:", SA.FlagCount(), "| coverage:",
-        #SA.ConfigCoverage() == 0 and "all hn_* bound" or "MISSING")
-    print("══════════════════════════════════════")
-end
 
 function SA.ExportConfig()
     local data = library:get_config()
     pcall(function() setclipboard(data) end)
-    print("[cfg] exported " .. #data .. " bytes to clipboard")
     return data
 end
 
 function SA.ImportConfig(data)
     if type(data) ~= "string" or data == "" then return false, "empty input" end
     local ok, err = pcall(function() library:load_config(data) end)
-    if not ok then print("[cfg] import failed:", tostring(err)) end
     return ok, err
 end
 
@@ -283,22 +262,15 @@ function SA.ResetToDefaults()
         if setter then pcall(setter, v, 1) end
     end
     pcall(SA.ResetKeybindDefaults)
-    print("[cfg] reset " .. n .. " CFG keys + ESP colours + keybinds to shipped defaults")
     return n
 end
 
 -- ────────────────────────────────────────────────────────────────────
--- BETTER 2 · IN-GAME SELF-CHECK PANEL
--- One button runs every SA.*Diag()/state helper and shows the result in
--- a draggable panel. Static analysis + Fengari mocks cannot prove an
--- executor's gethui / Drawing / getgc / getconnections, so this is the
--- real in-game verification the user can actually read.
+-- BETTER 2 · PROGRAMMATIC SELF-CHECK STATE
+-- SA.SelfCheck() returns a report table (checks / passed / warned /
+-- failed) for code that wants to inspect executor capabilities. There is
+-- no panel, no button and no console output: the features stay silent.
 -- ────────────────────────────────────────────────────────────────────
-
--- A loader re-execute replaces this local state: remove the old panel
--- before losing the reference to it.
-if SA.DisposeSelfCheckPanel then pcall(SA.DisposeSelfCheckPanel) end
-local saSCPanel = { gui = nil, label = nil }
 
 local saSCAdd = function(out, name, status, detail)
     out[#out + 1] = { name = name, status = status,
@@ -396,11 +368,11 @@ function SA.SelfCheck()
     saSCAdd(out, "key conflicts", #conflicts == 0 and "ok" or "warn",
         #conflicts == 0 and "none" or (#conflicts .. " shared keys"))
 
-    local diagCalls = {
+    local stateCalls = {
         { "silent aim", "SilentAimState" }, { "bow mods", "BowModsState" },
         { "manipulation", "ManipState" }, { "attachments", "AttachmentState" },
-        { "FOV", "FovState" }, { "preview", "EspPreviewDiag" },
-        { "nearest HUD", "NearestWindowState" }, { "best ESP", "EspFeatureDiag" },
+        { "FOV", "FovState" }, { "ESP pass stats", "EspPassStats" },
+        { "nearest HUD", "NearestWindowState" }, { "config coverage", "ConfigCoverage" },
         { "gun diff", "GunDiff" }, { "perf", "PerfState" },
         { "manip popup", "ManipPopupState" }, { "clean ESP", "CleanEspState" },
         { "NPC manipulation", "ManipNpcState" },
@@ -411,14 +383,14 @@ function SA.SelfCheck()
         { "ghetto gun", "GhettoGunState" },
         { "draw sync", "DrawSyncStats" },
         { "esp perf", "EspPerfState" },
-        { "esp frame budget", "PrintEspFrameBudget" },
+        { "esp frame budget", "EspFrameBudget" },
         { "hitbox", "HitboxState" },
     }
-    for _, d in ipairs(diagCalls) do
+    for _, d in ipairs(stateCalls) do
         local ok = false
         pcall(function()
             if type(SA[d[2]]) == "function" then
-                SA[d[2]]()   -- Diag() helpers print; a nil return is normal
+                SA[d[2]]()   -- state helpers return data silently
                 ok = true
             end
         end)
@@ -456,85 +428,13 @@ function SA.SelfCheck()
     return report
 end
 
-function SA.PrintSelfCheck()
-    local r = SA.SelfCheck()
-    print("════════════ HANAMI SELF-CHECK ════════════")
-    for _, c in ipairs(r.checks) do
-        print(string.format("  [%-4s] %-20s %s",
-            string.upper(c.status), c.name, c.detail))
-    end
-    print(string.format("════ %d ok · %d warn · %d fail ════",
-        r.passed, r.warned, r.failed))
-    return r
-end
 
 function SA.SelfCheckState()
     return SA.LastSelfCheck or SA.SelfCheck()
 end
 
-function SA.DisposeSelfCheckPanel()
-    pcall(function() if saSCPanel.gui then saSCPanel.gui:Destroy() end end)
-    saSCPanel.gui, saSCPanel.label = nil, nil
-end
 
-function SA.ShowSelfCheck(run)
-    local r = run and SA.SelfCheck() or SA.SelfCheckState()
-    if not saSCPanel.gui then
-        local parent = nil
-        pcall(function()
-            if typeof(gethui) == "function" then parent = gethui() end
-        end)
-        if not parent then pcall(function() parent = game:GetService("CoreGui") end) end
-        if not parent then return r end
-        pcall(function()
-            local sg = Instance.new("ScreenGui")
-            sg.Name = "HanamiSelfCheck"
-            sg.ResetOnSpawn = false
-            sg.IgnoreGuiInset = true
-            sg.DisplayOrder = 999
-            sg.Enabled = true
-            sg.Parent = parent
-            local f = Instance.new("Frame")
-            f.Name = "Panel"
-            f.Size = UDim2.new(0, 640, 0, 460)
-            f.Position = UDim2.new(0.5, -320, 0.5, -230)
-            f.BackgroundColor3 = Color3.fromRGB(14, 16, 24)
-            f.BackgroundTransparency = 0.08
-            f.BorderSizePixel = 0
-            f.Parent = sg
-            pcall(function() f.Draggable = true end)
-            local lbl = Instance.new("TextLabel")
-            lbl.Name = "Report"
-            lbl.Size = UDim2.new(1, -16, 1, -16)
-            lbl.Position = UDim2.new(0, 8, 0, 8)
-            lbl.BackgroundTransparency = 1
-            lbl.TextColor3 = Color3.fromRGB(225, 232, 250)
-            lbl.TextXAlignment = Enum.TextXAlignment.Left
-            lbl.TextYAlignment = Enum.TextYAlignment.Top
-            lbl.TextWrapped = true
-            lbl.TextSize = 12
-            lbl.Parent = f
-            pcall(function() SA.ApplyEspFont(lbl) end)
-            saSCPanel.gui, saSCPanel.label = sg, lbl
-        end)
-    end
-    if saSCPanel.label then
-        local lines = { string.format(
-            "HANAMI SELF-CHECK  ·  %d ok / %d warn / %d fail",
-            r.passed, r.warned, r.failed) }
-        for _, c in ipairs(r.checks) do
-            lines[#lines + 1] = string.format("[%s] %-20s %s",
-                string.upper(c.status), c.name, c.detail)
-        end
-        saSCPanel.label.Text = table.concat(lines, "\n")
-    end
-    if saSCPanel.gui then saSCPanel.gui.Enabled = true end
-    return r
-end
 
-function SA.HideSelfCheck()
-    if saSCPanel.gui then saSCPanel.gui.Enabled = false end
-end
 
 -- ────────────────────────────────────────────────────────────────────
 -- BETTER 3 · REAL UNLOAD
@@ -560,7 +460,6 @@ function SA.FullUnload()
     pcall(function() disableCrateESP() end)
     pcall(function() if SA.EspPreviewDispose then SA.EspPreviewDispose() end end)
     pcall(function() if SA.NearestWindowDispose then SA.NearestWindowDispose() end end)
-    pcall(function() if SA.DisposeSelfCheckPanel then SA.DisposeSelfCheckPanel() end end)
     pcall(function() if SA.DisposePerfOverlay then SA.DisposePerfOverlay() end end)
     pcall(function() if SA.DisposeManipPopup then SA.DisposeManipPopup() end end)
     pcall(function() if SA.DisposePlayerWarning then SA.DisposePlayerWarning() end end)
@@ -602,14 +501,13 @@ function SA.FullUnload()
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saGhettoGun = nil
-    print("[sa] FULL unload complete — loops stopped, GUIs destroyed, state cleared")
     return true
 end
 
--- ── MISC : Profile / Self-Check / Keybinds / System UI ──────────────
+-- ── MISC : Profile / System UI ────────────────────────────────────
 local miscCol = MiscTab:column()
-local profileSec, selfSec, sysSec = miscCol:multi_section({
-    names = { "Config Profiles", "Self-Check", "System" },
+local profileSec, sysSec = miscCol:multi_section({
+    names = { "Config Profiles", "System" },
 })
 
 bindToggle(profileSec, "Auto-load Last Profile", "autoLoadConfig",
@@ -643,59 +541,25 @@ profileSec:dropdown({
 })
 addButton(profileSec, "Save Profile", function()
     local ok, err = SA.SaveProfile(CFG.configName or CFG.configProfile)
-    if not ok then print("[cfg] save failed:", tostring(err)) end
 end)
 addButton(profileSec, "Load Profile", function()
     local ok, err = SA.LoadProfile(CFG.configProfile)
-    if not ok then print("[cfg] load failed:", tostring(err)) end
 end)
 addButton(profileSec, "Delete Profile", function()
     local ok, err = SA.DeleteProfile(CFG.configProfile)
-    if not ok then print("[cfg] delete failed:", tostring(err)) end
 end)
 addButton(profileSec, "Reset to Defaults", function() SA.ResetToDefaults() end)
-addButton(profileSec, "Print Profiles", function() SA.PrintProfiles() end)
 addButton(profileSec, "Export Config to Clipboard", function() SA.ExportConfig() end)
 addButton(profileSec, "Import Config from Clipboard", function()
     local data = nil
     pcall(function() data = getclipboard() end)
     local ok, err = SA.ImportConfig(data)
-    if not ok then print("[cfg] import failed:", tostring(err)) end
-end)
-addButton(profileSec, "Run Config Round-Trip Test", function()
-    local good, detail = SA.TestConfigRoundTrip()
-    print("[cfg] round-trip:", good and "OK" or "FAIL", tostring(detail))
 end)
 
-addButton(selfSec, "Run Self-Check", function() SA.PrintSelfCheck() end)
-addButton(selfSec, "Show Self-Check Panel", function() SA.ShowSelfCheck(true) end)
-addButton(selfSec, "Hide Self-Check Panel", function() SA.HideSelfCheck() end)
-addButton(selfSec, "Print Config Coverage", function()
-    local missing = SA.ConfigCoverage()
-    print("[cfg] hn_* coverage:", #missing == 0 and "ALL BOUND"
-        or table.concat(missing, ", "))
-end)
-addButton(selfSec, "Print Draw Write Failures", function()
-    local w = SA.DrawWriteFailures()
-    print("[sa] Drawing write failures:", w.count, "| last:", w.last)
-    print("[sa]", SA.DrawDiag())
-end)
 
 addButton(sysSec, "Unload Everything (FULL)", function()
     SA.FullUnload()
 end)
-addButton(sysSec, "Print Performance State", function()
-    local st = SA.PerfState()
-    print(string.format("[perf] %.1f fps | rebuild %.0f ms | cap %s",
-        st.fps or 0, st.effectiveRebuildMs or 0,
-        tostring(st.effectiveEntityCap)))
-end)
-addButton(sysSec, "Print Live ESP Counts", function()
-    local v = SA.EspPassStats()
-    print(string.format("[esp] %d players / %d npcs / %d crates",
-        v.players, v.npcs, v.crates))
-end)
-addButton(sysSec, "Print Live Gun Diff", function() SA.PrintGunDiff() end)
 
 -- ── Initialisation (from the Atlanta template) ─────────────────────
 Aiming.open_tab()
@@ -710,7 +574,4 @@ pcall(function() library.old_config = library:get_config() end)
 if CFG.autoLoadConfig == true then
     local lastName = SA.GetLastProfile()
     local okCall, loaded, why = pcall(SA.LoadProfile, lastName)
-    if not okCall or not loaded then
-        print("[cfg] auto-load skipped:", tostring(why or loaded or okCall))
-    end
 end

@@ -118,20 +118,3 @@ function SA.Roster()
     end
     return out
 end
-
--- Console dump used by the ESP-tab and Misc-tab scan buttons.
-function SA.PrintScan(kind)
-    print("════════════ ENTITY SCAN ════════════")
-    local n = 0
-    for _, e in ipairs(SA.Roster()) do
-        if not kind or e.kind == kind then
-            local i = SA.ScanEntity(e.model, e.hum)
-            print(string.format(
-                "[%-6s] %-16s | W: %-20s | S: %-12s | HP: %3d/%-3d | %4dm | %s",
-                e.kind, i.name, i.tool, i.state, i.health, i.maxHealth,
-                i.meters, i.visible and "VISIBLE" or "BLOCKED"))
-            n = n + 1
-        end
-    end
-    print(string.format("════════════ %d entities ════════════", n))
-end

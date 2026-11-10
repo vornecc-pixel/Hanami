@@ -177,7 +177,6 @@ _G.__saEspColors = ESP_COLORS
 
 local SA_CFG_SHIPPED = {
     masterEnabled = true,
-    debug         = false,
 
     -- targeting
     fov        = 220,
@@ -355,7 +354,7 @@ local SA_CFG_SHIPPED = {
     hitboxMaxDist   = 300,        -- 0 = unlimited
     hitboxTeamCheck = true,
     hitboxAliveOnly = true,
-    hitboxVisible   = false,      -- client-only debug tint
+    hitboxVisible   = false,      -- client-only tint
     hitboxNpcs      = true,       -- expand live NPC registry models too
 
     -- bow mods (GC scan; NOT part of silent aim / manipulation)
@@ -366,7 +365,7 @@ local SA_CFG_SHIPPED = {
 
     -- ── BETTER: profiles, keybinds, HUD, declutter, aim, preview, perf ──
     configProfile = "default", configName = "default", autoLoadConfig = false,
-    keybindMode = "toggle", keybindConflictWarn = true,
+    keybindMode = "toggle",
     keybindSelected = "hn_menu_bind",
     nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
@@ -381,7 +380,7 @@ local SA_CFG_SHIPPED = {
     espPreviewSource = "Local Character", espPreviewCompare = false,
     perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
     espDataRefreshMs = 100, perfShowFps = false,
-    gunDiffOnScan = false, gunOverrideString = "",
+    gunOverrideString = "",
 }
 local CFG = _G.__saCFG or SA_CFG_SHIPPED
 _G.__saCFG = CFG
@@ -442,7 +441,7 @@ for k, v in pairs({
     hitboxNpcs = true,
     bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
     configProfile = "default", configName = "default", autoLoadConfig = false,
-    keybindMode = "toggle", keybindConflictWarn = true,
+    keybindMode = "toggle",
     keybindSelected = "hn_menu_bind",
     nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
@@ -457,7 +456,7 @@ for k, v in pairs({
     espPreviewSource = "Local Character", espPreviewCompare = false,
     perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
     espDataRefreshMs = 100, perfShowFps = false,
-    gunDiffOnScan = false, gunOverrideString = "",
+    gunOverrideString = "",
 }) do if CFG[k] == nil then CFG[k] = v end end
 -- Older saved configs never had the snapshot either.
 if type(SA.CFG_DEFAULTS) ~= "table" then
@@ -501,7 +500,7 @@ if _G.__saManipFix ~= 3 then
     _G.__saManipFix = 3
 end
 
--- Clamp on EVERY load: saved profiles, preset imports and console edits
+-- Clamp on EVERY load: saved profiles, preset imports and manual edits
 -- must all land inside the slider ranges or the controls lie about what
 -- they do. `manipMaxPeek` is removed from saved configs entirely.
 local function saClampNum(v, lo, hi, def)
@@ -531,7 +530,6 @@ CFG.configName         = tostring(CFG.configName or "default")
 CFG.autoLoadConfig     = CFG.autoLoadConfig == true
 CFG.keybindMode        = ({ toggle=true, hold=true, always=true })[CFG.keybindMode]
                          and CFG.keybindMode or "toggle"
-CFG.keybindConflictWarn= CFG.keybindConflictWarn ~= false
 CFG.keybindSelected    = tostring(CFG.keybindSelected or "hn_menu_bind")
 CFG.nearestTopN        = saClampNum(CFG.nearestTopN, 1, 5, 1)
 CFG.nearestShowHealth  = CFG.nearestShowHealth ~= false
@@ -584,7 +582,6 @@ CFG.perfEspRebuildMs   = saClampNum(CFG.perfEspRebuildMs, 16, 500, 100)
 CFG.perfMaxEntities    = saClampNum(CFG.perfMaxEntities, 5, 100, 40)
 CFG.espDataRefreshMs   = saClampNum(CFG.espDataRefreshMs, 16, 500, 100)
 CFG.perfShowFps        = CFG.perfShowFps == true
-CFG.gunDiffOnScan      = CFG.gunDiffOnScan == true
 CFG.gunOverrideString  = tostring(CFG.gunOverrideString or "")
 CFG.hitboxEnabled      = CFG.hitboxEnabled == true
 CFG.hitboxTarget       = ({ Head=true, Torso=true, Both=true })

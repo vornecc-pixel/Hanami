@@ -40,7 +40,7 @@ local function pvTeardown()
     pv.renderConn, pv.root, pv.camera, pv.clone = nil, nil, nil, nil
     pv.parts, pv.ui, pv.ui2, pv.model, pv.model2, pv.ownGui = nil, nil, nil, nil, nil, nil
     pv.lastSource, pv.lastCompare, pv.lastKind = nil, nil, nil
-    pv.styleErr, pv.styleWarned, pv.lastStyle = nil, nil, nil
+    pv.styleErr, pv.lastStyle = nil, nil
 end
 
 -- Re-execution: remove the old run's viewport, render loop AND its

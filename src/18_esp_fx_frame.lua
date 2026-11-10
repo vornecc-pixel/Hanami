@@ -18,7 +18,7 @@ local function safeDrawEntity(cam, o, opt)
 end
 
 -- FPS counters are shared with 19_render_loop.lua (throttled data refresh)
--- and survive re-execution so Print ESP FPS State shows the whole session.
+-- and survive re-execution for the session-long ESP perf state.
 SA.EspPerf = SA.EspPerf or { fxPasses = 0, dataRefreshes = 0, dataSkips = 0 }
 SA.EspFxFrame = SA.EspFxFrame or 0
 
@@ -149,16 +149,6 @@ function SA.CrateFovState()
     }
 end
 
-function SA.PrintCrateFovState()
-    local s = SA.CrateFovState()
-    print("========== CRATE ESP FOV ==========")
-    print("  enabled:", tostring(s.enabled), "| crate ESP:", tostring(s.crateEsp))
-    print("  radius:", tostring(s.radius), "| inside:", tostring(s.inside),
-        "| outside:", tostring(s.outside))
-    print("  dots:", tostring(s.dots), "| outline highlights:",
-        tostring(s.highlights))
-    print("===================================")
-end
 
 function SA.EspPassStats()
     return {

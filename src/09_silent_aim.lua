@@ -82,7 +82,7 @@ local tapInfo = _G.__saTapReorderInfo or {
 }
 _G.__saTapReorderInfo = tapInfo
 
--- ── shared bind names (banner / Debug / Unload all reference these) ───
+-- ── shared bind names (render step / full unload reference these) ───
 if not _G.__saSnapName then
     _G.__saSnapName    = "s_" .. tostring(math.random(1e6, 9e6))
     _G.__saRestoreName = "r_" .. tostring(math.random(1e6, 9e6))
@@ -121,11 +121,6 @@ local function findSilentTarget(camera, origin)
         local newAim, info = SA.Predict(origin, aim, best.model)
         aim = newAim
         SA.Target.pred = info
-        if CFG.debug then
-            dbg(string.format("pred %s | speed %.0f | t %.3fs | lead %.1f | drop %.2f | %s",
-                info.id, info.speed, info.t, info.lead, info.drop,
-                info.inRange and "in range" or "OUT OF RANGE"))
-        end
     end
     return aim, best.model, best.bone
 end
@@ -170,7 +165,6 @@ function SA.TapSnap()
     _G.__saTapCF, _G.__saTapCam, _G.__saTapAt = cf, camera, tick()
     SA.Target.lastShot = shot.model
     SA.Target.lastShotAt = tick()
-    dbg("tap snap ->", shot.model and shot.model.Name or "?")
     return cf, camera
 end
 
@@ -238,11 +232,9 @@ local function saInstallInputReorder()
         _G.__saTapInputHooked = true
         tapInfo.active = true
         tapInfo.reason = "active"
-        print("[sa] tap fix A active (InputBegan reorder, " .. tapInfo.connections .. " conns)")
     else
         tapInfo.active = false
         tapInfo.reason = "unavailable: " .. tostring(err)
-        warn("[sa] tap fix A unavailable: " .. tostring(err))
     end
 end
 SA.InstallTapReorder = saInstallInputReorder
@@ -280,7 +272,6 @@ local function saHookToolTap(tool)
         end
     end)
     _G.__saTapTools = (_G.__saTapTools or 0) + 1
-    dbg("tap fix B armed on", tool.Name)
 end
 
 local function saScanTools()
@@ -336,8 +327,6 @@ RunService:BindToRenderStep(snapName, snapPrio, function()
     if ok then
         SA.Target.lastShot = shot.model
         SA.Target.lastShotAt = tick()
-        dbg("snap ->", shot.model and shot.model.Name or "?",
-            shot.origin == camPos and "" or "[manip]")
     end
 end)
 
@@ -547,23 +536,5 @@ function SA.FireAssistState()
     }
 end
 
-function SA.PrintFireAssist()
-    local s = SA.FireAssistState()
-    print("========== TRIGGER / AUTO FIRE ==========")
-    print("  triggerbot:", tostring(s.triggerbot), "| auto fire:",
-        tostring(s.autoFire), "| shots:", tostring(s.shots))
-    print("  head only:", tostring(s.headOnly), "| random part:",
-        tostring(s.randomPart), "| part:", tostring(s.part))
-    print("  manip support:", tostring(s.manipSupport), "| force head:",
-        tostring(s.forceHead), "| resolved aim bone:", tostring(s.resolvedAimBone))
-    print("  fire wall check:", tostring(s.wallCheck), "| auto fire gated:",
-        tostring(s.autoFireGated))
-    print("  reason:", tostring(s.reason), "| backend:", tostring(s.backend))
-    print("  VIS:", tostring(s.visible), "| silent-aim independent:",
-        tostring(s.silentAimIndependent))
-    print("  target:", tostring(s.target or "none"), "| part used:",
-        tostring(s.partUsed or "none"))
-    print("=========================================")
-end
 
 saFireAssist.conn = bindRender(function() SA.FireAssistTick(false) end)

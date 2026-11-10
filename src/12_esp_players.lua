@@ -178,36 +178,3 @@ local function buildESP(plr)
     end
     return espObjects[plr] ~= nil
 end
-
--- Console diagnostic: one line per player with the exact reason it has
--- no ESP. Bound to ESP -> Player -> "Print Player ESP State".
-function SA.PlayerEspDiag()
-    local total, built = 0, 0
-    print("════════════ PLAYER ESP DIAG ════════════")
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= lp then
-            total = total + 1
-            local o = espObjects[p]
-            local char = p.Character
-            local root, head, hum = SA.PlayerRig(char)
-            local dead, bbGone = false, false
-            if hum then pcall(function() dead = hum.Health <= 0 end) end
-            if o then pcall(function() bbGone = o.bb ~= nil and o.bb.Parent == nil end) end
-            local why
-            if not char then why = "NO CHARACTER (not loaded / left)"
-            elseif not root then why = "NO ROOT PART (custom or streamed rig)"
-            elseif not head then why = "NO HEAD PART"
-            elseif not hum then why = "NO HUMANOID"
-            elseif dead then why = "DEAD (hidden by refresh)"
-            elseif not o then why = "NOT BUILT (waiting for build slot)"
-            elseif o.char ~= char then why = "STALE (character changed)"
-            elseif bbGone then why = "STALE GUI (destroyed)"
-            else why = "BUILT"; built = built + 1 end
-            print(string.format("  %-20s | %s", p.Name, why))
-        end
-    end
-    local backend = "?"
-    pcall(function() backend = SA.DrawBackend() end)
-    print(string.format("════════════ %d/%d built | backend %s | espEnabled %s ════════════",
-        built, total, backend, tostring(CFG.espEnabled)))
-end

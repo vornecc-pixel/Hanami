@@ -1,7 +1,11 @@
 # Hanami
 
 `@abusegpt` suite — silent aim, wall penetration, player/NPC/crate ESP, entity scanner, aim snapline, ballistic prediction and gun mods — with an **Atlanta** UI.
-The original 1,300-line script is split into **37 short files** (`src/`, largest is 985 lines) plus a short **loader** and a committed static/Fengari validation harness.
+The original 1,300-line script is split into **37 short files** (`src/`, largest is 811 lines) plus a short **loader** and a committed static/Fengari validation harness.
+
+## Features only (no console output)
+
+The loader is **silent**: no startup banner, no `print` / debug log, no Debug section, no Print / Scan / Self-Check buttons and no self-check panel. Every feature toggle, functional button and non-printing state API remains. `SA.SelfCheck()` still returns a report table for code that wants to inspect executor capabilities, and state APIs such as `SA.SelfCheckState()`, `SA.GhettoGunState()`, `SA.EspPerfState()`, `SA.HitboxState()`, `SA.DrawSyncStats()` and `SA.EspFrameBudget()` are still callable. The separate npm / Fengari harness still prints its own results. Nothing in `src/` calls `print()`, `warn()` or `dbg()`; errors stay inside `pcall` guards, `CFG.debug` and `CFG.gunDiffOnScan` are gone, and Visual keeps only feature sections (the two utility buttons live under **Utilities**).
 
 ## Load it (one line)
 
@@ -22,19 +26,19 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 
 | Feature | Where | Notes |
 |---|---|---|
-| **Crate ESP FOV-aware** | ESP → Crate ESP | Default ON. Outside the aim circle = one dot; inside = name + distance and an outline-only `Highlight`. No boxes or corners. `SA.CrateFovState()` / `SA.PrintCrateFovState()`. |
+| **Crate ESP FOV-aware** | ESP → Crate ESP | Default ON. Outside the aim circle = one dot; inside = name + distance and an outline-only `Highlight`. No boxes or corners. `SA.CrateFovState()`. |
 | **100m player warning** | Visual → Nearest HUD | Fixed-threshold red crosshair badge when any other player is within 100 metres. No team filter. `SA.PlayerWarningState()` / `SA.PlayerWarningRefresh()`. |
 | **Triggerbot / Auto Fire** | Aiming → Trigger / Auto Fire | **Fire Assist Wall Check** (`CFG.fireWallCheck`, default ON) requires a **VIS target in FOV** for both features; with it OFF Auto Fire clicks continuously without a target. Independent of silent aim's `CFG.wallCheck`; Manipulation Support cannot bypass it. Head Only, Random Hit Part, Specific Hit Part, Manipulation Support gate, `Tool:Activate()` first with `mouse1click` / `mouse1press` fallback and `SA.FireAssistState()`. |
-| **Force Head (Silent Aim)** | Aiming → Target | Default ON override for Target Bone / Per-Weapon Bone, so silent aim resolves Head whenever the rig has one. `SA.ForceHeadState()` / `SA.PrintForceHeadState()`. |
+| **Force Head (Silent Aim)** | Aiming → Target | Default ON override for Target Bone / Per-Weapon Bone, so silent aim resolves Head whenever the rig has one. `SA.ForceHeadState()`. |
 | **NPC manipulation support** | Aiming → Manipulation | Default ON. NPC targets (Guard / Scavenger / Soldier, tagged or folder NPCs) now use the same six-slider peek / `CanQuery` wall bypass as players, with a dedicated **Manipulate NPCs** toggle, NPC-aware crosshair popup, `SA.IsNpcModel()`, `SA.ManipNpcState()` and an explicit `SA.ManipPossible(npcModel)` read-only probe. |
 | **Clean ESP (outlines only)** | ESP → ESP Features | Default ON. Removes the dark tag pills and chams fill that covered the top of the screen; keeps a thin box outline, chams outline and black text stroke. `Apply Clean ESP` / `SA.CleanEspState()` and a one-click toggle are included. |
-| **Manipulation crosshair popup** | Visual → Nearest HUD | Small READY / BLOCKED / OFF badge above `SA.AimPoint()` (the FOV/crosshair reference). `SA.ManipPossible()` is a read-only probe: it checks clear LOS, 8-direction peek and CanQuery wall bypass without spending the ray budget or changing `CanQuery`. Toggle, refresh and print controls included. |
-| **BETTER quality-of-life pass** | all five tabs | See [BETTER quality-of-life pass](#better-quality-of-life-pass). Native config profiles, self-check panel, real full unload, top-N HUD, all-keybind console, ESP decluttering, aim/FOV UX, real-model side-by-side Preview, committed Fengari tests, adaptive performance and live gun tuning. |
+| **Manipulation crosshair popup** | Visual → Nearest HUD | Small READY / BLOCKED / OFF badge above `SA.AimPoint()` (the FOV/crosshair reference). `SA.ManipPossible()` is a read-only probe: it checks clear LOS, 8-direction peek and CanQuery wall bypass without spending the ray budget or changing `CanQuery`. Toggle and refresh controls included. |
+| **BETTER quality-of-life pass** | all five tabs | See [BETTER quality-of-life pass](#better-quality-of-life-pass). Native config profiles, programmatic self-check state, real full unload, top-N HUD, all-keybind manager, ESP decluttering, aim/FOV UX, real-model side-by-side Preview, committed Fengari tests, adaptive performance and live gun tuning. |
 | **Native Atlanta config profiles** | Misc → Config Profiles | Save / load / delete / export / import / reset / auto-load in Atlanta's own `configs` directory. Every `hn_*` flag (including keybind tables) round-trips through `library:get_config()` / `library:load_config()`. |
-| **In-game self-check panel** | Misc → Self-Check | Runs every `SA.*Diag()` / state helper, reports executor capabilities, `hn_*` coverage, keybind conflicts, draw-write failures and a real config round-trip in a draggable panel. |
+| **Programmatic self-check state** | `SA.SelfCheck()` | Returns a report table (checks / passed / warned / failed) covering executor capabilities, `hn_*` coverage, keybind conflicts, draw-write failures and a config round-trip. No panel, no button, no console output. |
 | **Real full unload** | Misc → System | `SA.FullUnload()` bumps the generation, disconnects render/rebind/character hooks, destroys GUIs, restores camera / bow / manip state and clears shared globals. |
 | **Top-N nearest-player HUD** | Visual → Nearest HUD | Up to five players with HP %, `VIS`/`WALL`, team, weapon, metres, corner / scale / transparency, live "why no target?" line and optional FPS / entity counts. |
-| **All-keybind console** | Visual → Keybinds | Rebind ANY key or mouse button, Escape = None, clear selected, hold / toggle / always for every bind, conflict detection and a complete printable registry. |
+| **All-keybind manager** | Visual → Keybinds | Rebind ANY key or mouse button, Escape = None, clear selected, hold / toggle / always for every bind, conflict detection and a complete keybind registry. |
 | **ESP decluttering + live counts** | ESP → Declutter / Live Counts | Only Nearest N, Only Aim Target, team filter and per-kind on-screen counters. The nearest set is keyed by character model, so the current aim target always keeps a slot. |
 | **Aim / FOV UX** | Aiming → Silent Aim / Target | Legit / Blatant / Sniper FOV presets, target priority, per-weapon bone, pin nearest, clear pin and an exact "why no target?" line. |
 | **real-model, side-by-side ESP Preview** | floating ESP Preview | Pick Local Character / Nearest Player / Nearest NPC / Aim Target, clone real server models, and compare Player vs NPC ESP with the same live settings. |
@@ -42,24 +46,24 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **Live gun diff + overrides** | Gun Mods → Live Gun Tuning | Compare the 20-gun baseline with live GC data, register new-gun stubs and apply safe numeric per-gun overrides that survive every sync. |
 | **RightShift is the default menu toggle** | Atlanta menu | See [Feature keybinds](#feature-keybinds). Atlanta ships `Insert` for its UI Bind; Hanami rewrites that one call to **RightShift** and moves the aim master to **Insert**, so both stay bound and never fire on the same press. The menu bind gets a real `hn_menu_bind` flag + Keybinds-panel row (**Toggle Menu**), so it can be right-clicked to `None` like every other bind. |
 | **Five feature keybinds + None / right-click removal** | Aiming / ESP / Gun Mods | See [Feature keybinds](#feature-keybinds). **P** Player ESP, **N** NPC ESP, **G** Gun Mods, **B** Bow Mods, **M** Manipulation, plus the existing **Insert** aim and **RightShift** menu bind. Any keyboard key or mouse button can be bound; press **Escape** or **right-click** the key widget / Keybinds row to set **None** and remove it from the list without turning the feature off. |
-| **Nearest-player HUD while the menu is hidden** | Visual → Debug | See [Nearest player HUD](#nearest-player-hud). A separate draggable window appears when you minimise / toggle off the Atlanta menu (RightShift) and shows the closest player's **username**, **distance in metres** (1 m ≈ 3.571 studs) and **held gun/tool**. It is deliberately outside `library.guis`, so hiding the menu cannot disable it. |
+| **Nearest-player HUD while the menu is hidden** | Visual → Nearest HUD | See [Nearest player HUD](#nearest-player-hud). A separate draggable window appears when you minimise / toggle off the Atlanta menu (RightShift) and shows the closest player's **username**, **distance in metres** (1 m ≈ 3.571 studs) and **held gun/tool**. It is deliberately outside `library.guis`, so hiding the menu cannot disable it. |
 | **Tracer lines + off-screen arrows are player-only** | ESP → ESP Features | See [New ESP visuals](#new-esp-visuals-all-in-esp--esp-features). The shared toggles stay ON for players but NPC / crate ESP and the NPC ESP Preview never create those drawings. |
-| **Every gun's attributes updated (20 guns)** | Aiming → Ballistics | See [Ballistic prediction](#ballistic-prediction). All 20 guns now carry `mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `recoil`, `rate`, `auto`, `s2Damage`, `scope`, `headGuard`, `shellReload`, `rocket`, `huntOnly` / `duelOnly` plus the new **Arena Rifle** (`duel_rifle` / `duel_ammo`) and the named `Falloff` table. **Print Gun Table** dumps all of them; **Sync Gun Defs (GC)** now refreshes every numeric field from the live game. |
+| **Every gun's attributes updated (20 guns)** | Aiming → Ballistics | See [Ballistic prediction](#ballistic-prediction). All 20 guns now carry `mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `recoil`, `rate`, `auto`, `s2Damage`, `scope`, `headGuard`, `shellReload`, `rocket`, `huntOnly` / `duelOnly` plus the new **Arena Rifle** (`duel_rifle` / `duel_ammo`) and the named `Falloff` table. The full per-gun attribute set lives in `SA.GUN_SPECS`; **Sync Gun Defs (GC)** refreshes every numeric field from the live game. |
 | **Prediction auto-tunes for attachments** | Aiming → Attachments (Auto) | See [Attachments & auto prediction tuning](#attachments--auto-prediction-tuning). All 12 attachments are auto-detected off the equipped tool; a silencer re-tunes bullet speed (and therefore lead + drop), sights/grips fold aim-time into the one latency term, and the solver adds a refinement pass and stops on convergence. No manual toggle needed — slot overrides are provided as a fallback. |
 | **Silent aim / manipulation are guns only** | Aiming → Gun | See [Bow mods](#bow-mods-instant-charge--no-cooldown). The bow Shoot remote hook, bow gun specs, arrow prediction and draw/hold state are gone; `saLockActive()` bails out while any bow is equipped. |
 | **Two bow mods: instant charge + no cooldown** | Gun Mods → Bow Mods | Only those two features from the pasted bow-mods script were ported — instant full draw and `SHOT_GAP`/`REDRAW_GAP`/`MIN_DRAW` + `lastShot` clearing. NoDrop, instant reload, no recoil, infinite ammo, no air block and everything else were **excluded**. See [Bow mods](#bow-mods-instant-charge--no-cooldown). |
 | **Hitbox Expander v2 (silent / R6-R15 / players + NPCs)** | Aiming → Hitbox Expander v2 | See [Hitbox Expander v2](#hitbox-expander-v2). Toggle + target / mode dropdowns and scale / cap / distance / team / alive / visibility controls, plus a default-ON **Expand NPC Hitboxes** switch. Live NPC registry models, **NPC HRP fallback**, self-healing Size hooks, reversible originals and accessory CanQuery restore. |
-| **ESP 60 FPS frame-budget pass** | Visual → Performance Mode | See [ESP 60 FPS frame-budget pass](#esp-60-fps-frame-budget-pass). Time-based **60 FPS frame budget** is active with Performance Mode OFF, plus **per-property instance writes**, draw **usage marks**, hoisted helpers and direct box segments. New **Print ESP Frame Budget** button. |
+| **ESP 60 FPS frame-budget pass** | Visual → Performance Mode | See [ESP 60 FPS frame-budget pass](#esp-60-fps-frame-budget-pass). Time-based **60 FPS frame budget** is active with Performance Mode OFF, plus **per-property instance writes**, draw **usage marks**, hoisted helpers and direct box segments. `SA.EspFrameBudget()` exposes the frame budget to code. |
 | **Ghetto Gun Desync (hide + anchor)** | Aiming → Gun | See [Ghetto gun desync](#ghetto-gun-desync). Default-OFF cosmetic gun desync while Gun Silent Aim is ON: hide + anchor the equipped Tool, camera viewmodel and local arms. Bullets still follow the camera-snap resolver; originals restore on OFF / bow / unload. |
 | **ESP Preview actually works** | floating "ESP Preview" panel · ESP → Player ESP | See [ESP preview](#esp-preview). A real 3D `ViewportFrame` with your live box, corner boxes, name, distance, weapon/state, health bar, `VIS`/`WALL`, skeleton, head dot, tracer, chams tint and rainbow — all driven by `CFG` / `ESP_COLORS`. Now mirrors **either** the Player or NPC pipeline, including archetype colours. Survives spawn, respawn, re-execute and unload. |
-| **Best ESP preset for Players + NPCs** | ESP → ESP Features · ESP Preview panel | See [Best ESP](#best-esp-players--npcs). One **Apply Best ESP** button enables the curated readable feature set for BOTH pipelines, **Print ESP Features** audits every flag / binding, and the preview gains **Preview Kind**, **Simulate Aim Target**, a visibility frame, per-tag colours, tag backdrops and an off-screen arrow. |
-| **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. New **Print Player ESP State** / **Rebuild Player ESP** buttons. |
+| **Best ESP preset for Players + NPCs** | ESP → ESP Features · ESP Preview panel | See [Best ESP](#best-esp-players--npcs). One **Apply Best ESP** button enables the curated readable feature set for BOTH pipelines, and the preview gains **Preview Kind**, **Simulate Aim Target**, a visibility frame, per-tag colours, tag backdrops and an off-screen arrow. |
+| **Player ESP works for every player** | ESP → Player ESP | See [Player ESP reliability fix](#player-esp-reliability-fix). The build queue no longer starves players behind failed builds, respawns rebuild, custom/streamed rigs resolve, and one bad character can't abort the whole refresh. A **Rebuild Player ESP** button clears the build queue after a big server change. |
 | **Silent Aim v7.7 (tap-fire fixed)** | Aiming → Silent Aim / Gun | See [Silent aim v7.7 & manipulation v4](#silent-aim-v77--manipulation-v4). Render-step-only snapping is no longer the sole path: InputBegan / Tool.Activated connection reorder snaps the camera **before** the game fires, tap window widened to 0.35 s, and one shared shot resolver keeps the FOV circle as the reference point. **Guns only** — bows are skipped. |
 | **Tahoma ESP layout (weapon below, flags at the corner)** | ESP → ESP Features | See [ESP text layout](#esp-text-layout-tahoma-weapon-below-flags-at-the-corner). Player/NPC/crate labels are now screen-space Tahoma `TextLabel`s anchored to the box geometry: name above, distance at the top-left corner, **weapon below the box**, and `VIS`/`WALL`, state and HP stacked beside the top-right corner. The world-anchored BillboardGui text is hidden so nothing is drawn twice. The floating ESP Preview mirrors the same layout. Clean ESP mode keeps the same labels but removes their dark background pills, leaving only text outlines. |
 | **Classic manip sliders + recommendation back** | Aiming → Wall Penetration | See [Best settings for wall penetration](#best-settings-for-wall-penetration). Six sliders again — **Range 0–300 studs**, **Base Peek 4–6 only**, Parts 0–8, Budget 8–128, Hysteresis 0–12, Max Peek Delta 2–12 — and the old `75 / 4 / 3 / 64 / 5 / 6` recommendation button. The dead "Adaptive Peek Cap" is gone and every remaining slider has a real, clamped effect. |
 | **Actually compiles in the executor** | loader | See [Luau 200-local-register fix](#7-the-luau-200-local-register-compile-error). The old join hit `Out of local registers ... exceeded limit 200` at `playerSec` and never ran. The loader now hoists column-1 `local`s into the chunk environment, so the main chunk needs zero local registers. |
 | **FOV circle fixed + made the aim reference** | Visual → FOV Circle / Snapline | See [FOV fixes](#fov-fixes--one-reference-point). Now defaults ON, draws through a reliable ScreenGui backend, and its centre + radius are the single reference used by silent aim, snapline, tracers and arrows. |
-| **Crate opened / unopened labels fixed** | ESP → Crate ESP | See [Crate state fixes](#crate-state-fixes). The inverted labels came from a Y-rotation destructuring bug plus false-positive state guesses. Added strict state parsing, `Invert Crate State` and a state debug print. |
+| **Crate opened / unopened labels fixed** | ESP → Crate ESP | See [Crate state fixes](#crate-state-fixes). The inverted labels came from a Y-rotation destructuring bug plus false-positive state guesses. Added strict state parsing and an `Invert Crate State` toggle. |
 | **No more ~3 s frame skip** | everywhere | See [Stability & fixes](#stability--fixes). One shared, yielding Workspace walker replaces both `GetDescendants()` scanners; GUI builds are capped; stale render loops disconnect on re-execute. |
 | **One text-size slider for ALL ESP text** | ESP → ESP Features → Text Size | Scales name, distance, weapon, `VIS`/`WALL`, state and health % on players, NPCs **and** crates together, with row spacing derived from the same value. Plus `Show Health %`, `Text Outline`, `Tags On Box Side` and `Tag Backdrops` toggles. |
 | **FOV circle actually shows** | Visual → FOV Circle / Snapline | `SA.NewDraw` falls back to real Roblox GUI Frames when the executor has no usable `Drawing` API; no longer gated on aim being ON; transparency slider now means what it says (0 % = solid). ON by default. |
@@ -69,7 +73,6 @@ loadstring(game:HttpGet("https://github.com/vornecc-pixel/Hanami/raw/refs/heads/
 | **Off-screen arrows follow FOV (PLAYERS ONLY)** | ESP → ESP Features → Arrows Follow FOV | Arrows sit on the FOV circle perimeter using the **same centre and radius** as the drawn circle; change `Aim / Circle Radius` and the arrows move with it. Also points at on-screen targets *outside* the aim cone. Player ESP only. |
 | **48 colourpickers** | ESP → Colours | One clearly-labelled picker for **every** drawn element (players, NPCs, crates, snapline, FOV, lead, target). All write into one shared `ESP_COLORS` table that survives re-execution. |
 | **Customizable visibility colours** | ESP → Colours · Player / NPC | Green (clear LOS) / red (blocked) are now obvious labelled pickers, not tiny swatches buried on unrelated toggles. They paint an outer frame, a visibility dot and the `VIS` / `WALL` tag even when per-element colours are on. |
-| **Crate diagnostics** | ESP → Crate ESP | **Print Crate Names (debug)** lists every container-ish instance with its class, classified kind and parent, so the exact names your game uses can be found. |
 | **Ballistic prediction** | Aiming → Ballistics | Replaced the old one-step `distance/speed` guess with an exact quadratic intercept solve using each gun's real `speed`, bullet drop, alt ammo, live ping and range. See the next section. |
 | **Player visibility check** | ESP → Player ESP | Box, name, fill and the `VIS` / `WALL` corner tag turn **green when there is a clear line of sight** and **red when a wall blocks it**. Cached camera raycast (~120 ms). |
 | **FOV snapline** | Visual → FOV Circle / Snapline | Line + dot to the target, **green = visible, red = blocked**, plus a gold **lead ring** at the exact point the solver aims at. |
@@ -87,19 +90,19 @@ This pass implements the eleven highest-value ideas from the previous audit. It 
 
 Misc → **Config Profiles** uses Atlanta's own `Atlanta/configs` directory and `library:get_config()` / `library:load_config()`, so the built-in Configurations list stays in sync. Save, load, delete, export to clipboard, import from clipboard, reset to shipped defaults and auto-load the last profile are all native. `SA.ConfigCoverage()` reports any unbound `hn_*` flag; `SA.TestConfigRoundTrip()` proves the serialised flag snapshot is stable, including keybind `{mode, key, active}` tables and colour pickers.
 
-### In-game self-check panel
+### Programmatic self-check state
 
-Misc → **Self-Check** runs `SA.SelfCheck()` and can show a draggable `HanamiSelfCheck` report. It checks the render loop, FPS, local character, camera, executor capabilities (`gethui`, `getgc`, `setreadonly`, `getconnections`, `hookfunction`, filesystem / clipboard), drawing backend, write failures, ESP objects, 48 colours, UI flags, `hn_*` coverage, keybind registrations / conflicts, every diagnostic API, draw pool, nearest HUD, no-target reason and a live config round-trip. Static checks cannot prove an executor's real globals; this panel is the in-game verification the user can actually read.
+`SA.SelfCheck()` returns a report table (`checks` / `passed` / `warned` / `failed`) covering the render loop, FPS, local character, camera, executor capabilities (`gethui`, `getgc`, `setreadonly`, `getconnections`, `hookfunction`, filesystem / clipboard), drawing backend, write failures, ESP objects, 48 colours, UI flags, `hn_*` coverage, keybind registrations / conflicts, every state API, draw pool, nearest HUD, no-target reason and a config round-trip. `SA.SelfCheckState()` returns the last report. There is no panel, no button and no console output: static checks still cannot prove an executor's real globals, so in-game verification remains manual.
 
 ### Real full unload
 
-Misc → **System → Unload Everything (FULL)** calls `SA.FullUnload()`. It disables features, disconnects `RenderStepped` / rebind / preview / character hooks via the generation guard, restores camera / manipulation / bow timings, destroys the Atlanta window, nearest HUD, FPS overlay, self-check panel and ESP Preview, and clears `_G.__saShared`, `_G.__saCFG`, ESP object tables and generation-specific GUI state. A loader re-execute after a full unload starts fresh instead of inheriting stale loops.
+Misc → **System → Unload Everything (FULL)** calls `SA.FullUnload()`. It disables features, disconnects `RenderStepped` / rebind / preview / character hooks via the generation guard, restores camera / manipulation / bow timings, destroys the Atlanta window, nearest HUD, FPS overlay and ESP Preview, and clears `_G.__saShared`, `_G.__saCFG`, ESP object tables and generation-specific GUI state. A loader re-execute after a full unload starts fresh instead of inheriting stale loops.
 
 ### Top-N nearest-player HUD
 
 Visual → **Nearest HUD** expands the hidden-menu companion window to 1–5 players. Each row can show HP %, `VIS`/`WALL`, teammate / enemy, held tool and distance in metres. Corner, scale, transparency, live "why no target?" and FPS / entity lines are configurable. The HUD remains outside `library.guis`, so `window.set_menu_visibility(false)` cannot disable it.
 
-### All-keybind console
+### All-keybind manager
 
 Visual → **Keybinds (All 7)** exposes every wrapped bind: menu, aim master, Player ESP, NPC ESP, Gun Mods, Bow Mods and Manipulation. Rebind accepts any `Enum.KeyCode` or `UserInputType` (mouse buttons included); Escape / right-click / **Clear Selected** set `None` without switching the feature off. **All Binds Mode** changes hold / toggle / always without firing feature callbacks, and `SA.KeybindConflicts()` lists shared keys. The wrapper is now re-execution safe: original library methods are captured in a private scope instead of hoisted globals.
 
@@ -109,7 +112,7 @@ ESP → **Declutter / Live Counts** adds Only Nearest N, Only Current Aim Target
 
 ### Aim / FOV UX
 
-Aiming gains **FOV Preset** (Custom / Legit / Blatant / Sniper), **Target Priority** (Crosshair / Nearest / Lowest HP / Pinned), **Per-Weapon Bone**, **Pin Nearest Player**, **Clear Pinned Target** and **Print Why No Target**. `SA.ResolveTargetBone()`, `SA.PinNearestTarget()`, `SA.PinnedTarget` and `SA.NoTargetReason()` keep the UI, snapline preview and shot resolver on the same rules.
+Aiming gains **FOV Preset** (Custom / Legit / Blatant / Sniper), **Target Priority** (Crosshair / Nearest / Lowest HP / Pinned), **Per-Weapon Bone**, **Pin Nearest Player** and **Clear Pinned Target**. `SA.ResolveTargetBone()`, `SA.PinNearestTarget()`, `SA.PinnedTarget` and `SA.NoTargetReason()` keep the UI, snapline preview and shot resolver on the same rules.
 
 ### real-model, side-by-side ESP Preview
 
@@ -117,33 +120,33 @@ The floating Preview can clone a **real-model** source: Local Character, Nearest
 
 ### NPC manipulation support
 
-Aiming → **Manipulation → Manipulate NPCs** is ON by default. When the selected target is an NPC, the existing classic resolver applies the same 8-direction wall peek, `CanQuery` part bypass, ray budget, cache, range and six sliders used for player targets. No NPC-only ray path, extra budget or separate prediction path is introduced. Target selection already had **Target NPCs**; this pass makes the resolver, read-only probe, popup, diagnostics and self-check explicitly NPC-aware.
+Aiming → **Manipulation → Manipulate NPCs** is ON by default. When the selected target is an NPC, the existing classic resolver applies the same 8-direction wall peek, `CanQuery` part bypass, ray budget, cache, range and six sliders used for player targets. No NPC-only ray path, extra budget or separate prediction path is introduced. Target selection already had **Target NPCs**; this pass makes the resolver, read-only probe, popup and state checks explicitly NPC-aware.
 
 `SA.IsNpcModel(model)` prefers `SA.GetNpcs()` (the shared incremental Workspace walker), falls back to the literal `Guard` / `Scavenger` / `Soldier` names, `Scavenger` / `IsNpc` / `NPC` attributes and `Npcs` / `Enemies` folders, and rejects anything returned by `Players:GetPlayerFromCharacter()`. `CFG.manipNpcs` is backfilled and clamped like the other new settings. With **Manipulate NPCs** OFF, an NPC shot keeps the original camera origin: no peek is cached and no `CanQuery` write occurs. **Target NPCs** OFF also disables NPC manipulation.
 
-`SA.ManipPossible(npcModel)` accepts an optional explicit model override for diagnostics; without it, the popup still uses the normal FOV/crosshair picker. NPC-aware results are tagged `[NPC]` and the badge reads `MANIP NPC: READY` / `BLOCKED` / `OFF`. `SA.ManipNpcState()` reports the toggle, NPC targeting, registry count, effective range / peek / parts and whether the last real resolver target was an NPC. **Print NPC Manipulation**, **Print Manip State (classic)** and Misc → Self-Check expose it. The probe remains read-only: no `CanQuery` writes, no peek-cache entry and no manipulation ray-budget consumption.
+`SA.ManipPossible(npcModel)` accepts an optional explicit model override for diagnostics; without it, the popup still uses the normal FOV/crosshair picker. NPC-aware results are tagged `[NPC]` and the badge reads `MANIP NPC: READY` / `BLOCKED` / `OFF`. `SA.ManipNpcState()` reports the toggle, NPC targeting, registry count, effective range / peek / parts and whether the last real resolver target was an NPC. The probe remains read-only: no `CanQuery` writes, no peek-cache entry and no manipulation ray-budget consumption.
 
 ### Crate ESP FOV-aware
 
-**FOV-Aware Crate ESP** is ON by default. It uses the same `SA.AimPoint()` / `SA.FovRadius()` circle as silent aim: a crate outside the circle becomes one small dot at its screen position, while a crate inside the circle shows only its name and distance plus an outline-only `Highlight`. The FOV-aware branch returns before box, corner, fill, skeleton, visibility-dot or off-screen-arrow drawing, so it does not add corners or full boxes. `CFG.crateHighlight` only controls the old non-FOV-aware path. `SA.CrateFovState()` reports the radius, centre, inside/outside counts, dots and outline highlights; **Print Crate FOV State** exposes it in-game.
+**FOV-Aware Crate ESP** is ON by default. It uses the same `SA.AimPoint()` / `SA.FovRadius()` circle as silent aim: a crate outside the circle becomes one small dot at its screen position, while a crate inside the circle shows only its name and distance plus an outline-only `Highlight`. The FOV-aware branch returns before box, corner, fill, skeleton, visibility-dot or off-screen-arrow drawing, so it does not add corners or full boxes. `CFG.crateHighlight` only controls the old non-FOV-aware path. `SA.CrateFovState()` reports the radius, centre, inside/outside counts, dots and outline highlights.
 
 ### 100 m player warning
 
-Visual → **Nearest HUD → 100m Player Warning** is ON by default. Any other player within **100 metres** (1 m ≈ 3.571 studs) triggers a small red badge above the crosshair with the nearest player's name and distance. It is a fixed threshold with no team filter, updates at ~10 Hz and follows `SA.AimPoint()`. `SA.PlayerWarningState()`, `SA.PlayerWarningRefresh()`, `SA.PlayerWarningSet()` and `SA.PrintPlayerWarning()` are the diagnostics API. The popup is disposed on re-execute and `SA.FullUnload()`.
+Visual → **Nearest HUD → 100m Player Warning** is ON by default. Any other player within **100 metres** (1 m ≈ 3.571 studs) triggers a small red badge above the crosshair with the nearest player's name and distance. It is a fixed threshold with no team filter, updates at ~10 Hz and follows `SA.AimPoint()`. `SA.PlayerWarningState()`, `SA.PlayerWarningRefresh()` and `SA.PlayerWarningSet()` are the state API. The popup is disposed on re-execute and `SA.FullUnload()`.
 
 ### Triggerbot / Auto Fire
 
 Aiming → **Trigger / Auto Fire** adds two independent, default-OFF features. **Triggerbot** clicks only when `SA.TriggerTarget()` finds a valid target inside the FOV circle. **Auto Fire** clicks continuously at about 12.5 Hz; both respect the existing gun cooldown and are **silent-aim independent**: only `SA.Alive` and the guns-only bow gate apply, not `CFG.masterEnabled` / `CFG.gunEnabled`.
 
-**Fire Assist Wall Check** (`CFG.fireWallCheck`) is a dedicated, **default-ON** toggle in the same section. It is completely independent of silent aim's Gun → **Wall Check** (`CFG.wallCheck`). With it ON, Triggerbot and Auto Fire both require a **VIS target in FOV** from the existing FOV / player / NPC target picker, using tolerant `SA.IsVisible()` — the same LOS helper behind the ESP **VIS** tag — so a **VIS player in FOV** is not rejected by a strict ray clipping a hat or accessory. **Manipulation Support cannot bypass this gate**: it may still block via `SA.ManipPossible()`, but a non-VIS target never fires. With it OFF, Auto Fire returns to continuous / no-target clicking (including when both features are ON) and Triggerbot may shoot through walls; `SA.FireAssistState().visible` still reports the ESP VIS status honestly. `SA.FireAssistState()` also exposes `wallCheck` and `autoFireGated`, and `SA.PrintFireAssist()` prints them.
+**Fire Assist Wall Check** (`CFG.fireWallCheck`) is a dedicated, **default-ON** toggle in the same section. It is completely independent of silent aim's Gun → **Wall Check** (`CFG.wallCheck`). With it ON, Triggerbot and Auto Fire both require a **VIS target in FOV** from the existing FOV / player / NPC target picker, using tolerant `SA.IsVisible()` — the same LOS helper behind the ESP **VIS** tag — so a **VIS player in FOV** is not rejected by a strict ray clipping a hat or accessory. **Manipulation Support cannot bypass this gate**: it may still block via `SA.ManipPossible()`, but a non-VIS target never fires. With it OFF, Auto Fire returns to continuous / no-target clicking (including when both features are ON) and Triggerbot may shoot through walls; `SA.FireAssistState().visible` still reports the ESP VIS status honestly. `SA.FireAssistState()` also exposes `wallCheck` and `autoFireGated`.
 
 `SA.FireOnce()` tries `Tool:Activate()` first, then falls back to `mouse1click()` and `mouse1press()` / `mouse1release()`. Each Triggerbot shot briefly snaps the camera to its chosen aim point and restores it immediately afterwards. Auto Fire never adds a camera snap or aim point, even when the wall check gates its clicks.
 
-Hit-part selection is independent of silent aim: **Head Only** is ON by default, **Random Hit Part** wins when enabled, and the **Hit Part** dropdown offers Head / Hrp / UpperTorso / LowerTorso / arms / legs / Random with R6 + R15 name aliases. **Manipulation Support** is a strict gate: when ON, `CFG.manipulation` must be ON and `SA.ManipPossible(model, true)` must report READY. The `allowNoAim` flag keeps the identical read-only line check without inheriting silent aim's master/gun gate. `SA.TriggerBonePart()`, `SA.TriggerTarget()`, `SA.FireAssistState()` and `SA.PrintFireAssist()` expose VIS status, backend, reason, wall-check state and silent-aim independence; full unload disposes the render bind.
+Hit-part selection is independent of silent aim: **Head Only** is ON by default, **Random Hit Part** wins when enabled, and the **Hit Part** dropdown offers Head / Hrp / UpperTorso / LowerTorso / arms / legs / Random with R6 + R15 name aliases. **Manipulation Support** is a strict gate: when ON, `CFG.manipulation` must be ON and `SA.ManipPossible(model, true)` must report READY. The `allowNoAim` flag keeps the identical read-only line check without inheriting silent aim's master/gun gate. `SA.TriggerBonePart()`, `SA.TriggerTarget()` and `SA.FireAssistState()` expose VIS status, backend, reason, wall-check state and silent-aim independence; full unload disposes the render bind.
 
 ### Silent aim Force Head
 
-**Force Head (Silent Aim)** is ON by default. `SA.ResolveTargetBone()` now returns `Head` before the classic Target Bone dropdown or `Head for snipers` / `Hrp for shotguns` per-weapon modes can select HumanoidRootPart, which was the cause of intermittent non-head shots. Turning the toggle OFF restores the previous per-weapon logic. `SA.ForceHeadState()`, `SA.PrintForceHeadState()`, `SA.SilentAimState().forceHead` and Misc → Self-Check report the effective bone. Triggerbot / Auto Fire part modes stay separate and never override silent aim's Force Head setting.
+**Force Head (Silent Aim)** is ON by default. `SA.ResolveTargetBone()` now returns `Head` before the classic Target Bone dropdown or `Head for snipers` / `Hrp for shotguns` per-weapon modes can select HumanoidRootPart, which was the cause of intermittent non-head shots. Turning the toggle OFF restores the previous per-weapon logic. `SA.ForceHeadState()` and `SA.SilentAimState().forceHead` report the effective bone. Triggerbot / Auto Fire part modes stay separate and never override silent aim's Force Head setting.
 
 ### Hitbox Expander v2
 
@@ -168,13 +171,13 @@ Every affected part gets `CanCollide = false`, `CanTouch = false`, `CanQuery = t
 
 **NPC support** uses the same live registry as NPC ESP: `SA.HitboxScan()` walks the `SA.NpcListRaw()` raw list on the existing generation-guarded `bindRender` pass, with no second loop or per-frame filtered copy. NPC models keep the same Target Parts / Scale Mode / Scale / Cap / Max Distance / Alive Only / Show Expanded Parts controls; **Team Check** applies to players only. An NPC with no `UpperTorso` / `LowerTorso` / `Torso` uses **NPC HRP fallback** (`HumanoidRootPart`) as its torso proxy. NPC-owned sizes, collision / query flags, tint, accessory `CanQuery`, Size hooks and `ChildAdded` hooks are tagged separately: turning **Expand NPC Hitboxes** OFF, removing an NPC from the registry, turning the master OFF, **Restore Hitboxes**, or **Unload Everything (FULL)** restores those originals without touching expanded player parts.
 
-`SA.HitboxScan()` forces one pass, `SA.HitboxRestore()` restores all originals, `SA.HitboxState()` reports every setting plus `npcs` / `npcParts` / `npcModels` / tracked parts / accessories / hooks / scans, and `SA.PrintHitbox()` prints the diagnostic. The main loop uses the generation-guarded `bindRender` instead of a raw Heartbeat connection, and `table.clear` was replaced with a portable clear loop so the split parts stay Lua 5.3 / Fengari-safe. Validation covers player + NPC scope, fixed / multiply / cap, target and distance filters, team / alive gates, NPC HRP fallback, self-healing, accessory silencing, NPC-toggle restore, OFF restore and full unload; see [Testing](#testing).
+`SA.HitboxScan()` forces one pass, `SA.HitboxRestore()` restores all originals, `SA.HitboxState()` reports every setting plus `npcs` / `npcParts` / `npcModels` / tracked parts / accessories / hooks / scans. The main loop uses the generation-guarded `bindRender` instead of a raw Heartbeat connection, and `table.clear` was replaced with a portable clear loop so the split parts stay Lua 5.3 / Fengari-safe. Validation covers player + NPC scope, fixed / multiply / cap, target and distance filters, team / alive gates, NPC HRP fallback, self-healing, accessory silencing, NPC-toggle restore, OFF restore and full unload; see [Testing](#testing).
 
 ### Clean ESP (outlines only)
 
 The screenshot-style ESP showed large dark pills behind every name / state / weapon tag. **Clean ESP** is now ON by default. It removes dark tag backdrops and chams fill, and uses **outlines only**: a thin full box outline, a chams outline and a black text stroke. Corner boxes, skeleton, head dot, tracers, off-screen arrows, rainbow and distance fade are switched off by the `Apply Clean ESP` preset, so the view is no longer covered by stacked rectangles.
 
-`CFG.espCleanMode` uses **effective values** in `src/18_esp_fx_draw.lua` and the floating ESP Preview: an older saved profile with `espTagBackdrop = true` / `espShowFill = true` still renders clean until the user explicitly turns **Clean ESP (outlines only)** OFF. `SA.ApplyCleanEsp()`, `SA.CleanEspState()` and **ESP → Apply Clean ESP** expose the preset; **Apply Best ESP** deliberately turns clean mode OFF for users who want the busy curated look. Misc → Self-Check reports the clean-mode state.
+`CFG.espCleanMode` uses **effective values** in `src/18_esp_fx_draw.lua` and the floating ESP Preview: an older saved profile with `espTagBackdrop = true` / `espShowFill = true` still renders clean until the user explicitly turns **Clean ESP (outlines only)** OFF. `SA.ApplyCleanEsp()`, `SA.CleanEspState()` and **ESP → Apply Clean ESP** expose the preset; **Apply Best ESP** deliberately turns clean mode OFF for users who want the busy curated look. `SA.CleanEspState()` reports the clean-mode state.
 
 ### Manipulation crosshair popup
 
@@ -184,24 +187,24 @@ Visual → **Nearest HUD → Manip Crosshair Popup** adds a small badge just abo
 - `MANIP: BLOCKED` — wall blocked with no peek / wall-bypass path;
 - `MANIP: OFF` / `NO TARGET` / `BOW` / `RANGE` — exact reason manipulation is unavailable.
 
-`SA.ManipPossible()` is a **read-only probe**. It uses a private `RaycastParams`, reuses the same target picker and prediction as the shot resolver, and never calls `saManipResolve()`: no `CanQuery` writes, no peek cache entry and no manipulation ray-budget consumption. The popup updates at ~10 Hz through a generation-guarded `bindRender`, is disposed on re-execute and `SA.FullUnload()`, and is included in **Misc → Self-Check**. `SA.ManipPopupState()` / `SA.ManipPopupRefresh()` / `SA.ManipPopupSet()` / `SA.PrintManipPopup()` are the diagnostics API.
+`SA.ManipPossible()` is a **read-only probe**. It uses a private `RaycastParams`, reuses the same target picker and prediction as the shot resolver, and never calls `saManipResolve()`: no `CanQuery` writes, no peek cache entry and no manipulation ray-budget consumption. The popup updates at ~10 Hz through a generation-guarded `bindRender`, is disposed on re-execute and `SA.FullUnload()`, and is covered by `SA.SelfCheck()`. `SA.ManipPopupState()` / `SA.ManipPopupRefresh()` / `SA.ManipPopupSet()` are the state API.
 
 ### Committed Fengari validation suite
 
-`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 2,994 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`, including **NPC hitbox coverage** (players stay in scope, live NPC registry rigs, HRP fallback, filters, self-healing, toggle OFF restore and full unload), Hitbox Expander fixed / multiply / cap / filters / self-healing / restore coverage, dedicated fire-assist wall-check / both-enabled / no-bypass regressions and ESP FPS optimization / coalesced GUI sync / throttled data refresh / ESP 60 FPS frame budget / per-property instance writes / draw usage marks / Ghetto Gun Desync hide + anchor / continuous gate / tool + viewmodel + local arms / bow / toggle / full-unload restore regressions. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 37-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 55 new CFG keys. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
+`npm ci && npm test` runs `build.sh`, `tools/verify.py`, `tools/check.js` and `tools/run.js`. `tools/mocks.lua` models Roblox datatypes, Instances, services, executor filesystem / clipboard, Atlanta widgets / config flags / keybinds and a controllable RenderStepped pump. `tools/tests.lua` executes 3,214 assertions over three runs: fresh startup, auto-load + re-execute, and re-execute after `SA.FullUnload()`, including **NPC hitbox coverage** (players stay in scope, live NPC registry rigs, HRP fallback, filters, self-healing, toggle OFF restore and full unload), Hitbox Expander fixed / multiply / cap / filters / self-healing / restore coverage, dedicated fire-assist wall-check / both-enabled / no-bypass regressions and ESP FPS optimization / coalesced GUI sync / throttled data refresh / ESP 60 FPS frame budget / per-property instance writes / draw usage marks / Ghetto Gun Desync hide + anchor / continuous gate / tool + viewmodel + local arms / bow / toggle / full-unload restore regressions. `tools/check.js` parses every source / tool / loader / dist chunk with luaparse, checks the 37-part list, zero column-1 locals in the hoisted bundle, one final `return`, README row / line counts, and shipped-default / backfill / clamp / bound-widget coverage for all 53 new CFG keys, plus a static assertion that no `src/` part calls `print()` / `warn()` / `dbg()` and no print/debug UI survives in the bundle. This is static + Fengari mock validation, **not a real Roblox executor** confirmation.
 
 ### Adaptive performance mode
 
-Visual → **Performance Mode** paces new ESP builds by rolling FPS, caps styled entities per frame, reuses hidden ScreenGui drawing proxies through `SA.DrawPool`, tracks native write failures and can show an independent `HanamiPerfOverlay` FPS / entity HUD. `SA.PerfState()`, `SA.PerfEffectiveRebuildMs()`, `SA.PerfEffectiveEntityCap()`, `SA.DrawPoolStats()` and `SA.DrawWriteFailures()` are wired into self-check and diagnostics. The baseline **60 FPS frame budget** is active even with Performance Mode OFF; see [ESP 60 FPS frame-budget pass](#esp-60-fps-frame-budget-pass).
+Visual → **Performance Mode** paces new ESP builds by rolling FPS, caps styled entities per frame, reuses hidden ScreenGui drawing proxies through `SA.DrawPool`, tracks native write failures and can show an independent `HanamiPerfOverlay` FPS / entity HUD. `SA.PerfState()`, `SA.PerfEffectiveRebuildMs()`, `SA.PerfEffectiveEntityCap()`, `SA.DrawPoolStats()` and `SA.DrawWriteFailures()` are wired into `SA.SelfCheck()` and the state checks. The baseline **60 FPS frame budget** is active even with Performance Mode OFF; see [ESP 60 FPS frame-budget pass](#esp-60-fps-frame-budget-pass).
 
 ### ESP FPS optimization pass
 
 ESP dropped frames because the legacy BillboardGui refresh and the unified FX pass repeated the same rig lookups, `WorldToViewportPoint` calls, visibility probes, string formatting and drawing writes **every frame**, while every property write on a ScreenGui proxy triggered a full GUI sync. The baseline path is now optimized even with Performance Mode OFF:
 
-* ScreenGui proxy writes are **coalesced** into one sync per dirty draw by `SA.DrawSyncFlush()` at the end of each render callback. A hide → show toggle inside one frame collapses to its final value, so no redundant Roblox Instance writes are made. `SA.DrawSyncStats()`, `SA.DrawSyncPending()`, `SA.PrintDrawSyncStats()` and `SA.DrawDiag()` report writes, flushes, batches and saved syncs.
+* ScreenGui proxy writes are **coalesced** into one sync per dirty draw by `SA.DrawSyncFlush()` at the end of each render callback. A hide → show toggle inside one frame collapses to its final value, so no redundant Roblox Instance writes are made. `SA.DrawSyncStats()`, `SA.DrawSyncPending()` and `SA.DrawDiag()` report writes, flushes, batches and saved syncs.
 * Name / weapon / state / distance text and the legacy BillboardGui lines refresh at `espDataRefreshMs` (default **100 ms**, exposed as **ESP Text Refresh** in Visual → Performance Mode). `SA.EspDataIntervalFrames()` converts it to frames; a new build forces an immediate refresh. Box geometry still updates every frame, so boxes never freeze.
 * Cached player / NPC rigs and `o.vis` are shared between the refresh and FX passes. The old O(n²) teammate loop is a one-pass character → teammate map, and the nearest-N sort is throttled to the same data interval. Off-screen entities with tracers / arrows / crate FOV dots OFF are skipped entirely.
-* The render queue iterates `SA.NpcListRaw()` / `SA.CrateListRaw()` **raw list** views instead of allocating filtered copies every frame. `SA.EspPerfState()` / `SA.PrintEspPerfState()` expose FX passes, data refreshes, skips and draw-sync savings; **Print ESP FPS State** prints them in-game.
+* The render queue iterates `SA.NpcListRaw()` / `SA.CrateListRaw()` **raw list** views instead of allocating filtered copies every frame. `SA.EspPerfState()` exposes FX passes, data refreshes, skips and draw-sync savings.
 
 These changes preserve the ESP visuals and every existing toggle. They reduce CPU work rather than hiding entities: the optional entity cap still belongs to Performance Mode.
 
@@ -209,11 +212,11 @@ These changes preserve the ESP visuals and every existing toggle. They reduce CP
 
 The 60 → 30 FPS case still had three hot-path costs: every FX entity hid and re-showed all of its draws, the unified styling function allocated three closures plus several geometry tables per entity per frame, and a coalesced proxy flush rewrote every Roblox Instance property even when only `Position` changed. This pass targets a **60 FPS frame budget** without forcing Performance Mode ON or turning any ESP feature off:
 
-* `SA.EspFrameBudget()` / `SA.EspFrameBudgetReset()` / `SA.PrintEspFrameBudget()` expose the **frame budget**. When `RenderStepped` delivers a frame slower than 16.7 ms, new ESP builds and crate refreshes are paced and the text refresh interval is stretched; box geometry still renders every frame. `SA.EspPerfState()` reports budget / build skips, and Visual → **Print ESP Frame Budget** prints them.
+* `SA.EspFrameBudget()` / `SA.EspFrameBudgetReset()` expose the **frame budget**. When `RenderStepped` delivers a frame slower than 16.7 ms, new ESP builds and crate refreshes are paced and the text refresh interval is stretched; box geometry still renders every frame. `SA.EspPerfState()` reports budget / build skips.
 * GUI proxies and real ESP Instances now use **per-property instance writes**: `SA.ApplyInstProp()` and `SA.DrawSyncReset()` track the last applied value for each property, so unchanged `Color` / `Text` / `Size` / `Visible` / `Transparency` values are skipped instead of rewritten every frame. `SA.DrawSyncStats()` reports `instanceWrites` / `instanceSkips`.
 * Per-frame draw **usage marks** hide only draws that were not used, eliminating the hide → show write pair on every visible element. `src/18_esp_fx_draw.lua` hoists its colour / text / line helpers, writes box and visibility-frame segments directly, and reuses fallback text tables, cutting per-entity garbage-collection churn.
 
-This is a CPU/work-smoothing pass, **not a guarantee** that Roblox's own renderer or every executor will hold 60 FPS. It preserves the ESP visuals and all existing toggles; the optional entity cap still belongs to Performance Mode. Real FPS must be checked in-game with **Misc → Self-Check** and **Print ESP FPS State** / **Print ESP Frame Budget**.
+This is a CPU/work-smoothing pass, **not a guarantee** that Roblox's own renderer or every executor will hold 60 FPS. It preserves the ESP visuals and all existing toggles; the optional entity cap still belongs to Performance Mode. Real FPS must be checked in-game; `SA.SelfCheck()` returns the current FPS state to code.
 
 ### Live gun diff + overrides
 
@@ -233,7 +236,7 @@ Five separate causes were stacking up:
 
 **Fix:** `src/02_workspace_scan.lua` is now the *only* workspace walker in the script. It does a breadth-first traversal via `GetChildren()`, inspects at most **120 nodes per frame** and then `task.wait()`s — no `GetDescendants()` anywhere in a loop. Both the NPC and crate registries register a `predicate` + `commit` callback with `SA.RegisterScanHandler`, and `SA.RequestScan()` only queues an early pass. `src/19_render_loop.lua` caps new GUI builds at **2 per ESP type per frame** and refreshes crates at ~20 Hz. `bindRender()` in `src/01_config.lua` binds every `RenderStepped` callback with a generation guard, so old loops disconnect themselves. The GC scan is generation-guarded, yields every 1 000 objects and runs every 2 s (and only when gun mods are ON).
 
-`SA.WorkspacePass()` reports the number of completed passes; **Visual → Debug → Print Draw Backend** reports which drawing backend is in use.
+`SA.WorkspacePass()` reports the number of completed passes; `SA.DrawBackend()` / `SA.DrawDiag()` report the drawing backend.
 
 ### 2. FOV circle / skeleton / head dot / tracer / arrows not appearing
 
@@ -251,7 +254,7 @@ The FOV circle also had three logic bugs: it was gated on `CFG.masterEnabled`, `
 total extra lead (ms) = (auto ping × Ping Scale) + Extra Ping Offset
 ```
 
-`GetNetworkPing()` returns seconds so it is ×1000; the legacy `Data Ping` value is already milliseconds (both `GetValue()` and a numeric/string `Value` are handled). `Auto Ping Lead` is **ON** by default, `Ping Scale` defaults to **1.0** (full round-trip time — set it to **0.5** if you want one-way latency instead), and the old manual `Extra Lead (ping ms)` slider is now `Extra Ping Offset (ms)` added on top. **Aiming → Ballistics → Print Live Ping** shows the measured ping and resulting total. The solver adds this **once** as `tTotal = flightTime + latency`, never once per iteration.
+`GetNetworkPing()` returns seconds so it is ×1000; the legacy `Data Ping` value is already milliseconds (both `GetValue()` and a numeric/string `Value` are handled). `Auto Ping Lead` is **ON** by default, `Ping Scale` defaults to **1.0** (full round-trip time — set it to **0.5** if you want one-way latency instead), and the old manual `Extra Lead (ping ms)` slider is now `Extra Ping Offset (ms)` added on top. `SA.GetPing()` / `SA.LeadLatencyMs()` report the measured ping and resulting total. The solver adds this **once** as `tTotal = flightTime + latency`, never once per iteration.
 
 ### 4. Highlight on unrelated objects when Crate ESP is ON
 
@@ -292,15 +295,14 @@ There wasn't one bug, there were five, and they compounded:
 |---|---|---|
 | 1 | **Build-queue starvation.** `19_render_loop.lua` allowed 2 new objects per frame, started at `GetPlayers()[1]` every frame, and incremented the counter even when `buildESP()` bailed out (no character, dead, parts still streaming in). Two unbuildable players at the front consumed both slots forever; nobody after them was ever created. | `buildBatch()` counts **only successful builds**, skips failed attempts within the same frame, and **rotates the start index** each frame. Attempts are capped at 10 so a long run of failures can't stall the frame either. |
 | 2 | **Respawns never rebuilt.** `CharacterAdded` was connected *only inside* `PlayerAdded`, so anyone already in the server at injection had no handler. Their `BillboardGui` / `Highlight` stayed parented to the removed character, while `espObjects[plr]` remained truthy — so `buildESP()` was never called again. | All existing players are hooked at load, connections are reused (not stacked) across re-executes, and each object records the character it was built for. A swap detected by `13` or `19` clears the object so the render loop rebuilds it. No fixed `task.wait` delay — the queue retries until the new rig is ready. |
-| 3 | **One bad player aborted everything.** `refreshESP()` and `SA.ApplyEspFx()` were single unguarded `pairs()` loops. A failed raycast, destroyed `Head`, or a `Drawing` property write that throws on this executor stopped the loop, so every remaining player silently kept the previous frame. | Every player is refreshed/styled inside its own `pcall`; each of the four render passes is `pcall`-guarded separately. `SA.IsVisible()` also handles degenerate zero-length rays and wraps the raycast. Errors are throttled to one console line per 5 s. |
+| 3 | **One bad player aborted everything.** `refreshESP()` and `SA.ApplyEspFx()` were single unguarded `pairs()` loops. A failed raycast, destroyed `Head`, or a `Drawing` property write that throws on this executor stopped the loop, so every remaining player silently kept the previous frame. | Every player is refreshed/styled inside its own `pcall`; each of the four render passes is `pcall`-guarded separately. `SA.IsVisible()` also handles degenerate zero-length rays and wraps the raycast. Errors are isolated per entity and per pass. |
 | 4 | **Rigid rig requirements.** `buildESP()` demanded `Head` + `HumanoidRootPart` + `Humanoid` by exact name and rejected `hum.Health <= 0`. R6/R15 differences, streamed characters and custom rigs were dropped at build time. | `SA.PlayerRig()` falls back through `RootPart`, `UpperTorso`, `Torso`, `PrimaryPart` and any `BasePart`, with `HeadPart` / root as the head anchor. Dead players are built then **hidden** by the refresh instead of churning the queue. |
 | 5 | **Ghosts from a previous execution.** `espObjects` was a fresh table on every run, so old `BillboardGui`s and drawing lines were never removed; their old render loop disconnects, leaving frozen boxes that look like "working" players. | `espObjects` persists through `_G` and is purged on load, including `o.fx` drawings and `Highlight`s. |
 
 A simulation of the old queue with 8 players (2 permanently unbuildable at the front) built **0 of 6** valid players after 30 frames; the new queue builds **6 of 6 within 3 frames**.
 
-**Diagnostics** (ESP → Player ESP):
+**Reliability controls** (ESP → Player ESP):
 
-* **Print Player ESP State** — one console line per player with the exact reason (`NO CHARACTER`, `NO ROOT PART`, `DEAD`, `NOT BUILT (waiting for build slot)`, `STALE (character changed)`, `STALE GUI (destroyed)` or `BUILT`), plus built/total count and the active draw backend.
 * **Rebuild Player ESP** — clears every object so the render loop rebuilds them all; handy after a big server change or a config toggle.
 
 The rotating, success-only queue is shared with the NPC and crate passes, so they benefit from fix #1 too. All other behaviour (visibility colours, 48 colourpickers, FOV reference point, one text-size slider) is unchanged.
@@ -338,7 +340,7 @@ The refreshes (`13`, `15`, `17`) now write a small structured `o.tx` table — `
 3. otherwise `Font.new("rbxasset://fonts/families/Tahoma.json", …)`;
 4. otherwise the bundled `Enum.Font.ArialBold` so text is **never** invisible.
 
-All four ESP label sets (players, NPCs, crates, preview) and the new screen-space labels go through that helper; `Print Draw Backend` in Visual → Debug reports the resolved font name. If a client cannot load a Tahoma family, ArialBold is used automatically — there is no setting to break the text. `SA.NewDraw("Text")` is deliberately GUI-only, so it works on the same executors as the Line / Circle / Triangle fallback.
+All four ESP label sets (players, NPCs, crates, preview) and the new screen-space labels go through that helper; `SA.DrawDiag()` reports the resolved font name. If a client cannot load a Tahoma family, ArialBold is used automatically — there is no setting to break the text. `SA.NewDraw("Text")` is deliberately GUI-only, so it works on the same executors as the Line / Circle / Triangle fallback.
 
 ## Silent aim v7.7 & manipulation v4
 
@@ -353,7 +355,7 @@ The old build only changed `camera.CFrame` inside a `BindToRenderStep` callback.
 * **Tap window 0.2 → 0.35 s**, and `InputEnded` now also stamps `last`, so a fast press+release is still inside the window.
 * **Idempotent tap snap.** Some games dispatch from both signals; only the first snap in an input event is allowed, otherwise the second would capture the already-snapped CFrame as "real" and leave the camera stuck on the target. A 1 s TTL clears stale state if a restore ever fails.
 
-All hooks are installed **once** and dispatch through `SA.TapSnap()` / `SA.TapRestore()` / `SA.InstallTapReorder()`, so re-executing the loader never leaves stale closures or stacks hooks. `Visual → Debug → Retry Tap Hooks` retries if `getconnections` was unavailable at load, and **Print Silent Aim (v7.7)** reports the status.
+All hooks are installed **once** and dispatch through `SA.TapSnap()` / `SA.TapRestore()` / `SA.InstallTapReorder()`, so re-executing the loader never leaves stale closures or stacks hooks. `Visual → Utilities → Retry Tap Hooks` retries if `getconnections` was unavailable at load; `SA.SilentAimState()` reports the status.
 
 ### Bows removed from aim (guns only) & two bow mods
 
@@ -368,7 +370,7 @@ Instead, bows get exactly two quality-of-life mods from the pasted script. See [
 
 ### What was deliberately kept
 
-The extract is a *debug extract* — its `flags["sa_lock"]` is empty, `bowCombatState` / `bowConstants` are nil stubs, and its prediction is a one-step `distance / speed` guess with a 25-entry `saBulletSpeeds` table. Porting those verbatim would have regressed features built earlier:
+The extract is a *diagnostic extract* — its `flags["sa_lock"]` is empty, `bowCombatState` / `bowConstants` are nil stubs, and its prediction is a one-step `distance / speed` guess with a 25-entry `saBulletSpeeds` table. Porting those verbatim would have regressed features built earlier:
 
 * **Prediction** stays `SA.Predict()` — exact quadratic intercept with per-gun `speed`, bullet drop, alt ammo, `life`/range bounds and live ping (`08_prediction.lua`).
 * **Gun data** stays the exact `u3492` / `u3338` definitions (`07_gun_specs.lua`), not the extract's speed table.
@@ -381,7 +383,7 @@ The extract is a *debug extract* — its `flags["sa_lock"]` is empty, `bowCombat
 
 The bullet direction is unchanged: `SA.ResolveShot()` and the v7.7 camera-snap / tap-fire / Triggerbot paths still decide where shots go. There is **no remote hook, no shot-argument rewrite, no new firing backend and no second camera-snap path**. Original `Anchored`, `Transparency` and `LocalTransparencyModifier` values are saved per part and restored when the toggle / master / gun gate goes OFF, a bow is equipped, a tool or viewmodel part leaves scope, the loader re-executes, or **Unload Everything (FULL)** runs. A generation-guarded `bindRender` checks the gate every frame and refreshes the part set every 12 frames, so it does not walk `GetDescendants()` every frame.
 
-`SA.GhettoGunState()`, `SA.GhettoGunRefresh()`, `SA.GhettoGunRestore()`, `SA.GhettoGunDispose()` and `SA.PrintGhettoGun()` expose the tracked parts, writes / restores and gate reason. **Print Ghetto Gun Desync**, **Print Silent Aim (v7.7)** and **Misc → Self-Check** report it. This is a **cosmetic best-effort** desync: games that rebuild their viewmodel from a script may still move hidden parts, so hiding is what suppresses the visible camera-follow. Static + Fengari validation cannot prove how a specific game’s viewmodel behaves; check in-game with the diagnostics.
+`SA.GhettoGunState()`, `SA.GhettoGunRefresh()`, `SA.GhettoGunRestore()` and `SA.GhettoGunDispose()` expose the tracked parts, writes / restores and gate reason. This is a **cosmetic best-effort** desync: games that rebuild their viewmodel from a script may still move hidden parts, so hiding is what suppresses the visible camera-follow. Static + Fengari validation cannot prove how a specific game’s viewmodel behaves; check in-game with the state API.
 
 ### New controls
 
@@ -389,7 +391,6 @@ The bullet direction is unchanged: `SA.ResolveShot()` and the v7.7 camera-snap /
 |---|---|---|
 | Tap-Fire Reorder (Fix A/B) | Aiming → Gun | ON |
 | Ghetto Gun Desync | Aiming → Gun | OFF |
-| Print Ghetto Gun Desync | Aiming → Gun | — |
 | Tap Window (s) | Aiming → Gun | 0.35 |
 | Enable Bow Mods | Gun Mods → Bow Mods | OFF |
 | Instant Charge (max draw) | Gun Mods → Bow Mods | OFF |
@@ -398,7 +399,7 @@ The bullet direction is unchanged: `SA.ResolveShot()` and the v7.7 camera-snap /
 | Range / Parts / Budget / Hysteresis / Max Delta | Aiming → Wall Penetration | 30 / 3 / 40 / 3 / 6 |
 | Apply Recommended Wall Pen | Aiming → Wall Penetration | 75 / 4 / 3 / 64 / 5 / 6 |
 | Tags On Box Side / Tag Backdrops | ESP → ESP Features | ON / ON |
-| Print Silent Aim (v7.7), Retry Tap Hooks, Print Manip State (classic), Print Bow Mods State | Visual → Debug | — |
+| Retry Tap Hooks / Sync Gun Defs (GC) | Visual → Utilities | — |
 
 A one-time migration in `01_config.lua` pulls saved v7.7 profiles back into the classic ranges; **every load** clamps all six manip values into their slider bounds, retires `manipMaxPeek` and drops the retired `saBowHook` flag. Custom values inside the new ranges are left alone.
 
@@ -418,11 +419,11 @@ Only the **Bow Mods** part of the pasted `anti-externa.wtf` script was ported, a
 * A generation-guarded `getgc(true)` scan every 1.5 s (only while the master switch and at least one mod are on), yielding every 1000 tables. Tables are matched by shape with `rawget` — five numeric constants for `u10`, five typed fields for `u14` — rather than by name.
 * `setreadonly(tbl, false)` unfreezes only matched tables; `rawget` / `rawset` bypass `__index` / `__newindex` on plain Lua tables. No metatable is written.
 * A per-frame `bindRender` pass rewrites `drawStart` / `lastShot` and re-zeroes the config constants in case the game resets them. Switching a mod off, the master off, or **Unload Everything** calls `SA.BowModsRestore()` to put the saved `SHOT_GAP` / `REDRAW_GAP` / `MIN_DRAW` values back and reset `lastShot` to `0`. The saved originals live in `_G.__saBowSaved`, so re-executing the loader cannot mistake the already-zeroed values for the originals.
-* `SA.BowModsState()` reports whether `getgc` / `setreadonly` are available, how many config / live tables were found and how many are patched. **Print Bow Mods State** (Gun Mods → Bow Mods and Visual → Debug) prints it.
+* `SA.BowModsState()` reports whether `getgc` / `setreadonly` are available, how many config / live tables were found and how many are patched.
 
-**Controls** — Gun Mods → Bow Mods: `Enable Bow Mods` (master, OFF by default — turn it on first), `Instant Charge (max draw)`, `No Shot Cooldown`, `Print Bow Mods State`, `Restore Bow Timings`. New `CFG` keys `bowModsEnabled` / `bowInstantCharge` / `bowNoCooldown` are backfilled and bound through `hn_` flags; **Disable All** and **Unload Everything** turn them off and restore the timings.
+**Controls** — Gun Mods → Bow Mods: `Enable Bow Mods` (master, OFF by default — turn it on first), `Instant Charge (max draw)`, `No Shot Cooldown`, `Restore Bow Timings`. New `CFG` keys `bowModsEnabled` / `bowInstantCharge` / `bowNoCooldown` are backfilled and bound through `hn_` flags; **Disable All** and **Unload Everything** turn them off and restore the timings.
 
-Requires an executor with `getgc` + `setreadonly`; without them the scan simply never runs (no errors, no changes). Table shapes come from the pasted script and are game-specific — if nothing is found, **Print Bow Mods State** reports `u10=0 u14=0`.
+Requires an executor with `getgc` + `setreadonly`; without them the scan simply never runs (no errors, no changes). Table shapes come from the pasted script and are game-specific — if nothing is found, `SA.BowModsState()` reports zero config / live tables.
 
 ## FOV fixes & one reference point
 
@@ -437,7 +438,7 @@ Requires an executor with `getgc` + `setreadonly`; without them the scan simply 
 | 5 | The overlay was parented to `CoreGui` first, which some executors accept but hide. | Parent order is now **PlayerGui → CoreGui → `gethui()`**, the stale overlay is destroyed on re-execute, and `gethui()` is the last resort. |
 | 6 | The circle used its own mouse lookup while aim, snapline, tracers and arrows each called `GetMouseLocation()` independently. | One canonical reference point (below). |
 
-**Visual → FOV Circle / Snapline** now has **FOV Centre** (`Mouse` / `Screen Center`), **Force ScreenGui Drawing** (ON by default — turn OFF only to try the native `Drawing` API), and **Visual → Debug → Print FOV State** / **Print Draw Backend** which report the backend, centre, radius, visibility and any write failures. Invalid mouse positions (`0,0` or off-screen) automatically fall back to the screen centre, so the circle can never be drawn off-screen.
+**Visual → FOV Circle / Snapline** now has **FOV Centre** (`Mouse` / `Screen Center`), **Force ScreenGui Drawing** (ON by default — turn OFF only to try the native `Drawing` API), and `SA.FovState()` / `SA.DrawDiag()` report the backend, centre, radius, visibility and any write failures. Invalid mouse positions (`0,0` or off-screen) automatically fall back to the screen centre, so the circle can never be drawn off-screen.
 
 ### The FOV circle IS the reference point
 
@@ -461,7 +462,7 @@ The `[ OPENED ]` / `[ UNOPENED ]` label was showing the exact opposite. Four rea
 
 **Fix:** strict `stateTruthy()` (booleans, non-zero numbers and parsed strings), `ValueBase`-only child parsing, explicit "still closed" signals (`Closed` / `Sealed` / `Unopened` / `Available` / `CanOpen` / `HasLoot` …) taking priority, `ProximityPrompt.Enabled` and loot-container contents as reliable secondary signals, and a **conflict check** that auto-corrects games whose `Opened` flag means "available to open" (attribute says opened while the crate is still interactable). The lid-angle guess is now **opt-in** (`Lid Angle Detection`, OFF) and measured relative to the crate with the correct X rotation.
 
-If labels are still backwards in your game, turn on **ESP → Crate ESP → Invert Crate State**. **Print Crate States (debug)** dumps every raw attribute / ValueBase / Prompt signal per crate alongside the resolved label, so the game's real flags can be identified. The state filter is now an explicit `if` instead of an `and/or` chain.
+If labels are still backwards in your game, turn on **ESP → Crate ESP → Invert Crate State**. The strict state resolver reads every attribute / ValueBase / Prompt signal the crate exposes. The state filter is now an explicit `if` instead of an `and/or` chain.
 
 ## ESP overhaul: crate fix, colours and new features
 
@@ -474,7 +475,7 @@ Four separate bugs in the old parts (now `src/16_esp_crates*.lua`, `src/17_esp_c
 3. **Non-recursive anchor.** `FindFirstChildWhichIsA("BasePart")` checks direct children only, so crates whose parts live in nested sub-models had no anchor.
 4. **No explicit `Adornee`.** A `BillboardGui` / `Highlight` parented to a `Folder` or a nested model renders nothing without one.
 
-**Fix:** `crateKind()` normalises names (lowercase, punctuation stripped), checks `military` / `elite` / `crate` / `loot` / `supply` / `airdrop` / `cache` / `chest` / `stash`, reads `CrateType` / `Tier` / `Rarity` / `LootTier` / `Opened` / `Looted` attributes, and excludes player characters and NPCs (see [fix #4](#4-highlight-on-unrelated-objects-when-crate-esp-is-on) for the tightened rules). `SA.GetCrates()` is read every frame by the render loop, `SA.RefreshCrates()` queues an early incremental pass, and `buildCrate()` uses `FindFirstChildWhichIsA("BasePart", true)` plus explicit `Adornee`. New `Loot` kind covers supply drops and other containers. **Print Crate Names (debug)** and **Rescan Crates** are buttons in the Crate ESP mini-tab.
+**Fix:** `crateKind()` normalises names (lowercase, punctuation stripped), checks `military` / `elite` / `crate` / `loot` / `supply` / `airdrop` / `cache` / `chest` / `stash`, reads `CrateType` / `Tier` / `Rarity` / `LootTier` / `Opened` / `Looted` attributes, and excludes player characters and NPCs (see [fix #4](#4-highlight-on-unrelated-objects-when-crate-esp-is-on) for the tightened rules). `SA.GetCrates()` is read every frame by the render loop, `SA.RefreshCrates()` queues an early incremental pass, and `buildCrate()` uses `FindFirstChildWhichIsA("BasePart", true)` plus explicit `Adornee`. New `Loot` kind covers supply drops and other containers. **Rescan Crates** is available in the Crate ESP mini-tab.
 
 ### Unified colour system
 
@@ -533,13 +534,13 @@ if vel.Magnitude > 0.5 then targetPos = targetPos + vel * travel end
 
 * `src/07_gun_specs.lua` — **every attribute** of all **20** guns (`mag`, `spread`, `adsSpread`, `moveSpread`, `reload`, `recoil`, `rate`, `auto`, `s2Damage`, optional `scope` / `headGuard` / `shellReload` / `rocket` / `huntOnly` / `duelOnly`), ammo damage, alt ammo, the 8 named `Falloff` profiles, `GUN_RANGE`, `gravity`/`life` and the `u3492.GunDamage` formula. Bows are absent on purpose; `SA.IsEquippedBow()` / `SA.IsBowTool()` are name-only gates that *disable* aim for bows.
 * `src/08_attachments.lua` — all 12 attachment defs, `AttFit`, slots/tags, tool scanner and the auto-tune pass. See [Attachments](#attachments--auto-prediction-tuning).
-* `src/08_prediction.lua` — smoothed target velocity, live ping, an exact intercept solver, adaptive refinement and the debug helpers.
+* `src/08_prediction.lua` — smoothed target velocity, live ping, an exact intercept solver, adaptive refinement and the live gun tuning helpers.
 
 ### Gun data
 
 `speed` is the projectile speed — it is **not** called `bulletSpeed`. Values already include the `u3338.GUNS` overrides (`bolt_action_rifle` 2600 → **2200**, `lr_sniper` 3000 → **2600**). `hunt_smg` shares the `custom_smg` override. The pasted item table omits `gravity` for the four SMGs, so their previously validated `u3338` drop (`8` / `1 s`) is retained; only the two scoped rifles list gravity in the paste. **Sync Gun Defs (GC)** overwrites any of these with the live game values.
 
-The solver's per-gun inputs are `speed`, `gravity`, `life` and `range`. The remaining attributes are carried on the resolved gun object, folded into the attachment auto-tune, and printed by **Print Gun Spec** / **Print Gun Table** / **Print Attachments**. `duel_rifle` (**Arena Rifle**, `duel_ammo`) is new; it is a `semi_auto_rifle` clone, so its `duel_ammo` base damage is assumed equal to `rifle_ammo` (40) and it inherits the `semi_auto_rifle` falloff and attachment fit.
+The solver's per-gun inputs are `speed`, `gravity`, `life` and `range`. The remaining attributes are carried on the resolved gun object, folded into the attachment auto-tune and exposed through `SA.GetEquippedGun()` / `SA.AttachmentState()`. `duel_rifle` (**Arena Rifle**, `duel_ammo`) is new; it is a `semi_auto_rifle` clone, so its `duel_ammo` base damage is assumed equal to `rifle_ammo` (40) and it inherits the `semi_auto_rifle` falloff and attachment fit.
 
 | Gun id | Speed | Ammo | dmgMult | Effective dmg / pellet | Pellets | gravity / life | GUN_RANGE |
 |---|---|---|---|---|---|---|---|
@@ -564,7 +565,7 @@ The solver's per-gun inputs are `speed`, `gravity`, `life` and `range`. The rema
 | `rocket_launcher` | 80 | rocket | 1 | 1 | 1 | — | 550 (default) |
 | `duel_rifle` | 1425 | duel_ammo | 1 | 40 (est.) | 1 | — | 900 |
 
-**All the new attributes, per gun** (identical to the pasted `Guns` table; **Print Gun Table** prints the same values at runtime):
+**All the new attributes, per gun** (identical to the pasted `Guns` table; `SA.GUN_SPECS` holds the same values at runtime):
 
 | Gun id | mag | rate | auto | spread | adsSpread | moveSpread | reload | recoil pitch | scope | s2Damage |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -641,7 +642,7 @@ Attachment effects are applied on top of this by `08_attachments.lua`: `muzzle_b
 | Sight / Muzzle / Under / Mag Override | Auto | `Auto`, `None`, or an explicit attachment id — fallback when detection can't see the game's storage |
 | Show Lead Marker | ON | Gold ring at the predicted aim point (Visual tab, with colourpicker) |
 
-Debug buttons: **Print Gun Spec** (Aiming → Ballistics), **Print Gun Table**, **Print Attachments**, **Rescan Attachments**, **Sync Gun Defs (GC)** and **Print Live Ping** (Aiming → Attachments / Visual → Debug), plus **Print Silent Aim (v7.7)**, **Retry Tap Hooks**, **Print Manip State (classic)**, **Print Bow Mods State**, **Print Prediction** (now also prints ping / scale / offset / aim-time / attachments / iterations), **Print Draw Backend** and **Print Current Target** in Visual → Debug.
+Functional buttons remain: **Rescan Attachments**, **Sync Gun Defs (GC)**, **Rescan Characters**, **Restore Hitboxes**, **Restore Bow Timings**, **Retry Tap Hooks**, **Apply Overrides Now**, **Sync Gun Defs + Diff**, **Refresh Nearest HUD**, **Rebind Selected** and **Cancel Rebind**. None of them produces console output.
 
 ### Live game hooks
 
@@ -670,7 +671,7 @@ Debug buttons: **Print Gun Spec** (Aiming → Ballistics), **Print Gun Table**, 
 | `flashlight` | under | LIGHT | light only; no ballistic effect |
 | `mag_extender` | mag | EXT MAG | `max(floor(mag), floor(mag × 1.333… + 0.5))` |
 
-`AttFit` lists which guns accept each muzzle / under / mag attachment; sights fit any non-scoped gun (`bolt_action_rifle` and `lr_sniper` have `scope=8` and are blocked). `SA.AttachmentFits()` is **informational** — a mismatch is printed as a warning rather than silently disabling tuning, because the game may allow a combination the paste omits. `duel_rifle` is treated as a `semi_auto_rifle` clone for fit checks.
+`AttFit` lists which guns accept each muzzle / under / mag attachment; sights fit any non-scoped gun (`bolt_action_rifle` and `lr_sniper` have `scope=8` and are blocked). `SA.AttachmentFits()` is **informational** — a mismatch is ignored rather than silently disabling tuning, because the game may allow a combination the paste omits. `duel_rifle` is treated as a `semi_auto_rifle` clone for fit checks.
 
 ### Detection
 
@@ -690,7 +691,7 @@ All reads are `pcall`-guarded and the descendant walk is capped at 400, so a str
 | Sight / grip aim-time | one extra latency term (`aimMs`) → target moves further before the shot | **Yes** (moving targets only) |
 | Adaptive iterations | +1 pass when speed changed or drop is present; early exit on convergence | **Yes** (refinement) |
 | `muzzle_boost` / brake / grip / laser / ext mag | damage, rate, recoil, spread, magazine | No — readouts only |
-| ADS / movement | `gun.effSpread`, `gun.ads`, `gun.zoom` | No — diagnostics only |
+| ADS / movement | `gun.effSpread`, `gun.ads`, `gun.zoom` | No — state only |
 
 A manual **Bullet Speed Override** always wins over the silencer multiplier. Turning **Auto Attachment Tuning** off leaves the base gun profile untouched (the old manual muzzle-boost behaviour still applies). `SA.ATT_EFFECTS` is exposed so every estimate can be edited at runtime.
 
@@ -710,15 +711,15 @@ The paste gives percentages but **no numbers** for "slower bullets", zoom steadi
 
 `spread` / `adsSpread` / `moveSpread` are reported but **never** converted into an aim offset — the game's spread units are not documented, and guessing would make the solver worse. `effSpread` is a diagnostic estimate (`ADS ? adsSpread : spread`, plus `moveSpread × movement`).
 
-### Diagnostics
+### State accessors
 
-* **Print Attachments** — detected id, slot, tag, `AttFit` warning and the exact source (`attr:Muzzle`, `child:Silencer`, `override:attOverrideSight`, …), plus base → effective speed / aim-time / mag / damage / rate.
-* **Rescan Attachments** — clears the gun cache and re-detects.
-* **Print Gun Spec** — every new attribute, the effective spread / recoil, and the attachment list.
-* **Print Gun Table** — one row per gun with all 20 speeds, ammo, mag, pellets, rate, range, s2Damage and spread values.
-* **Print Prediction** — now also prints aim-time, attachment ids, speed multiplier, iterations, ADS and effective spread.
+* `SA.AttachmentState()` — detected ids, speed multiplier, aim-time, mag, damage and rate.
+* `SA.RescanAttachments()` — clears the gun cache and re-detects; **Rescan Attachments** calls it.
+* `SA.GetEquippedGun()` — every resolved attribute, effective spread / recoil and the attachment list.
+* `SA.GUN_SPECS` — one row per gun with all 20 speeds, ammo, mag, pellets, rate, range, s2Damage and spread values.
+* `SA.Predict()` — the intercept solution including aim-time, iterations, ADS and effective spread.
 
-If nothing is detected, set the four slot overrides manually (or check the tool's attributes/children with `Print Attachments`). Detection requires a real `Tool` under `lp.Character`; it does not scan the Backpack, so owned-but-not-attached mods are ignored.
+If nothing is detected, set the four slot overrides manually. Detection requires a real `Tool` under `lp.Character`; it does not scan the Backpack, so owned-but-not-attached mods are ignored.
 
 ## Best settings for wall penetration
 
@@ -742,7 +743,7 @@ Wall penetration = the **FOV-aware wall peek** (`Aiming → Wall Penetration`). 
 | Prediction | **ON** | The ballistic solver compensates moving targets; penetration doesn't help if the shot lands behind them. |
 | Target Bone | **Head** | Smaller target → fewer ambiguous multi-part peeks. |
 
-**Why the adaptive peek was removed.** v7.7 scaled the peek with distance and then computed `deltaCap = math.max(CFG.manipMaxPeekDelta, maxPeek)`. Since `maxPeek` was always >= the peek distance, **Max Peek Delta could never reject any peek** — it was a dead slider, and the extra "Adaptive Peek Cap" slider had no analogue in the original recommendation. `05_manipulation.lua` now uses `maxPeek = CFG.manipPeek` directly and compares `peekDist <= CFG.manipMaxPeekDelta`, so all six sliders are functional. `01_config.lua` clamps each value to its UI range on every load (saved profiles, preset imports and console edits included) and removes `CFG.manipMaxPeek` from old configs.
+**Why the adaptive peek was removed.** v7.7 scaled the peek with distance and then computed `deltaCap = math.max(CFG.manipMaxPeekDelta, maxPeek)`. Since `maxPeek` was always >= the peek distance, **Max Peek Delta could never reject any peek** — it was a dead slider, and the extra "Adaptive Peek Cap" slider had no analogue in the original recommendation. `05_manipulation.lua` now uses `maxPeek = CFG.manipPeek` directly and compares `peekDist <= CFG.manipMaxPeekDelta`, so all six sliders are functional. `01_config.lua` clamps each value to its UI range on every load (saved profiles, preset imports and manual edits included) and removes `CFG.manipMaxPeek` from old configs.
 
 Two useful variants:
 
@@ -756,15 +757,15 @@ The snapline and the red ESP colour are your penetration indicator: **green = yo
 `src/21_ui_aiming.lua` loads the [Atlanta library](https://github.com/i77lhm/Libraries) and builds the window; parts 22–26 build the tabs.
 
 ```
-Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (classic) · Attachments (Auto) · Overrides & Diagnostics
-ESP      → Player ESP (incl. Print Player ESP State / Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features (incl. Clean / Best ESP presets) · Colours (Player / NPC / Crate / Global)
+Aiming   → Silent Aim / Gun (incl. Tap-Fire Reorder, Tap Window; GUNS ONLY) · Target / Ballistics / Wall Penetration (classic) · Attachments (Auto) · Overrides
+ESP      → Player ESP (incl. Rebuild Player ESP / Show ESP Preview Panel / Rebuild ESP Preview) / NPC ESP · Crate ESP / ESP Features (incl. Clean / Best ESP presets) · Colours (Player / NPC / Crate / Global)
 Gun Mods → Gun Mods · State Overrides · Bow Mods (Enable / Instant Charge / No Cooldown)
-Visual   → FOV Circle / Snapline · Debug · Nearest HUD (incl. Manip Crosshair Popup) · Performance Mode · Keybinds
+Visual   → FOV Circle / Snapline · Utilities · Nearest HUD (incl. Manip Crosshair Popup) · Performance Mode · Keybinds
 Misc     → Info · Quick Actions
 
 floating "ESP Preview" panel (Atlanta window.esp_section)
          → 3D render · Enabled / Rotate Model / Spin Speed
-         → Rebuild Character · Print Preview State
+         → Rebuild Character
 ```
 
 * **Every widget writes straight into `CFG`** through its `callback`, and every `default` is read from `CFG`. Building the menu never resets the settings kept in `_G.__saCFG`.
@@ -772,9 +773,9 @@ floating "ESP Preview" panel (Atlanta window.esp_section)
 * **Keys:** `RightShift` shows/hides the menu (default), `Insert` toggles silent aim (chained keybind on the master toggle). Both are rebindable; right-click any bind to set `None`.
 * **48 colourpickers** live in `ESP → Colours` and write straight into `ESP_COLORS`. Chained onto `label` rows (labels expose `right_holder`), each has a unique `hn_col_<key>` flag. FOV / snapline / lead / target colours moved here from the Visual tab so there is exactly one picker per colour. `Reset ESP Colours` restores defaults and syncs the swatches.
 * The old Shaman `RadioButton` preset is now a `Custom / Legit / Blatant` dropdown ("Custom" is the default so opening the menu doesn't apply a preset). The `Bullet Speed Override` slider (0–3000) now lives in the Ballistics section.
-* **FOV controls:** `Show FOV Circle` (ON), `FOV Centre` (Mouse / Screen Center), `Force ScreenGui Drawing` (ON), `Aim / Circle Radius`, plus `Print FOV State` / `Print Draw Backend` in Visual → Debug.
-* **Crate controls:** `Invert Crate State`, `Lid Angle Detection` (OFF), `Print Crate States (debug)` in ESP → Crate ESP.
-* Quick actions: Disable All (also clears NPC ESP + snapline + bow mods), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle, disposes the ESP preview, restores bow timings and stops the scanners via `SA.Alive`), Scan All Entities — plus Rescan NPCs, Rescan Crates, Print Crate Names and the debug print buttons.
+* **FOV controls:** `Show FOV Circle` (ON), `FOV Centre` (Mouse / Screen Center), `Force ScreenGui Drawing` (ON), `Aim / Circle Radius`, plus `SA.FovState()` / `SA.DrawDiag()` state accessors.
+* **Crate controls:** `Invert Crate State`, `Lid Angle Detection` (OFF) and `Rescan Crates` in ESP → Crate ESP.
+* Quick actions: Disable All (also clears NPC ESP + snapline + bow mods), Apply Blatant, Toggle Manip, **Reset ESP Colours**, Unload Everything (hides the window, hides the FOV circle, disposes the ESP preview, restores bow timings and stops the scanners via `SA.Alive`), plus Rescan NPCs and Rescan Crates.
 * The floating **ESP Preview** panel is populated by `src/22_esp_preview.lua` + `src/22_esp_preview_setup.lua`. **Show ESP Preview Panel** in ESP → Player ESP re-opens it if you closed it with the panel's `X` button.
 
 Only one thing from the Atlanta template is intentionally **not** copied: the duplicated `vis, other` multi-section block. `window.esp_section:esp_preview({})` is also *not* called, but its feature is now implemented natively — see [ESP preview](#esp-preview). Everything else from the template's init block is kept: `open_tab()`, `config_list_update()`, the theme pass, and `old_config = get_config()` — each guarded with `pcall` where it touches filesystem/config APIs.
@@ -798,14 +799,14 @@ Atlanta's `library:window()` always creates a second, draggable 300×325 panel c
 * **Live settings.** Every overlay is restyled through the same `pick(key, base, seed)` helper used by the real ESP, so `CFG.espRainbow`, `CFG.espPerElementColors`, `CFG.espTextSize`, `CFG.espBoxThickness` and all 48 `ESP_COLORS` entries apply instantly. It previews box / corner boxes / outline, name, distance at the left corner, the weapon badge below the box, the `VIS`/`WALL` + state + `HP: NN%` tags at the right corner, health bar (low→high lerp), visibility dot, skeleton, head dot, tracer and chams fill tint. `VIS` / `WALL` alternates every 2.5 s so both green and red visibility colours are visible. ViewportFrames cannot reliably render `Highlight`, so chams are shown by tinting the model's parts.
 * **Reachable.** On displays shorter than ~1080 px the template docks this panel *below* the main window, i.e. off-screen. The build clamps the panel into the viewport and docks it top-right when the template position cannot fit. If a future Atlanta revision stops exposing `window.esp_section`, the preview builds itself into a new `ESP Preview` section inside the ESP tab instead; the `embedded` flag keeps unload from hiding the main menu in that case.
 
-**Controls** — in the preview panel: `Enabled`, `Preview Kind` (Player / NPC), `Simulate Aim Target`, `Rotate Model`, `Spin Speed` (0–90 °/s), `Apply Best ESP`, `Rebuild Character`, `Print Preview State`. In ESP → Player ESP: `Show ESP Preview Panel` (re-opens the floating window) and `Rebuild ESP Preview`. `Print Preview State` reports whether the model is a clone or the dummy rig, the part count, the panel/viewport visibility and why a fallback was used.
+**Controls** — in the preview panel: `Enabled`, `Preview Kind` (Player / NPC), `Simulate Aim Target`, `Rotate Model`, `Spin Speed` (0–90 °/s), `Apply Best ESP`, `Rebuild Character`. In ESP → Player ESP: `Show ESP Preview Panel` (re-opens the floating window) and `Rebuild ESP Preview`.
 
 Config keys: `espPreview` (ON), `espPreviewSpin` (ON), `espPreviewSpeed` (25), `espPreviewKind` (`"Player"`), `espPreviewTarget` (OFF), all backfilled for older saved configs and bound to Atlanta widgets. See [Best ESP](#best-esp-players--npcs) for the Player/NPC mirror and the curated preset.
 
 
 ## Best ESP (Players + NPCs)
 
-The ESP tab's **ESP Features** section now has an **Apply Best ESP** button and a **Print ESP Features** diagnostic. These address the two gaps in the old setup: the best features were scattered across Player / NPC / shared sections with no way to enable the whole readable set at once, and the ESP Preview only mirrored the Player pipeline.
+The ESP tab's **ESP Features** section now has an **Apply Best ESP** button. It addresses the two gaps in the old setup: the best features were scattered across Player / NPC / shared sections with no way to enable the whole readable set at once, and the ESP Preview only mirrored the Player pipeline.
 
 **Apply Best ESP** turns on the curated set for BOTH entity kinds through the Atlanta flags (so every bound widget updates), then re-opens the preview:
 
@@ -815,15 +816,15 @@ The ESP tab's **ESP Features** section now has an **Apply Best ESP** button and 
 | NPC | ESP, Visibility Check, Names, Distance, Health Bar, Weapon, State, NPC Type Colours |
 | Shared | Per-Element Colours, Box Outline (corner boxes), Chams Fill, Skeleton, Head Dot, Tracer Lines, Off-screen Arrows, Highlight Aim Target, Arrows Follow FOV, Show Health %, Text Outline, Tags On Box Side, Tag Backdrops, ESP Preview |
 
-`Rainbow` and `Distance Fade` are deliberately left **OFF** — the first overrides the 48-colour palette and the second hides distant boxes, which defeats a "best" readability preset. `Chams Outline` is also off because the fill + corner-box combination is less noisy. **Print ESP Features** lists every Player / NPC / shared flag, its live `CFG` value, and any flag that a particular Atlanta build failed to bind.
+`Rainbow` and `Distance Fade` are deliberately left **OFF** — the first overrides the 48-colour palette and the second hides distant boxes, which defeats a "best" readability preset. `Chams Outline` is also off because the fill + corner-box combination is less noisy. The preset enables every curated Player / NPC / shared flag through the same bound `hn_*` widgets.
 
 **Preview mirrors both pipelines.** `CFG.espPreviewKind` (`Player` / `NPC`, exposed as *Preview Kind*) selects which section's visibility check / name / distance / health / weapon / state flags and which of the `player*` / `npc*` colourpicker keys feed the overlay. In NPC mode the Guard / Scavenger / Soldier archetype colours rotate every three seconds, and the name + state tag use the archetype colour — the same `typeColor` path `drawEntity()` uses in the real ESP. *Simulate Aim Target* paints the box, fill and outline with the global `Target` colour just like *Highlight Aim Target* on a locked target.
 
-The preview also gained the overlays the real ESP already had: a padded **visibility frame** (green/red), a separate label **per corner tag** (so `VIS`/`WALL` stays green/red while state / `HP` use the scanner colour), rounded **tag backdrops**, an **off-screen arrow**, a functional **Chams Outline** second stroke (thickness 0 when disabled — no reliance on the newer `UIStroke.Enabled`), exact `rowH = TextSize + 3` line spacing identical to `drawEntity()`, tracer origin (Center / Mouse), text outline, and a Distance Fade simulation at 85% of the chosen Max Distance. If a future Atlanta build omits `window.esp_section`, the setup now creates its own small `HanamiEspPreviewPanel` ScreenGui instead of just printing a warning, and unload destroys it.
+The preview also gained the overlays the real ESP already had: a padded **visibility frame** (green/red), a separate label **per corner tag** (so `VIS`/`WALL` stays green/red while state / `HP` use the scanner colour), rounded **tag backdrops**, an **off-screen arrow**, a functional **Chams Outline** second stroke (thickness 0 when disabled — no reliance on the newer `UIStroke.Enabled`), exact `rowH = TextSize + 3` line spacing identical to `drawEntity()`, tracer origin (Center / Mouse), text outline, and a Distance Fade simulation at 85% of the chosen Max Distance. If a future Atlanta build omits `window.esp_section`, the setup now creates its own small `HanamiEspPreviewPanel` ScreenGui instead of failing, and unload destroys it.
 
 **Fixed colour regressions** in `drawEntity()`: crate names keep their kind colour (`keepNameColor`) instead of falling back to the player name picker, crate state tags use `crateState` / `crateOpened`, and NPC archetype colours paint the name and state tag even with the new screen-space Tahoma labels.
 
-`SA.ApplyBestEsp()`, `SA.EspFeatureDiag()`, `SA.FeatureBindDiag()` (includes `hn_menu_bind`), `SA.NearestWindowState()` and `CFG.espPreviewKind` (`"Player"`), `CFG.espPreviewTarget` (`false`), `CFG.nearestWindow` (`true`) are the new API / config keys; all are backfilled for older saved configs, and the preview kind / speed are clamped on every load so a stale saved value cannot put the mirror into an invalid pipeline. `SA.STUDS_PER_METER = 3.571` is the single studs→metres factor used by the ESP distance labels and the nearest-player HUD.
+`SA.ApplyBestEsp()`, `SA.ConfigCoverage()` (includes `hn_menu_bind`), `SA.NearestWindowState()` and `CFG.espPreviewKind` (`"Player"`), `CFG.espPreviewTarget` (`false`), `CFG.nearestWindow` (`true`) are the new API / config keys; all are backfilled for older saved configs, and the preview kind / speed are clamped on every load so a stale saved value cannot put the mirror into an invalid pipeline. `SA.STUDS_PER_METER = 3.571` is the single studs→metres factor used by the ESP distance labels and the nearest-player HUD.
 
 ## Feature keybinds
 
@@ -839,7 +840,7 @@ Every feature master switch now has its own keybind, and the two keybinds that a
 | Toggle Aim (existing) | Aiming → Master | `Insert` | `hn_master_bind` |
 | Toggle Menu (Atlanta UI Bind) | Settings → Other → UI Bind · Keybinds panel | `RightShift` | `hn_menu_bind` |
 
-`SA.FeatureKeybind()` attaches the bind to the **same toggle** the menu uses, so pressing the key, clicking the toggle, loading a config and the **Disable All** quick action all stay in sync. `SA.FeatureBindDiag()` prints every flag / key / mode / active state; `SA.FeatureBindClear(flag)` clears one programmatically. **Print Feature Keybinds** is in Misc → Quick Actions.
+`SA.FeatureKeybind()` attaches the bind to the **same toggle** the menu uses, so pressing the key, clicking the toggle, loading a config and the **Disable All** quick action all stay in sync. `SA.KeybindConflicts()` lists shared keys and `SA.FeatureBindClear(flag)` clears one programmatically.
 
 ### None / right-click removal
 
@@ -868,7 +869,7 @@ Nearest Display (@NearestGuy)
 
 The HUD is created with `Instance.new("ScreenGui")` directly, **not** `library:create`, so `window.set_menu_visibility(false)` cannot sweep it into `library.guis` and disable it. It is parented to `gethui()` with a `PlayerGui` / `CoreGui` fallback, uses `SA.ApplyEspFont()` for Tahoma-or-`ArialBold` text, and is torn down by `SA.NearestWindowDispose()` on re-execute and **Unload Everything**.
 
-Controls: **Visual → Debug → Nearest Player HUD** (default ON), **Refresh Nearest HUD**, **Print Nearest HUD**. `SA.NearestWindowState()` / `SA.NearestWindowDiag()` / `SA.NearestWindowSet(on)` / `SA.NearestWindowRefresh()` are the diagnostics API. New config key: `CFG.nearestWindow` (`true`, backfilled).
+Controls: **Visual → Nearest HUD → Nearest Player HUD** (default ON) and **Refresh Nearest HUD**. `SA.NearestWindowState()` / `SA.NearestWindowSet(on)` / `SA.NearestWindowRefresh()` are the state API. New config key: `CFG.nearestWindow` (`true`, backfilled).
 
 ## How the loader works
 
@@ -887,58 +888,58 @@ loader.lua  ──fetch──▶  01_config.lua
 
 `setfenv` (when the executor offers it) keeps those shared names in an isolated table so they don't pollute globals; without it the same names simply go into normal globals. Compile errors now also report **which part** the failing line came from.
 
-Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / **attachments** / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `09_z_ghetto_gun.lua` is the default-OFF cosmetic **hide + anchor gun desync** loaded after silent aim; `11–13` gained the lead marker, visibility colours and scanner labels; `08_attachments.lua` is the 12-attachment auto-tune scanner; `20_bow_mods.lua` is the two-feature bow-mods GC scan; `20_hitbox_expander.lua` is the silent self-healing **player + NPC hitbox expander**; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`.
+Parts 01–02 (shared helpers), 05–06, 10 are slices of the original script with a 5-line comment header. New / rewritten parts: `02_drawing.lua` (Drawing compatibility), `02_workspace_scan.lua` (single yielding walker), `03_entity_scan.lua` (NPC registry), `04_entity_info.lua` (scanner), `07–08` (gun specs / **attachments** / prediction), `14–15` (NPC ESP), `16–17` (crate detection / registry / refresh), `18` (ESP FX, three parts) and `19` (render loop). `09` was rewritten to use `SA.Predict`; `09_z_ghetto_gun.lua` is the default-OFF cosmetic **hide + anchor gun desync** loaded after silent aim; `11–13` gained the lead marker, visibility colours and scanner labels; `08_attachments.lua` is the 12-attachment auto-tune scanner; `20_bow_mods.lua` is the two-feature bow-mods GC scan; `20_hitbox_expander.lua` is the silent self-healing **player + NPC hitbox expander**; `22_esp_preview*.lua` are the ESP Preview panel; 21–26 are the Atlanta UI. The old prediction, velocity cache, hardcoded speed table, and the hit-log / hit-sound part were removed. Only `26_banner.lua` has a top-level `return`, and it now contains just that return.
 
 ## Files
 
 | Part | What's in it | Lines |
 |---|---|---|
-| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, NPC manipulation, crate FOV, player warning, trigger / auto fire + dedicated fire-assist wall check, ESP data refresh, Force Head, ghetto gun desync, bow-mods, NPC hitbox toggle / player + NPC hitbox expander, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 605 |
-| `src/02_drawing.lua` | per-kind capability probing, ScreenGui proxy, screen-space Tahoma `Text` draw, no-op fallback, draw diagnostics, **coalesced sync batching + per-property write skip + draw pool + write-failure tracking** | 668 |
-| `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking, **pinned target / priority / bone / no-target reason**, **public NPC classifier**, **Force Head**, **Trigger Bone / TriggerTarget + dedicated VIS wall check** | 384 |
+| `src/01_config.lua` | services, `CFG` defaults + backfill (**classic manip/tap, NPC manipulation, crate FOV, player warning, trigger / auto fire + dedicated fire-assist wall check, ESP data refresh, Force Head, ghetto gun desync, bow-mods, NPC hitbox toggle / player + NPC hitbox expander, attachment keys, Tahoma resolver, Player/NPC preview mirror + clamps, nearest HUD, profiles / self-check / perf / manip-popup / clean-ESP keys**), `SA` state + shared metres factor, `bindRender`, 48-colour palette | 602 |
+| `src/02_drawing.lua` | per-kind capability probing, ScreenGui proxy, screen-space Tahoma `Text` draw, no-op fallback, draw state, **coalesced sync batching + per-property write skip + draw pool + write-failure tracking** | 659 |
+| `src/02_shared.lua` | **FOV reference point** (`SA.AimPoint` / `SA.FovRadius`), checks, target picking, **pinned target / priority / bone / no-target reason**, **public NPC classifier**, **Force Head**, **Trigger Bone / TriggerTarget + dedicated VIS wall check** | 369 |
 | `src/02_workspace_scan.lua` | **single incremental Workspace walker**, `SA.RegisterScanHandler` / `RequestScan` | 116 |
 | `src/03_entity_scan.lua` | NPC registry handler + raw list accessor + **guarded** LOS visibility cache | 101 |
-| `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster + console dump (**Tool child fallback + shared metres**) | 137 |
-| `src/05_manipulation.lua` | **Manipulation (classic sliders, guns only, NPC-aware)**: shared RaycastParams, 8-direction peek, fixed 4–6 peek, clamped functional sliders, target-aware filter, reused CanQuery entries, **read-only crosshair popup probe + fire-assist allowNoAim gate**, NPC toggle / state / explicit probe | 449 |
+| `src/04_entity_info.lua` | entity scanner: tool/weapon + state + roster (**Tool child fallback + shared metres**) | 120 |
+| `src/05_manipulation.lua` | **Manipulation (classic sliders, guns only, NPC-aware)**: shared RaycastParams, 8-direction peek, fixed 4–6 peek, clamped functional sliders, target-aware filter, reused CanQuery entries, **read-only crosshair popup probe + fire-assist allowNoAim gate**, NPC toggle / state / explicit probe | 440 |
 | `src/06_firing_and_guns.lua` | **v7.7 firing state** (0.35 s tap window, InputEnded stamp; no bow state) + snap cooldown | 56 |
 | `src/07_gun_specs.lua` | **all 20 guns + every attribute** (mag / spread / ads / move / reload / recoil / s2 / scope / tags), ammo, damage, alt ammo, 8 named falloffs, ranges + **name-only bow gate** | 326 |
-| `src/08_attachments.lua` | **12 attachment defs**, `AttFit` / slots / tags, tolerant tool scanner, **auto-tune effects** + `SA.*Attachments*` diagnostics | 417 |
-| `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, adaptive iterations, attachment aim-time lead, debug / gun table, **live gun diff + manual overrides + new-gun stubs** | 420 |
-| `src/09_silent_aim.lua` | **Silent Aim v7.7 (guns only)**: Fix A/B connection reorder, idempotent tap snap, bow gate, shared `SA.ResolveShot`, **silent-aim-independent Trigger / Auto Fire, dedicated VIS wall check + no-bypass, Tool-first backend with mouse1click fallback**, render-step camera binds; a **dedicated ghetto part** wraps the state API | 569 |
-| `src/09_z_ghetto_gun.lua` | **Ghetto Gun Desync**: default-OFF cosmetic **hide + anchor** for the equipped **Tool**, camera **viewmodel** and **local arms**, original property snapshots, **frame-paced** refresh, gate / stale-part **restore**, re-execute / full-unload disposal, `SA.GhettoGun*` **state** + diagnostics, `SilentAimState` wrapper | 330 |
+| `src/08_attachments.lua` | **12 attachment defs**, `AttFit` / slots / tags, tolerant tool scanner, **auto-tune effects** + `SA.*Attachments*` state | 395 |
+| `src/08_prediction.lua` | **live ping**, smoothed velocity, quadratic intercept, drop, adaptive iterations, attachment aim-time lead, **live gun diff + manual overrides + new-gun stubs** | 310 |
+| `src/09_silent_aim.lua` | **Silent Aim v7.7 (guns only)**: Fix A/B connection reorder, idempotent tap snap, bow gate, shared `SA.ResolveShot`, **silent-aim-independent Trigger / Auto Fire, dedicated VIS wall check + no-bypass, Tool-first backend with mouse1click fallback**, render-step camera binds; a **dedicated ghetto part** wraps the state API | 540 |
+| `src/09_z_ghetto_gun.lua` | **Ghetto Gun Desync**: default-OFF cosmetic **hide + anchor** for the equipped **Tool**, camera **viewmodel** and **local arms**, original property snapshots, **frame-paced** refresh, gate / stale-part **restore**, re-execute / full-unload disposal, `SA.GhettoGun*` **state**, `SilentAimState` wrapper | 314 |
 | `src/10_fov_circle.lua` | **FOV circle**, tolerant writes, backend recovery, `SA.FovState` | 144 |
 | `src/11_snapline.lua` | aim preview line + target/lead markers | 117 |
-| `src/12_esp_players.lua` | **Player ESP v2**: tolerant `SA.PlayerRig`, re-execute purge, char tracking, half-build cleanup, diagnostics | 213 |
-| `src/13_esp_players_refresh.lua` | **per-player pcall refresh**, cached player rig / o.vis, structured `o.tx` text (weapon / tags), respawn detection, lifecycle hooks | 211 |
+| `src/12_esp_players.lua` | **Player ESP v2**: tolerant `SA.PlayerRig`, re-execute purge, char tracking, half-build cleanup | 180 |
+| `src/13_esp_players_refresh.lua` | **per-player pcall refresh**, cached player rig / o.vis, structured `o.tx` text (weapon / tags), respawn detection, lifecycle hooks | 206 |
 | `src/14_esp_npcs.lua` | NPC ESP objects + cached rig + enable/disable + events | 111 |
 | `src/15_esp_npcs_refresh.lua` | NPC ESP refresh with cached rig / o.vis (visibility + scanner + HP + structured `o.tx` text) | 115 |
-| `src/16_esp_crates.lua` | crate classification, **strict opened-state resolver**, anchors, GUI objects | 353 |
-| `src/16_esp_crates_registry.lua` | live crate registry + raw list accessor, **crate-state debug**, walker diagnostics | 116 |
+| `src/16_esp_crates.lua` | crate classification, **strict opened-state resolver**, anchors, GUI objects | 326 |
+| `src/16_esp_crates_registry.lua` | live crate registry + raw list accessor, **crate-state resolver**, walker handler | 57 |
 | `src/17_esp_crates_refresh.lua` | crate refresh (filters, state, structured `o.tx` text, highlight gate) + events | 90 |
 | `src/18_esp_fx_colours.lua` | palette helpers, lazy drawing factory, skeleton / screen / box geometry, legacy line / chams hide, **draw usage marks + hide-unused finaliser**, **draw-pool reuse** | 232 |
 | `src/18_esp_fx_draw.lua` | **unified styling**: Tahoma screen-space text, NPC / crate colours, boxes, **clean outline-only mode**, **crate FOV dot / outline-highlight branch**, off-screen skip, FX-owned legacy line / chams visibility, chams, skeleton, tracers, FOV arrows, fade, `SA.Atan2`, **hoisted helpers / draw usage marks / direct segments** | 433 |
-| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with per-player error isolation, cached rig / o.vis, one-pass team map, throttled nearest sort, FPS counters, **ESP decluttering filters + live per-kind counts**, **crate FOV counters / state** | 327 |
-| `src/19_render_loop.lua` | master render loop: rotating success-only build queue, 4 guarded passes, FX pass, throttled data refresh, raw list build queues, FPS counters, **60 FPS frame budget / adaptive pacing / rolling FPS / entity cap** | 306 |
-| `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` diagnostics | 190 |
+| `src/18_esp_fx_frame.lua` | per-frame `SA.ApplyEspFx` with per-player error isolation, cached rig / o.vis, one-pass team map, throttled nearest sort, FPS counters, **ESP decluttering filters + live per-kind counts**, **crate FOV counters / state** | 317 |
+| `src/19_render_loop.lua` | master render loop: rotating success-only build queue, 4 guarded passes, FX pass, throttled data refresh, raw list build queues, FPS counters, **60 FPS frame budget / adaptive pacing / rolling FPS / entity cap** | 274 |
+| `src/20_bow_mods.lua` | **Bow mods (2 features only)**: Instant Charge + No Cooldown, GC scan, originals saved/restored, `SA.BowMods*` state | 190 |
 | `src/20_gun_mods.lua` | generation-guarded GC scan gun mods (7 toggles) | 89 |
-| `src/20_hitbox_expander.lua` | **Hitbox Expander v2 (players + NPCs, R6/R15)**: silent client-side size / collision / query expansion, live NPC raw list, **NPC HRP fallback**, **self-healing** Size hooks, accessory neutralisation, NPC-owned originals + full restore | 501 |
-| `src/21_ui_aiming.lua` | Atlanta setup + **re-execution-safe keybind wrapper**, Aiming tab (Target / Ballistics / Wall Pen / attachments / Manipulation), **NPC manipulation**, **Trigger / Auto Fire + Fire Assist Wall Check + hit-part controls + VIS / silent-aim independent labels**, **Force Head**, **Ghetto Gun Desync toggle + diagnostics**, **NPC hitbox toggle**, **Hitbox Expander v2 toggles / sliders / diagnostics**, **FOV preset + target priority / bone / pin / no-target UX** | 532 |
+| `src/20_hitbox_expander.lua` | **Hitbox Expander v2 (players + NPCs, R6/R15)**: silent client-side size / collision / query expansion, live NPC raw list, **NPC HRP fallback**, **self-healing** Size hooks, accessory neutralisation, NPC-owned originals + full restore | 490 |
+| `src/21_ui_aiming.lua` | Atlanta setup + **re-execution-safe keybind wrapper**, Aiming tab (Target / Ballistics / Wall Pen / attachments / Manipulation), **NPC manipulation**, **Trigger / Auto Fire + Fire Assist Wall Check + hit-part controls + VIS / silent-aim independent labels**, **Force Head**, **Ghetto Gun Desync toggle**, **NPC hitbox toggle**, **Hitbox Expander v2 toggles / sliders**, **FOV preset + target priority / bone / pin / no-target UX** | 496 |
 | `src/22_esp_preview.lua` | **ESP Preview core**: state/teardown, safe clone + dummy rig, ViewportFrame overlays, **real-model source selection + side-by-side Player vs NPC compare**, **clean-mode mirroring**, per-tag labels, vis frame, arrow, backdrops | 644 |
-| `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, Preview Kind / Target / Best ESP controls, source/compare rebuild, `SA.EspPreview*` API | 319 |
-| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / **crate FOV-aware toggle + state** / features / **Clean + Best ESP presets** / 48 colourpickers / diagnostics, **ESP decluttering + live count controls** | 401 |
-| `src/23_ui_gunmods.lua` | Gun Mods tab + Bow Mods section (2 toggles + diagnostics) + feature keybinds, **Live Gun Tuning / Overrides controls** | 80 |
-| `src/24_ui_visual.lua` | Visual tab, **top-N nearest HUD + NPC-aware Manip Crosshair Popup + 100m player warning**, **Force Head / Fire Assist / ghetto gun state diagnostics**, **Performance Mode + ESP data refresh slider + ESP FPS state + ESP frame budget + FPS overlay + all-keybind console / rebind / conflicts** | 985 |
-| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **self-check panel (NPC manipulation, crate FOV, player warning, fire assist, Force Head, ghetto gun state, manip popup + clean ESP, draw sync + ESP perf + ESP frame budget + hitbox state)**, **full unload + warning / fire-assist / ghetto gun disposal + hitbox restore**, UI init / auto-load | 716 |
-| `src/26_banner.lua` | startup banner (**v7.7 + guns-only + bow mods + attachment status**), `return CFG` | 57 |
+| `src/22_esp_preview_setup.lua` | **ESP Preview build + lifecycle**: panel clamp, standalone-panel fallback, camera/render bind, respawn hook, Preview Kind / Target / Best ESP controls, source/compare rebuild, `SA.EspPreview*` API | 280 |
+| `src/22_ui_esp.lua` | ESP tab: player / NPC / crate / **crate FOV-aware toggle + state** / features / **Clean + Best ESP presets** / 48 colourpickers, **ESP decluttering + live count controls** | 340 |
+| `src/23_ui_gunmods.lua` | Gun Mods tab + Bow Mods section (2 toggles) + feature keybinds, **Live Gun Tuning / Overrides controls** | 66 |
+| `src/24_ui_visual.lua` | Visual tab, **top-N nearest HUD + NPC-aware Manip Crosshair Popup + 100m player warning**, **Force Head / Fire Assist / ghetto gun state accessors**, **Utilities**, **Performance Mode + ESP data refresh slider + ESP FPS state + ESP frame budget + FPS overlay + all-keybind manager / rebind / conflicts** | 811 |
+| `src/25_ui_misc.lua` | Misc tab, quick actions, **native config profiles + export/import/round-trip**, **self-check state (NPC manipulation, crate FOV, player warning, fire assist, Force Head, ghetto gun state, manip popup + clean ESP, draw sync + ESP perf + ESP frame budget + hitbox state)**, **full unload + warning / fire-assist / ghetto gun disposal + hitbox restore**, UI init / auto-load | 577 |
+| `src/26_banner.lua` | final `return CFG` only (no startup output) | 9 |
 ## Testing
 
 ```bash
 npm ci && npm test
 ```
 
-`npm test` builds the ignored `dist/Hanami.lua`, runs the Python Luau-safe join verifier, parses every Lua chunk with luaparse, validates the loader / README / CFG coverage, then executes the committed Fengari mock suite. The runner loads `tools/mocks.lua`, executes the bundle three times in one Lua state and asserts startup, native profile auto-load, re-execution, full unload, manipulation popup READY / BLOCKED / bypass states, NPC manipulation, crate FOV dot / outline checks, 100 m warning, Triggerbot / Auto Fire / part modes / VIS FOV with silent aim OFF / Tool-first backend with mouse fallbacks / dedicated Fire Assist Wall Check / both-enabled / Manipulation Support no-bypass regressions, player + NPC hitbox expansion / HRP fallback / NPC toggle restore, ESP FPS optimization / coalesced GUI sync / throttled data refresh / cached rig / off-screen skip / raw list / ESP 60 FPS frame budget / per-property instance writes / draw usage marks / Ghetto Gun Desync hide + anchor / continuous gate / local-only scope / toggle / bow / full-unload restore regressions, Force Head and all new APIs with zero mock callback / event errors.
+`npm test` builds the ignored `dist/Hanami.lua`, runs the Python Luau-safe join verifier, parses every Lua chunk with luaparse, validates the loader / README / CFG coverage, then executes the committed Fengari mock suite. The runner loads `tools/mocks.lua`, executes the bundle three times in one Lua state and asserts startup, native profile auto-load, re-execution, full unload, manipulation popup READY / BLOCKED / bypass states, NPC manipulation, crate FOV dot / outline checks, 100 m warning, Triggerbot / Auto Fire / part modes / VIS FOV with silent aim OFF / Tool-first backend with mouse fallbacks / dedicated Fire Assist Wall Check / both-enabled / Manipulation Support no-bypass regressions, player + NPC hitbox expansion / HRP fallback / NPC toggle restore, ESP FPS optimization / coalesced GUI sync / throttled data refresh / cached rig / off-screen skip / raw list / ESP 60 FPS frame budget / per-property instance writes / draw usage marks / Ghetto Gun Desync hide + anchor / continuous gate / local-only scope / toggle / bow / full-unload restore regressions, Force Head, all new state APIs and the no-console-output / no-print-UI regressions with zero mock callback / event errors.
 
-The suite is static + Fengari mock validation, **not a real Roblox executor** confirmation. Executor-only behaviour (`gethui`, `Drawing`, `getgc`, `getconnections`, real ViewportFrames, filesystem / clipboard and Atlanta's live UI) must still be checked in-game with **Misc → Self-Check**.
+The suite is static + Fengari mock validation, **not a real Roblox executor** confirmation. Executor-only behaviour (`gethui`, `Drawing`, `getgc`, `getconnections`, real ViewportFrames, filesystem / clipboard and Atlanta's live UI) must still be checked in-game; `SA.SelfCheck()` returns the capability report to code.
 
 ## Editing
 

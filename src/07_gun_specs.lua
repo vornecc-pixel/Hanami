@@ -47,7 +47,7 @@ local AMMO_ALTS = {
 }
 
 -- FALLOFF tables (pasted `Falloff`, per gun family). Stored on each spec
--- for the Print Gun Spec / Print Gun Table readouts; not used by the aim.
+-- for the ballistics resolver; not used by the aim.
 local FALLOFF = {
     pistol_family     = { full = 60,  min = 200,  mult = 0.6  },
     smg_family        = { full = 25,  min = 100,  mult = 0.8  },
@@ -259,7 +259,7 @@ function SA.GetEquippedGun(force)
         rocket = spec.rocket == true, huntOnly = spec.huntOnly == true,
         duelOnly = spec.duelOnly == true, shellReload = spec.shellReload,
         falloff = spec.falloff,
-        -- base values (before attachments) for the diagnostics readout
+        -- base values (before attachments) for the state readout
         baseSpeed = math.max(speed, 1), baseDamage = damage,
         baseRate = spec.rate, baseMag = spec.mag,
         baseSpread = spec.spread, baseAdsSpread = spec.adsSpread,

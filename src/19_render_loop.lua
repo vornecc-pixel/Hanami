@@ -30,7 +30,7 @@
 local MAX_BUILDS = 2
 local MAX_ATTEMPTS = 10
 local renderFrame = 0
-local renderErrAt, renderErrCount = 0, 0
+local renderErrCount = 0
 
 -- ── BETTER: Performance Mode + 60 FPS frame budget ──────────────────
 -- Adaptive build pacing (only new ESP objects are built every N ms),
@@ -107,14 +107,6 @@ function SA.EspFrameBudgetReset()
     return true
 end
 
-function SA.PrintEspFrameBudget()
-    local b = SA.EspFrameBudget()
-    print(string.format(
-        "[esp fps] target %d fps (%.1f ms) | frame %.1f ms | over budget=%s | data %.0f->%.0f ms | builds %.0f ms | skips %d/%d",
-        b.targetFps, b.targetMs, b.lastDtMs, tostring(b.overBudget),
-        b.dataIntervalMs, b.adaptiveDataIntervalMs, b.buildIntervalMs,
-        b.budgetSkips, b.buildSkips))
-end
 
 function SA.EspPerfState()
     local p = SA.EspPerf or {}
@@ -133,22 +125,6 @@ function SA.EspPerfState()
     }
 end
 
-function SA.PrintEspPerfState()
-    local s = SA.EspPerfState()
-    print("[esp fps] fx passes", s.fxPasses, "| data refreshes", s.dataRefreshes,
-        "| skips", s.dataSkips, "| interval", s.dataIntervalFrames, "frames")
-    local b = s.frameBudget or SA.EspFrameBudget()
-    print(string.format(
-        "[esp fps] target %d fps | frame %.1f ms | over budget=%s | data %.0f ms | builds %.0f ms",
-        b.targetFps, b.lastDtMs, tostring(b.overBudget),
-        b.adaptiveDataIntervalMs, b.buildIntervalMs))
-    if s.drawSync then
-        print("[esp fps] draw sync writes", s.drawSync.writes,
-            "| flushes", s.drawSync.flushes, "| saved", s.drawSync.saved,
-            "| instance", s.drawSync.instanceWrites,
-            "| skipped", s.drawSync.instanceSkips)
-    end
-end
 
 function SA.PerfState()
     return {
@@ -170,16 +146,8 @@ function SA.PerfState()
 end
 
 local function renderGuard(name, fn)
-    local ok, err = pcall(fn)
-    if not ok then
-        renderErrCount = renderErrCount + 1
-        local now = tick()
-        if now - renderErrAt > 5 then
-            renderErrAt = now
-            warn("[esp] " .. name .. " pass error (" .. renderErrCount
-                .. " total): " .. tostring(err))
-        end
-    end
+    local ok = pcall(fn)
+    if not ok then renderErrCount = renderErrCount + 1 end
 end
 
 local function buildBatch(list, exists, skip, builder)

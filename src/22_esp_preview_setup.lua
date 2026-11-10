@@ -99,10 +99,6 @@ local function pvTick(dt)
             pv.styleErr = nil
         else
             pv.styleErr = tostring(styleErr)
-            if not pv.styleWarned then
-                pv.styleWarned = true
-                warn("[esp] preview styling: " .. tostring(styleErr))
-            end
         end
     end
 end
@@ -128,37 +124,6 @@ function SA.EspPreviewDispose()
     pcall(function() if pv.sgui then pv.sgui.Enabled = false end end)
 end
 
-function SA.EspPreviewDiag()
-    print("════════════ ESP PREVIEW ════════════")
-    print("  enabled :", tostring(CFG.espPreview), "| spin:", tostring(CFG.espPreviewSpin),
-        "| speed:", tostring(CFG.espPreviewSpeed))
-    print("  kind    :", tostring(CFG.espPreviewKind), "ESP | aim target:",
-        tostring(CFG.espPreviewTarget), "| overlays:", pv.ui and "BUILT" or "MISSING")
-    print("  source  :", tostring(CFG.espPreviewSource),
-        "| compare:", tostring(CFG.espPreviewCompare))
-    print("  model   :", pv.isDummy and "synthetic dummy rig"
-        or (pv.model and "live server clone" or "NONE"),
-        "| 2nd:", pv.model2 and "BUILT" or "off")
-    print("  parts   :", pv.parts and #pv.parts or 0, "| reason:", tostring(pv.reason or "-"),
-        "| 2nd:", tostring(pv.model2Reason or "-"))
-    print("  panel   :", pv.sgui and (pv.sgui.Enabled and "visible" or "hidden") or "MISSING",
-        "| own:", tostring(pv.ownGui ~= nil))
-    print("  viewport:", pv.root and (pv.root.Visible and "visible" or "hidden") or "MISSING")
-    print("  style   :", tostring(pv.styleErr or "ok"),
-        "| embedded:", tostring(pv.embedded == true))
-    print("  clean  :", tostring(CFG.espCleanMode ~= false),
-        "| backdrops", tostring(CFG.espTagBackdrop),
-        "| fill", tostring(CFG.espShowFill),
-        "| chams outline", tostring(CFG.espShowOutline))
-    print("  features: box", tostring(CFG.espShowBox),
-        "| corners", tostring(CFG.espCornerBox),
-        "| skeleton", tostring(CFG.espShowSkeleton),
-        "| head", tostring(CFG.espShowHeadDot),
-        "| tracer", tostring(CFG.espShowTracer),
-        "| arrows", tostring(CFG.espShowOffscreen),
-        "| fade", tostring(CFG.espFade))
-    print("══════════════════════════════════════")
-end
 
 -- ── Build once ───────────────────────────────────────────────────────
 local pvSec = window and window.esp_section or nil
@@ -205,10 +170,8 @@ else
         pv.embedded = false
     end)
 end
-if not pvSec or not pvSec.holder then
-    warn("[esp] no ESP Preview holder available — preview unavailable")
-else
-    local ok, buildErr = pcall(function()
+if pvSec and pvSec.holder then
+    local ok = pcall(function()
         local holder = pvSec.holder
         pv.sgui = nil
 
@@ -278,12 +241,11 @@ else
         pv.ui2.holder.Visible = false
         pvBuildModel()
         -- bindRender does not guard its callback; one stray Instance
-        -- error must never spam RenderStepped or break the other loops.
+        -- error must never break RenderStepped or the other loops.
         pv.renderConn = bindRender(function(...)
             pcall(pvTick, ...)
         end)
     end)
-    if not ok then warn("[esp] ESP preview build failed: " .. tostring(buildErr)) end
 
     -- Rebuild the model after every respawn (the old Atlanta preview
     -- died here because it assumed a live character + Animate script).
@@ -315,5 +277,4 @@ else
         if SA.ApplyBestEsp then SA.ApplyBestEsp() end
     end)
     pcall(addButton, pvSec, "Rebuild Character", function() SA.EspPreviewRefresh() end)
-    pcall(addButton, pvSec, "Print Preview State", function() SA.EspPreviewDiag() end)
 end

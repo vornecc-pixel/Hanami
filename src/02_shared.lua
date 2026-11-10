@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 02_shared.lua — Velocity cache, checks, target selection, debug
+-- Hanami / 02_shared.lua — Velocity cache, checks and target selection
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk;
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
@@ -99,8 +99,6 @@ function SA.PinNearestTarget()
     SA.PinnedTarget = { model = best.char, bone = best.head,
                         name = best.plr.Name, at = tick() }
     if type(setFlag) == "function" then pcall(setFlag, "targetPriority", "Pinned") end
-    print("[sa] pinned nearest target:", tostring(best.plr.Name),
-        string.format("(%.1f m)", bestD / (SA.STUDS_PER_METER or 3.571)))
     return best.plr.Name, nil
 end
 
@@ -158,7 +156,7 @@ local function isNpc(model)
     return false
 end
 
--- Public classifier used by manipulation / diagnostics / self-check.
+-- Public classifier used by manipulation and state checks.
 -- Prefer the live NPC registry (03_entity_scan.lua), then fall back to the
 -- name / attribute / folder rules above. Real player characters are
 -- explicitly rejected so manipulation never treats a teammate as an NPC.
@@ -368,17 +366,4 @@ function SA.ForceHeadState()
         targetBone = CFG.targetBone,
         mode = CFG.targetBoneMode,
     }
-end
-
-function SA.PrintForceHeadState()
-    local s = SA.ForceHeadState()
-    print("========== FORCE HEAD ==========")
-    print("  enabled:", tostring(s.enabled), "| resolved:", tostring(s.resolved))
-    print("  Target Bone:", tostring(s.targetBone),
-        "| Per-Weapon Bone:", tostring(s.mode))
-    print("================================")
-end
-
-local function dbg(...)
-    if CFG.debug then print("[sa]", ...) end
 end

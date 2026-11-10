@@ -237,34 +237,7 @@ local function isCrateOpened(model)
     return applyInvert(false)
 end
 
--- Raw diagnostics: prints every state signal so the game's real flags can
--- be identified instead of guessing.
-local function crateStateDebug(model)
-    local parts = {}
-    for _, a in ipairs(OPENED_ATTRS) do
-        local ok, v = pcall(function() return model:GetAttribute(a) end)
-        if ok and v ~= nil then parts[#parts + 1] = a .. "=" .. tostring(v) end
-    end
-    for _, a in ipairs(CLOSED_ATTRS) do
-        local ok, v = pcall(function() return model:GetAttribute(a) end)
-        if ok and v ~= nil then parts[#parts + 1] = a .. "=" .. tostring(v) end
-    end
-    for _, n in ipairs(OPENED_CHILDREN) do
-        local c = model:FindFirstChild(n)
-        if c then
-            local v = valueBaseTruthy(c)
-            parts[#parts + 1] = c.ClassName .. ":" .. n .. "=" .. tostring(v)
-        end
-    end
-    local prompt
-    pcall(function() prompt = model:FindFirstChildWhichIsA("ProximityPrompt", true) end)
-    if prompt then
-        local en = "?"; pcall(function() en = tostring(prompt.Enabled) end)
-        parts[#parts + 1] = "Prompt.Enabled=" .. en
-    end
-    if #parts == 0 then parts[1] = "(no state signals found)" end
-    return table.concat(parts, ", ")
-end
+-- Resolve opened / unopened state from the model's own signals.
 
 local function crateAnchor(model)
     if model:IsA("BasePart") then return model end

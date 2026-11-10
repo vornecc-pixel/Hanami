@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 24_ui_visual.lua — Visual tab (FOV, snapline, debug)
+-- Hanami / 24_ui_visual.lua — Visual tab (FOV, HUD, performance, keybinds)
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk;
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
@@ -29,89 +29,15 @@ bindSlider(fovSec, "Snapline Thickness", "snapLineThickness", 1, 5, 1, "")
 bindToggle(fovSec, "Show Lead Marker", "snapShowLead",
     "Ring = the exact point the ballistic solver will aim at (moving targets / bullet drop)")
 
--- ── VISUAL : Debug ─────────────────────────────────────────────────
-local dbgCol = VisualTab:column()
-local dbgSec = dbgCol:section({ name = "Debug" })
+-- ── VISUAL : Utilities ────────────────────────────────────────────
+local utilCol = VisualTab:column()
+local utilSec = utilCol:section({ name = "Utilities" })
 
-bindToggle(dbgSec, "Debug Log", "debug")
-addButton(dbgSec, "Print Silent Aim (v7.7)", function()
-    local s = SA.SilentAimState()
-    local prio = Enum.RenderPriority.Camera.Value
-    print(string.format("[sa] snap @ %d | restore @ %d (Camera @ %d)",
-        s.snapPriority, s.restorePriority, prio))
-    print("[sa] binds:", s.snapBind, "/", s.restoreBind, "| lock:", s.lock)
-    print("[sa] fix A reorder:", s.reorder, "| conns:", s.reorderedConnections,
-        "| reason:", s.reorderReason)
-    print("[sa] fix B hooked tools:", s.hookedTools,
-        "| guns only:", s.gunsOnly, "| bow equipped:", s.bowEquipped)
-    print(string.format("[sa] tap window: %.2fs | bow equipped: %s | snapped: %s",
-        s.tapWindow, tostring(s.bowEquipped), tostring(s.snapped)))
-    print("[sa] force head:", tostring(s.forceHead),
-        "| resolved bone:", tostring(s.resolvedBone))
-    print("[sa] ghetto gun:", tostring(s.ghettoGun),
-        "| active:", tostring(s.ghettoActive),
-        "| parts:", tostring(s.ghettoParts),
-        "| reason:", tostring(s.ghettoReason))
-end)
-addButton(dbgSec, "Print Fire Assist", function() SA.PrintFireAssist() end)
-addButton(dbgSec, "Retry Tap Hooks", function()
+addButton(utilSec, "Retry Tap Hooks", function()
     SA.InstallTapReorder()
-    local s = SA.SilentAimState()
-    print("[sa] fix A:", s.reorderReason, "| fix B tools:", s.hookedTools)
 end)
-addButton(dbgSec, "Print Bow Mods State", function()
-    local b = SA.BowModsState()
-    print(string.format("[bow] master=%s instantCharge=%s noCooldown=%s | u10 cfg tables=%d | u14 live states=%d | patched=%d",
-        tostring(b.enabled), tostring(b.instantCharge), tostring(b.noCooldown),
-        b.configTables, b.liveStates, b.patched))
-    print("[bow] hint: needs getgc + setreadonly; enable 'Enable Bow Mods' in Gun Mods -> Bow Mods")
-end)
-addButton(dbgSec, "Print Attachments", function() SA.PrintAttachments() end)
-addButton(dbgSec, "Print Gun Table", function() SA.PrintGunTable() end)
-addButton(dbgSec, "Print Draw Backend", function()
-    print("[sa] drawing backend:", SA.DrawBackend())
-    print("[sa]", SA.DrawDiag())
-end)
-addButton(dbgSec, "Print FOV State", function()
-    local s = SA.FovState()
-    print("[fov] enabled:", s.enabled, "| exists:", s.exists, "| visible:", s.visible)
-    print(string.format("[fov] centre: %.0f,%.0f (%s) | radius: %.0f | filled: %s | transparency: %s | thickness: %s",
-        s.centre.X, s.centre.Y, tostring(s.centreMode), s.radius,
-        tostring(s.filled), tostring(s.transparency), tostring(s.thickness)))
-    print("[fov] backend:", s.backend, "| write failures:", s.failures)
-    print("[fov]", s.diag)
-    print("[fov] fix: toggle 'Show FOV Circle', set Centre = Screen Center, keep 'Force ScreenGui Drawing' ON")
-end)
-addButton(dbgSec, "Print Gun Spec", function()
-    SA.PrintGunSpec()
-end)
-addButton(dbgSec, "Print Prediction", function()
-    local cam = ws.CurrentCamera
-    local t = SA.Target
-    if not (cam and t.model and t.pos) then
-        print("[sa] prediction: no target in FOV"); return
-    end
-    SA.PrintPrediction(cam.CFrame.Position, t.pos, t.model)
-end)
-addButton(dbgSec, "Sync Gun Defs (GC)", function()
-    local n = SA.SyncGunDefs()
-    if n == 0 then print("[sa] no live gun tables found; using static specs") end
-end)
-addButton(dbgSec, "Print Manip State (classic)", function()
-    local m = SA.ManipState()
-    print(string.format("[manip] frame=%d rays left=%d/%d disabled=%d cached=%d dirs=%d",
-        m.frame, m.remaining, m.budget, m.disabled, m.cached, m.directions))
-    print(string.format("[manip] range=%s peek=%s deltaCap=%s parts=%s hyst=%s peekOrigin=%s npcs=%s/%s lastNpc=%s",
-        tostring(m.range), tostring(m.basePeek), tostring(m.deltaCap),
-        tostring(m.parts), tostring(m.hysteresis), tostring(m.peek or "none"),
-        tostring(m.npcsEnabled), tostring(m.npcTargets), tostring(m.lastNpc)))
-end)
-addButton(dbgSec, "Print Current Target", function()
-    local t = SA.Target
-    if not t.model then print("[sa] target: none in FOV"); return end
-    print(string.format("[sa] target: %s | %s | age %.2fs | last shot: %s",
-        t.model.Name, t.visible and "VISIBLE" or "BLOCKED",
-        tick() - (t.t or 0), t.lastShot and t.lastShot.Name or "never"))
+addButton(utilSec, "Sync Gun Defs (GC)", function()
+    SA.SyncGunDefs()
 end)
 
 -- ── NEAREST PLAYER HUD (visible while the menu is hidden) ───────────
@@ -403,23 +329,6 @@ function SA.NearestWindowState()
         teammate = nearestRow and nearestRow.mate or false,
     }
 end
-function SA.NearestWindowDiag()
-    local s = SA.NearestWindowState()
-    print("════════════ NEAREST PLAYER HUD ════════════")
-    print("  enabled:", tostring(s.enabled), "| built:", tostring(s.built),
-        "| visible:", tostring(s.visible), "| menu open:", tostring(s.menuOpen))
-    print("  nearest:", tostring(s.nearest or "none"),
-        "| metres:", s.meters and string.format("%.1f m", s.meters) or "n/a",
-        "| studs:", s.studs and string.format("%.1f", s.studs) or "n/a")
-    print("  tool:", tostring(s.tool or "none"), "| reason:", tostring(s.reason))
-    print("══════════════════════════════════════")
-end
-
-bindToggle(dbgSec, "Nearest Player HUD", "nearestWindow",
-    "Shows the closest player + distance in metres + held tool while the menu is hidden / minimised")
-dbgSec:label({ name = "1 m ≈ 3.571 studs (same as ESP distance)" })
-addButton(dbgSec, "Refresh Nearest HUD", function() SA.NearestWindowRefresh() end)
-addButton(dbgSec, "Print Nearest HUD", function() SA.NearestWindowDiag() end)
 
 saNearestBuild()
 saNearestTick(0, true)
@@ -430,6 +339,10 @@ local hudCol = VisualTab:column()
 local hudSec, perfSec = hudCol:multi_section({
     names = { "Nearest HUD", "Performance Mode" },
 })
+bindToggle(hudSec, "Nearest Player HUD", "nearestWindow",
+    "Shows the closest player + distance in metres + held tool while the menu is hidden / minimised")
+hudSec:label({ name = "1 m ≈ 3.571 studs (same as ESP distance)" })
+addButton(hudSec, "Refresh Nearest HUD", function() SA.NearestWindowRefresh() end)
 bindSlider(hudSec, "Top-N Players", "nearestTopN", 1, 5, 1, "")
 bindToggle(hudSec, "Show HP %", "nearestShowHealth")
 bindToggle(hudSec, "Show VIS / WALL", "nearestShowState")
@@ -444,19 +357,13 @@ bindToggle(hudSec, "Live 'Why No Target?' Line", "showNoTargetReason",
 bindToggle(hudSec, "Manip Crosshair Popup", "showManipPopup",
     "Small READY / BLOCKED badge above the crosshair; read-only probe, never changes CanQuery or spends the ray budget")
 addButton(hudSec, "Refresh Manip Popup", function() SA.ManipPopupRefresh() end)
-addButton(hudSec, "Print Manip Popup", function() SA.PrintManipPopup() end)
 bindToggle(hudSec, "100m Player Warning", "showPlayerWarning",
     "Red crosshair badge when any other player is within 100 metres; fixed threshold, no team filter")
 addButton(hudSec, "Refresh Player Warning", function() SA.PlayerWarningRefresh() end)
-addButton(hudSec, "Print Player Warning", function() SA.PrintPlayerWarning() end)
 addButton(hudSec, "Lock Nearest as Aim Target", function()
-    local name, err = SA.PinNearestTarget()
-    if name then
-        setFlag("targetPriority", "Pinned")
-        print("[hud] locked aim to nearest:", name)
-    else print("[hud] lock failed:", tostring(err)) end
+    local name = SA.PinNearestTarget()
+    if name then setFlag("targetPriority", "Pinned") end
 end)
-addButton(hudSec, "Print Nearest HUD", function() SA.NearestWindowDiag() end)
 
 bindToggle(perfSec, "Performance Mode", "perfMode",
     "Adaptive ESP rebuild pacing, drawing reuse, entity cap per frame and FPS counter")
@@ -464,35 +371,6 @@ bindSlider(perfSec, "ESP Text Refresh (ms @60fps)", "espDataRefreshMs", 16, 500,
 bindSlider(perfSec, "Rebuild Interval (ms @60fps)", "perfEspRebuildMs", 16, 500, 1, "ms")
 bindSlider(perfSec, "Max ESP Entities / Frame", "perfMaxEntities", 5, 100, 1, "")
 bindToggle(perfSec, "FPS Counter in HUD", "perfShowFps")
-addButton(perfSec, "Print Performance State", function()
-    local st = SA.PerfState()
-    print(string.format("[perf] %.1f fps | frame %d | rebuild %.0f ms (base %s) | cap %s (base %s)",
-        st.fps, st.frame, st.effectiveRebuildMs or 0, tostring(st.rebuildMs),
-        tostring(st.effectiveEntityCap), tostring(st.maxEntities)))
-    if st.pool then print("[perf] draw pool:", tostring(st.pool.enabled),
-        "free", st.pool.total, st.pool.byKind) end
-    if st.visible then print("[perf] visible ESP:",
-        st.visible.players, "players /", st.visible.npcs, "npcs /",
-        st.visible.crates, "crates") end
-    print("[perf] ESP text refresh:", tostring(st.dataRefreshMs), "ms |",
-        tostring(st.dataIntervalFrames), "frames")
-    if st.esp then print("[perf] ESP FPS: fx", st.esp.fxPasses,
-        "| data", st.esp.dataRefreshes, "| skips", st.esp.dataSkips) end
-    if st.drawSync then print("[perf] draw sync: writes", st.drawSync.writes,
-        "| flushes", st.drawSync.flushes, "| saved", st.drawSync.saved) end
-end)
-addButton(perfSec, "Print ESP FPS State", function()
-    SA.PrintDrawSyncStats()
-    SA.PrintEspPerfState()
-end)
-addButton(perfSec, "Print ESP Frame Budget", function()
-    SA.PrintEspFrameBudget()
-end)
-addButton(perfSec, "Print Draw Pool", function()
-    local p = SA.DrawPoolStats()
-    print("[perf] pool enabled:", tostring(p.enabled), "| free:", p.total,
-        "|", p.byKind)
-end)
 
 -- A tiny always-on-top FPS / entity overlay, independent of the Atlanta
 -- menu. It only updates at ~5 Hz so it never costs a frame of styling.
@@ -673,16 +551,6 @@ function SA.ManipPopupState()
         last = saManipPopup.last or 0,
     }
 end
-function SA.PrintManipPopup()
-    local s = SA.ManipPopupState()
-    print("========== MANIP CROSSHAIR POPUP ==========")
-    print("  enabled:", tostring(s.enabled), "| built:", tostring(s.built),
-        "| visible:", tostring(s.visible), "| possible:", tostring(s.possible))
-    print("  text:", tostring(s.text))
-    print("  reason:", tostring(s.reason), "| target:", tostring(s.target or "none"),
-        "| NPC:", tostring(s.npc))
-    print("==========================================")
-end
 
 saManipPopupTick(true)
 saManipPopup.conn = bindRender(function() saManipPopupTick(false) end)
@@ -813,17 +681,6 @@ function SA.PlayerWarningState()
         last = saPlayerWarning.last or 0,
     }
 end
-function SA.PrintPlayerWarning()
-    local s = SA.PlayerWarningState()
-    print("========== PLAYER WARNING ==========")
-    print("  enabled:", tostring(s.enabled), "| built:", tostring(s.built),
-        "| visible:", tostring(s.visible), "| threshold:", tostring(s.threshold), "m")
-    print("  text:", tostring(s.text))
-    print("  nearest:", tostring(s.nearest or "none"),
-        "| metres:", s.meters and string.format("%.1f", s.meters) or "n/a",
-        "| reason:", tostring(s.reason))
-    print("====================================")
-end
 
 saPlayerWarningTick(true)
 saPlayerWarning.conn = bindRender(function() saPlayerWarningTick(false) end)
@@ -859,7 +716,6 @@ function SA.SetAllKeybindModes(mode)
         n = n + 1
     end
     CFG.keybindMode = mode
-    print("[bind] mode set to", mode, "for", n, "binds")
     return n
 end
 
@@ -883,31 +739,7 @@ function SA.KeybindConflicts()
     return out
 end
 
-function SA.PrintKeybindConflicts()
-    local list = SA.KeybindConflicts()
-    print("════════════ KEYBIND CONFLICTS ════════════")
-    if #list == 0 then print("  none — every bound key is unique") end
-    for _, c in ipairs(list) do
-        print(" ", c.key, "->", table.concat(c.flags, ", "))
-    end
-    print("══════════════════════════════════════")
-    return list
-end
 
-function SA.PrintAllKeybinds()
-    local flags = {}
-    for flag in pairs(SA.AllKeybinds or {}) do flags[#flags + 1] = flag end
-    table.sort(flags)
-    print("════════════ ALL KEYBINDS ════════════")
-    for _, flag in ipairs(flags) do
-        local cfg = SA.AllKeybinds[flag]
-        print(string.format("  %-28s %-28s %-7s active=%s",
-            flag, SA.KeyToString(cfg.key), tostring(cfg.mode),
-            tostring(cfg.active)))
-    end
-    print("══════════════════════════════════════")
-    return #flags
-end
 
 function SA.StartRebind(flag)
     local cfg = SA.AllKeybinds and SA.AllKeybinds[flag] or nil
@@ -926,11 +758,8 @@ function SA.StartRebind(flag)
         pcall(function() cfg.set(key) end)
         pcall(function() conn:Disconnect() end)
         SA.RebindConn, SA.RebindFlag = nil, nil
-        print("[bind]", flag, "->", tostring(key))
-        if CFG.keybindConflictWarn then SA.PrintKeybindConflicts() end
     end)
     SA.RebindConn = conn
-    print("[bind] press ANY key / mouse button to bind", flag, "(Escape = None)")
     return true
 end
 
@@ -970,7 +799,6 @@ kbSec:dropdown({
         SA.SetAllKeybindModes(mode)
     end,
 })
-bindToggle(kbSec, "Warn on Conflicts", "keybindConflictWarn")
 addButton(kbSec, "Rebind Selected", function()
     SA.StartRebind(CFG.keybindSelected)
 end)
@@ -978,8 +806,6 @@ addButton(kbSec, "Clear Selected", function()
     SA.ClearSelectedKeybind()
 end)
 addButton(kbSec, "Cancel Rebind", function() SA.CancelRebind() end)
-addButton(kbSec, "Print All Keybinds", function() SA.PrintAllKeybinds() end)
-addButton(kbSec, "Print Conflicts", function() SA.PrintKeybindConflicts() end)
 addButton(kbSec, "Set All: Toggle", function() SA.SetAllKeybindModes("toggle") end)
 addButton(kbSec, "Set All: Hold", function() SA.SetAllKeybindModes("hold") end)
 kbSec:label({ name = "Rebind accepts ANY key or mouse button · Escape = None" })

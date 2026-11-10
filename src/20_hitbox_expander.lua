@@ -23,7 +23,7 @@
 --     list view avoids a fresh filtered copy every render frame. NPCs with
 --     no UpperTorso / LowerTorso / Torso fall back to HumanoidRootPart.
 --   * maxDist <= 0 means unlimited. visible uses the client-only
---     LocalTransparencyModifier, so nobody else sees the debug tint.
+--     LocalTransparencyModifier, so nobody else sees the tint.
 -- ────────────────────────────────────────────────────────────────────
 
 local hbTargets = {
@@ -474,17 +474,6 @@ function SA.HitboxState()
     }
 end
 
-function SA.PrintHitbox()
-    local s = SA.HitboxState()
-    print(string.format(
-        "[hitbox] enabled=%s target=%s mode=%s scale=%s cap=%s maxDist=%s team=%s alive=%s visible=%s npcs=%s | parts=%d npcParts=%d npcModels=%d acc=%d sizeHooks=%d charHooks=%d scans=%d",
-        tostring(s.enabled), tostring(s.target), tostring(s.mode),
-        tostring(s.scale), tostring(s.cap), tostring(s.maxDist),
-        tostring(s.teamCheck), tostring(s.aliveOnly), tostring(s.visible),
-        tostring(s.npcs),
-        s.parts, s.npcParts, s.npcModels, s.accessories,
-        s.sizeHooks, s.charHooks, s.scans))
-end
 
 local function hbTick()
     hbSync()

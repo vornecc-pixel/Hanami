@@ -287,22 +287,6 @@ function SA.GhettoGunTick(force)
     return true
 end
 
-function SA.PrintGhettoGun()
-    local st = SA.GhettoGunState()
-    print("========== GHETTO GUN DESYNC ==========")
-    print("  enabled:", tostring(st.enabled), "| gate:", tostring(st.gate),
-        "| active:", tostring(st.active), "| reason:", tostring(st.reason))
-    print("  method:", tostring(st.method), "| scope:", tostring(st.scope))
-    print(string.format("  parts: %d (tool %d / viewmodel %d / arms %d) | tracked: %d",
-        tonumber(st.parts) or 0, tonumber(st.toolParts) or 0,
-        tonumber(st.viewmodelParts) or 0, tonumber(st.armParts) or 0,
-        tonumber(st.tracked) or 0))
-    print(string.format("  scans: %d | writes: %d | restores: %d | refresh: %d frames",
-        tonumber(st.scans) or 0, tonumber(st.writes) or 0,
-        tonumber(st.restores) or 0, tonumber(st.intervalFrames) or 0))
-    print("  bullets:", tostring(st.bullets), "(no remote / argument rewrite)")
-    print("=======================================")
-end
 
 -- Wrap instead of editing 09_silent_aim.lua's state table. Tagging the
 -- wrapper lets a loader re-execute detect the fresh base function written

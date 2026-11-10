@@ -21,7 +21,7 @@ local library, themes = loadstring(game:HttpGet(
 --   * keeps every real key + mouse button bindable (no whitelist).
 -- It must be installed BEFORE library:window(), so the template's own
 -- "UI Bind" and every feature keybind below get the same behaviour.
--- Registry for EVERY wrapped keybind: used by the Keybinds console,
+-- Registry for EVERY wrapped keybind: used by the Keybinds panel,
 -- conflict detector, config profiles and full unload. Initialised before
 -- library:window() because the built-in menu bind is created there.
 SA.AllKeybinds = SA.AllKeybinds or {}
@@ -181,16 +181,6 @@ function SA.FeatureKeybind(obj, name, flag, key, cfgKey)
     SA.FeatureBinds[flag] = bind
     return bind
 end
-function SA.FeatureBindDiag()
-    print("════════════ FEATURE KEYBINDS ════════════")
-    for flag, cfg in pairs(SA.FeatureBinds) do
-        local kn = cfg.key_name or tostring(cfg.key)
-        print(string.format("  %-26s key=%-14s mode=%-6s active=%s",
-            flag, tostring(kn), tostring(cfg.mode), tostring(cfg.active)))
-    end
-    print("  right-click a key widget / list row = None + remove from list")
-    print("══════════════════════════════════════")
-end
 function SA.FeatureBindClear(flag)
     local cfg = SA.FeatureBinds[flag]
     if cfg and cfg.__saClear then cfg.__saClear() end
@@ -307,7 +297,6 @@ local fovPresetDropdown = masterSec:dropdown({
         setFlag("gunCooldown", mode == "Legit" and 0.08 or 0)
         setFlag("prediction", true)
         CFG.fovPreset = mode
-        print("[fov] preset", mode, "->", radii[mode], "px")
     end,
 })
 
@@ -326,7 +315,6 @@ bindToggle(gunSec, "Tap-Fire Reorder (Fix A/B)", "saTapReorder",
 bindSlider(gunSec, "Tap Window (s)", "saTapWindow", 0.1, 1, 0.05, "s")
 bindToggle(gunSec, "Ghetto Gun Desync", "ghettoGunDesync",
     "Default OFF: hide + anchor the equipped Tool, camera viewmodel and local arms while Gun Silent Aim is ON. Bullets still use the camera-snap resolver; originals restore on OFF / bow / unload")
-addButton(gunSec, "Print Ghetto Gun Desync", function() SA.PrintGhettoGun() end)
 gunSec:label({ name = "Ghetto desync is cosmetic: no remote hook or shot rewrite" })
 gunSec:label({ name = "Silent aim + manipulation: GUNS ONLY (bows skipped)" })
 
@@ -351,7 +339,6 @@ bindToggle(triggerSec, "Manipulation Support", "triggerUseManip",
 triggerSec:label({ name = "Random wins over Head Only; Hit Part is used when both are OFF" })
 triggerSec:label({ name = "Works with Silent Aim master / gun toggles OFF (guns only)" })
 triggerSec:label({ name = "Backend: Tool:Activate, then mouse1click / mouse1press fallback" })
-addButton(triggerSec, "Print Fire Assist", function() SA.PrintFireAssist() end)
 
 -- ── AIMING : column 2 (Target / Ballistics / Wall Penetration) ──────
 local aimCol2 = Aiming:column()
@@ -369,20 +356,13 @@ bindDropdown(targetSec, "Target Priority", "targetPriority", {
     "Crosshair", "Nearest", "Lowest HP", "Pinned",
 })
 addButton(targetSec, "Pin Nearest Player", function()
-    local name, err = SA.PinNearestTarget()
-    if name then
-        setFlag("targetPriority", "Pinned")
-        print("[aim] locked aim to", name)
-    else print("[aim] pin failed:", tostring(err)) end
+    local name = SA.PinNearestTarget()
+    if name then setFlag("targetPriority", "Pinned") end
 end)
 addButton(targetSec, "Clear Pinned Target", function()
     SA.ClearPinnedTarget()
     setFlag("targetPriority", "Crosshair")
 end)
-addButton(targetSec, "Print Why No Target", function()
-    print("[aim]", SA.NoTargetReason())
-end)
-addButton(targetSec, "Print Force Head State", function() SA.PrintForceHeadState() end)
 hitChanceSlider = bindSlider(targetSec, "Hit Chance (%)", "hitChance", 0, 100, 1, "%")
 bindSlider(targetSec, "Max Distance (studs)", "distance", 0, 500, 1, "")
 cooldownSlider = bindSlider(targetSec, "Cooldown (s)", "gunCooldown", 0, 1, 0.01, "s")
@@ -412,12 +392,6 @@ bindToggle(ballSec, "Muzzle Boost Equipped", "muzzleBoost",
     "Manual fallback for muzzle_boost (+15% rate / -10% damage). Auto Attachment Tuning normally detects it for you")
 ballSec:label({ name = "Speeds are the gun's `speed` field (GUNS overrides applied)" })
 ballSec:label({ name = "Damage = Defs[ammo].damage x damageMult (the damage field is 0)" })
-addButton(ballSec, "Print Gun Spec", function() SA.PrintGunSpec() end)
-addButton(ballSec, "Print Live Ping", function()
-    print(string.format("[sa] ping %.0f ms | auto %s | scale %.1f | offset %.0f ms | total %.0f ms",
-        SA.GetPing(), CFG.predictionAutoPing and "ON" or "OFF",
-        CFG.predictionPingScale or 1, CFG.predictionLatency or 0, SA.LeadLatencyMs()))
-end)
 
 -- CLASSIC manip sliders are back. Every bound is a real, functional
 -- range: 0-300 studs, base peek 4-6 only, and the four remaining sliders
@@ -439,7 +413,6 @@ manipSec:label({ name = "Recommended: 75 / 4 / 3 / 64 / 5 / 6" })
 manipSec:label({ name = "Range | Peek | Parts | Budget | Hyst | Delta" })
 manipSec:label({ name = "Range 0-300 studs · Base peek 4-6 only" })
 manipSec:label({ name = "Tighter FOV (~150px) = fewer peeks per frame" })
-addButton(manipSec, "Print NPC Manipulation", function() SA.PrintManipNpcState() end)
 addButton(manipSec, "Apply Recommended Wall Pen", function()
     setFlag("manipulation", true)
     setFlag("wallCheck", false)
@@ -452,7 +425,6 @@ addButton(manipSec, "Apply Recommended Wall Pen", function()
     setFlag("fov", 150)
     setFlag("hitChance", 100)
     setFlag("gunCooldown", 0)
-    print("[sa] recommended wall pen applied")
 end)
 
 -- ── AIMING : column 3 (Attachment auto tune) ───────────────────────
@@ -463,7 +435,7 @@ end)
 -- games that store attachments somewhere the detector can't see.
 local aimCol3 = Aiming:column()
 local attSec, attOvrSec = aimCol3:multi_section({
-    names = { "Attachments (Auto)", "Overrides & Diagnostics" },
+    names = { "Attachments (Auto)", "Overrides" },
 })
 attSec:label({ name = "Auto-detects 12 attachments from the equipped tool" })
 bindToggle(attSec, "Auto Attachment Tuning", "attachmentAutoTune",
@@ -488,16 +460,11 @@ bindDropdown(attOvrSec, "Under Override", "attOverrideUnder", {
 bindDropdown(attOvrSec, "Mag Override", "attOverrideMag", {
     "Auto", "None", "mag_extender",
 })
-addButton(attOvrSec, "Print Attachments", function() SA.PrintAttachments() end)
 addButton(attOvrSec, "Rescan Attachments", function()
-    local s = SA.RescanAttachments()
-    print(string.format("[att] %s | %d detected | speed %.0f -> %.0f",
-        tostring(s.gunId), s.count, s.baseSpeed, s.speed))
+    SA.RescanAttachments()
 end)
-addButton(attOvrSec, "Print Gun Table", function() SA.PrintGunTable() end)
 addButton(attOvrSec, "Sync Gun Defs (GC)", function()
-    local n = SA.SyncGunDefs()
-    print("[att] live gun fields merged:", n)
+    SA.SyncGunDefs()
 end)
 -- ── AIMING : column 4 (Hitbox Expander v2) ─────────────────────────
 local hitCol = Aiming:column()
@@ -521,12 +488,9 @@ bindToggle(hitSec, "Expand NPC Hitboxes", "hitboxNpcs",
     "ON by default: expand live NPC registry models; Team Check applies to players only")
 hitSec:label({ name = "fixed = uniform cube; multiply = original x Scale, capped" })
 hitSec:label({ name = "R6 Torso + R15 UpperTorso / LowerTorso; NPC HRP fallback" })
-addButton(hitSec, "Print Hitbox State", function() SA.PrintHitbox() end)
 addButton(hitSec, "Rescan Characters", function()
-    local n = SA.HitboxScan()
-    print("[hitbox] scanned:", n, "new parts expanded")
+    SA.HitboxScan()
 end)
 addButton(hitSec, "Restore Hitboxes", function()
     SA.HitboxRestore()
-    print("[hitbox] all sizes / collision / accessory flags restored")
 end)

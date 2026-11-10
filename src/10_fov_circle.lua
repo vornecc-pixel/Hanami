@@ -25,7 +25,7 @@
 --
 -- Fixes: tolerant per-property writes, Visible always written last, a
 -- runtime downgrade to the ScreenGui backend, a lazy retry until a GUI
--- parent is available, and SA.FovState() for diagnostics.
+-- parent is available, and SA.FovState() for state checks.
 -- ────────────────────────────────────────────────────────────────────
 
 local fovCircle   = nil

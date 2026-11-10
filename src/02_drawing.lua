@@ -159,15 +159,6 @@ function SA.ApplyInstProp(cache, inst, prop, value)
     return applyDrawProp(byInst, inst, prop, value)
 end
 
-function SA.PrintDrawSyncStats()
-    local s = SA.DrawSyncStats()
-    print("[draw sync] writes", s.writes, "| flushes", s.flushes,
-        "| batches", s.batches, "| pending", s.pending,
-        "| saved", s.saved)
-    print("[draw sync] instance writes", s.instanceWrites,
-        "| skipped unchanged", s.instanceSkips,
-        "| saved", s.instanceSaved)
-end
 
 local function flushDrawProxy(d)
     if type(d) ~= "table" then return false end
@@ -384,7 +375,7 @@ local function fallbackDraw(kind)
                 end
             end
             if k == "__saFlush" then return flush end
-            if k == "__saDebugLabel" then return frame end
+            if k == "__saTextLabel" then return frame end
             if k == "Backend" then return "ScreenGui" end
             return st[k]
         end,
@@ -521,7 +512,7 @@ local function textDraw()
                 end
             end
             if k == "__saFlush" then return flush end
-            if k == "__saDebugLabel" then return lbl end
+            if k == "__saTextLabel" then return lbl end
             if k == "Backend" then return "ScreenGui" end
             return st[k]
         end,

@@ -38,10 +38,11 @@ local function count(t)
     return n
 end
 
--- Keep the harness output readable: source diagnostics print hundreds of
--- lines, while real mock errors are always prefixed "[mock]" / "[warn]".
+-- Keep the harness output readable: real mock errors are always prefixed
+-- "[mock]" / "[warn]". The shipped source emits no output of its own, so
+-- quiet() is only a guard around the mock's own diagnostics.
 local function quiet(fn)
-    local old_print = print
+    local saved = { print = print, warn = warn }
     print = function(...)
         if select("#", ...) > 0 then
             local first = tostring(select(1, ...))
@@ -50,8 +51,16 @@ local function quiet(fn)
             end
         end
     end
+    warn = function(...)
+        if select("#", ...) > 0 then
+            local first = tostring(select(1, ...))
+            if first:find("[mock]", 1, true) or first:find("[warn]", 1, true) then
+                saved.warn(...)
+            end
+        end
+    end
     local good, err = pcall(fn)
-    print = old_print
+    print, warn = saved.print, saved.warn
     if not good then error(err, 0) end
 end
 
@@ -132,14 +141,14 @@ eq(mock_library_source, "return library, themes", "mock Atlanta source")
 
 local newKeys = {
     "configProfile", "configName", "autoLoadConfig", "keybindMode",
-    "keybindConflictWarn", "keybindSelected", "nearestTopN",
+    "keybindSelected", "nearestTopN",
     "nearestShowHealth", "nearestShowState", "nearestShowTeam",
     "nearestCorner", "nearestScale", "nearestTransparency",
     "showNoTargetReason", "espOnlyNearest", "espNearestCount",
     "espOnlyAimTarget", "espTeamMode", "espShowLiveCount", "targetPriority",
     "fovPreset", "targetBoneMode", "espPreviewSource", "espPreviewCompare",
     "perfMode", "perfEspRebuildMs", "perfMaxEntities", "perfShowFps",
-    "gunDiffOnScan", "gunOverrideString",
+    "gunOverrideString",
     "hitboxEnabled", "hitboxTarget", "hitboxMode", "hitboxScale",
     "hitboxCap", "hitboxMaxDist", "hitboxTeamCheck", "hitboxAliveOnly",
     "hitboxVisible", "hitboxNpcs", "fireWallCheck", "espDataRefreshMs",
@@ -230,9 +239,9 @@ eq(espBind.__saListLbl.Visible, false, "cleared bind removed from list")
 quiet(function() espBind.set(espKey) end)
 CFG.keybindSelected = "hn_menu_bind"
 quiet(function()
-    ok(SA.PrintAllKeybinds() >= 7, "print all keybinds")
-    SA.PrintKeybindConflicts()
-    SA.FeatureBindDiag()
+    ok(count(SA.AllKeybinds) >= 7, "keybind registry size")
+    ok(type(SA.KeybindConflicts()) == "table", "keybind conflicts state")
+    ok(count(SA.FeatureBinds) >= 7, "feature keybind registry size")
 end)
 
 -- ── native config profiles ──────────────────────────────────────────
@@ -294,36 +303,21 @@ for _, name in ipairs(SA.ListProfiles()) do
     if name == safeName then profileFound = true end
 end
 ok(profileFound == false, "deleted profile gone from list")
-quiet(function() SA.PrintProfiles() end)
+ok(type(SA.ListProfiles()) == "table", "profile list state")
 
--- ── self-check / panel ──────────────────────────────────────────────
+-- ── self-check state API ───────────────────────────────────────────
 local report = SA.SelfCheck()
 ok(type(report.checks) == "table", "self-check table")
 ok(#report.checks >= 30, "self-check breadth")
 eq(report.failed, 0, "self-check failures")
 ok(report.passed >= 25, "self-check passes")
 ok(type(SA.SelfCheckState()) == "table", "self-check state")
-quiet(function()
-    SA.PrintSelfCheck()
-    SA.PrintProfiles()
-    if SA.PrintDrawWriteFailures then SA.PrintDrawWriteFailures() end
-end)
-local shown = SA.ShowSelfCheck(true)
-eq(shown.failed, 0, "panel report failures")
-local selfGui = gethui():FindFirstChild("HanamiSelfCheck")
-ok(selfGui ~= nil, "self-check ScreenGui")
-local selfLabel = selfGui and selfGui:FindFirstChild("Report")
-if not selfLabel then
-    for _, child in ipairs(selfGui:GetDescendants()) do
-        if child.Name == "Report" then selfLabel = child end
-    end
-end
-ok(selfLabel ~= nil, "self-check report label")
-contains(selfLabel.Text, "HANAMI SELF-CHECK", "panel text")
-SA.HideSelfCheck()
-eq(selfGui.Enabled, false, "self-check hidden")
-SA.DisposeSelfCheckPanel()
-eq(gethui():FindFirstChild("HanamiSelfCheck"), nil, "self-check disposed")
+ok(type(SA.DrawWriteFailures()) == "table", "draw write failures state")
+eq(SA.SelfCheckState().failed, 0, "cached self-check report has no failures")
+eq(type(SA.ShowSelfCheck), "nil", "no self-check panel API")
+eq(type(SA.HideSelfCheck), "nil", "no self-check hide API")
+eq(type(SA.DisposeSelfCheckPanel), "nil", "no self-check panel dispose API")
+eq(gethui():FindFirstChild("HanamiSelfCheck"), nil, "no self-check panel GUI")
 
 -- ── aim / FOV / target UX ───────────────────────────────────────────
 local aim = SA.AimPoint()
@@ -416,8 +410,7 @@ local npcManipState = SA.ManipNpcState()
 eq(npcManipState.enabled, true, "NPC manipulation default ON")
 eq(npcManipState.targeting, true, "NPC targeting default ON")
 ok(npcManipState.count >= 1, "NPC manipulation sees registry count")
-eq(type(SA.PrintManipNpcState), "function", "NPC manipulation print API")
-quiet(function() SA.PrintManipNpcState() end)
+eq(type(SA.ManipNpcState), "function", "NPC manipulation state API")
 
 local savedMouseLocation = UserInputService.GetMouseLocation
 local savedTargetPriority = CFG.targetPriority
@@ -570,7 +563,6 @@ ok(crateOut.outside >= 1, "crate outside FOV counted")
 ok(crateOut.dots >= 1, "outside-FOV crate dot drawn")
 eq(crateOut.inside, 0, "no in-FOV crate labels at radius 1")
 eq(crateOut.highlights, 0, "no outline highlight outside FOV")
-quiet(function() SA.PrintCrateFovState() end)
 
 CFG.fov = 500
 frameTimes(6)
@@ -590,7 +582,6 @@ contains(warning.text, "WARNING", "warning popup label")
 contains(warning.text, "100m", "warning popup threshold label")
 ok(warning.meters ~= nil and warning.meters <= 100,
     "warning nearest distance within 100m")
-quiet(function() SA.PrintPlayerWarning() end)
 quiet(function() SA.PlayerWarningSet(false) end)
 eq(SA.PlayerWarningState().visible, false, "warning hidden when disabled")
 quiet(function() SA.PlayerWarningSet(true) end)
@@ -603,7 +594,6 @@ CFG.targetBoneMode = "Hrp for shotguns"
 eq(SA.ResolveTargetBone(), "Head", "Force Head overrides per-weapon Hrp")
 eq(SA.ForceHeadState().resolved, "Head", "Force Head state resolves Head")
 eq(SA.SilentAimState().forceHead, true, "silent aim reports Force Head")
-quiet(function() SA.PrintForceHeadState() end)
 CFG.forceHead = false
 CFG.targetBoneMode = "Global"
 CFG.targetBone = "Hrp"
@@ -685,7 +675,6 @@ eq(SA.SilentAimState().ghettoGun, true, "silent aim reports ghetto toggle")
 eq(SA.SilentAimState().ghettoActive, true, "silent aim reports ghetto active")
 eq(SA.SilentAimState().lock, true, "camera-snap lock stays ON with ghetto")
 ok(SA.ResolveShot() ~= nil, "shot resolver still returns a target with ghetto ON")
-quiet(function() SA.PrintGhettoGun() end)
 
 -- The normal render tick refreshes on a 12-frame interval, not every frame.
 local scansBefore = SA.GhettoGunState().scans
@@ -823,7 +812,6 @@ local okNoAimProbe, noAimReason = SA.ManipPossible(otherModel, true)
 eq(okNoAimProbe, true, "manip probe allowNoAim with silent aim OFF: " .. tostring(noAimReason))
 eq(SA.FireAssistTick(true), true, "manip support fires with silent aim OFF")
 contains(SA.FireAssistState().reason, "fired", "manip support fired")
-quiet(function() SA.PrintFireAssist() end)
 
 -- Wall check always wins: Manipulation Support can no longer bypass it.
 CFG.triggerbot = true
@@ -1085,7 +1073,7 @@ do
     part(otherChar, "Head").Size = Vector3.new(1, 1, 1)
     eq(part(otherChar, "Head").Size.X, 8, "Size revert instantly re-expanded")
 
-    -- Client-only debug tint.
+    -- Client-only tint.
     CFG.hitboxVisible = true
     SA.HitboxScan()
     eq(part(otherChar, "Head").LocalTransparencyModifier, 0.55,
@@ -1191,7 +1179,6 @@ do
     eq(SA.HitboxState().charHooks, 0, "no character hooks after restore")
     part(otherChar, "Head").Size = Vector3.new(3, 3, 3)
     eq(part(otherChar, "Head").Size.X, 3, "Size hook disconnected after restore")
-    quiet(function() SA.PrintHitbox() end)
     eq(SA.HitboxScan(), 0, "OFF scan returns zero")
 
     -- ── live NPC models: players stay in scope, NPC rigs join the scan ──
@@ -1343,7 +1330,6 @@ do
     part(npcChar, "Head").Size = Vector3.new(4, 4, 4)
     eq(part(npcChar, "Head").Size.X, 4,
         "NPC Size hook disconnected after master OFF")
-    quiet(function() SA.PrintHitbox() end)
 
     mock_hitbox_reset()
     resetCfg()
@@ -1518,7 +1504,6 @@ eq(pv.lastSource, "Nearest Player", "source state")
 eq(pv.ui2.holder.Visible, true, "second overlay visible")
 contains(pv.reason, "nearest player", "real-model source reason")
 quiet(function()
-    SA.EspPreviewDiag()
     mock_frame(0.016)
 end)
 eq(pv.styleErr, nil, "preview styling has no error")
@@ -1544,10 +1529,7 @@ local diff = SA.GunDiff()
 contains(table.concat(diff.changed, "\n"), "assault_rifle.speed", "gun diff")
 local synced
 quiet(function()
-    SA.PrintGunDiff()
-    SA.PrintGunOverrides()
     synced = SA.SyncGunDefs()
-    SA.PrintGunTable()
 end)
 ok(type(synced) == "number" and synced > 0, "GC sync changed fields")
 ok(SA.GUN_SPECS.proto_railgun ~= nil, "new-gun stub registered")
@@ -1576,7 +1558,6 @@ eq(budget1.overBudget, true, "30 FPS frame is over ESP budget")
 ok(budget1.adaptiveDataIntervalMs > budget1.dataIntervalMs,
     "over-budget frame stretches ESP data refresh")
 ok(budget1.buildIntervalMs > 0, "over-budget frame paces new ESP builds")
-quiet(function() SA.PrintEspFrameBudget() end)
 SA.EspFrameBudgetReset()
 eq(SA.EspFrameBudget().overBudget, false, "frame budget reset returns to 60 FPS")
 
@@ -1586,8 +1567,8 @@ eq(SA.EspFrameBudget().overBudget, false, "frame budget reset returns to 60 FPS"
 SA.DrawSyncFlush()
 local sync0 = SA.DrawSyncStats()
 local batchDraw = SA.NewDraw("Text")
-local batchLabel = batchDraw.__saDebugLabel
-ok(batchLabel ~= nil, "screen-space text proxy exposes debug label")
+local batchLabel = batchDraw.__saTextLabel
+ok(batchLabel ~= nil, "screen-space text proxy exposes text label")
 eq(batchLabel.Text, "", "GUI text starts empty")
 batchDraw.Text = "batch-test"
 batchDraw.Position = Vector2.new(22, 33)
@@ -1608,7 +1589,6 @@ ok(sync2.writes - sync0.writes > sync2.flushes - sync0.flushes,
 ok(type(sync2.instanceWrites) == "number", "per-property instance writes tracked")
 ok(type(sync2.instanceSkips) == "number", "per-property instance skips tracked")
 batchDraw.Remove()
-quiet(function() SA.PrintDrawSyncStats() end)
 
 -- ESP ON must style geometry every frame, but name / weapon / state /
 -- BillboardGui data only at the 6-frame interval. The FX pass re-shows
@@ -1660,37 +1640,23 @@ ok(inst1.instanceSkips - inst0.instanceSkips > 0,
 eq(inst1.writes - inst0.writes, 0,
     "unchanged ESP frame writes zero draw properties")
 
-quiet(function() SA.PrintEspPerfState() end)
 quiet(function() SA.ResetToDefaults() end)
 
 -- ── UI buttons (every callback is pcall-wrapped by the mock) ─────────
 local buttonNames = {
-    "Print Feature Keybinds", "Print Profiles", "Run Config Round-Trip Test",
-    "Run Self-Check", "Show Self-Check Panel", "Hide Self-Check Panel",
-    "Print Config Coverage", "Print Draw Write Failures",
-    "Print Performance State", "Print ESP FPS State", "Print ESP Frame Budget",
-    "Print Live ESP Counts", "Print Live Gun Diff",
-    "Print All Keybinds", "Print Conflicts", "Set All: Hold",
-    "Set All: Toggle", "Print Override Help", "Sync Gun Defs + Diff",
-    "Print Full Gun Table", "Print Nearest HUD", "Print Draw Pool",
-    "Refresh Nearest HUD", "Print FOV State", "Print Gun Table",
-    "Refresh Player Warning", "Print Player Warning",
-    "Print Bow Mods State", "Print Hitbox State", "Rescan Characters",
-    "Restore Hitboxes", "Print Attachments", "Print Manip State (classic)",
-    "Print Silent Aim (v7.7)", "Print Current Target", "Print Prediction",
-    "Print Ghetto Gun Desync",
-    "Print ESP Features", "Apply Clean ESP", "Apply Best ESP",
-    "Print Why No Target", "Print Draw Backend",
-    "Print Live Ping", "Print Player ESP State", "Rebuild Player ESP",
-    "Rebuild ESP Preview", "Show ESP Preview Panel", "Print Gun Spec",
-    "Print Crate Names (debug)", "Print Crate States (debug)",
-    "Apply Recommended Wall Pen", "Apply Blatant", "Disable All",
-    "Pin Nearest Player", "Clear Pinned Target", "Lock Nearest as Aim Target",
+    "Apply Best ESP", "Apply Blatant", "Apply Clean ESP",
+    "Apply Overrides Now", "Apply Recommended Wall Pen", "Cancel Rebind",
+    "Clear Pinned Target", "Clear Selected", "Delete Profile", "Disable All",
     "Export Config to Clipboard", "Import Config from Clipboard",
-    "Save Profile", "Load Profile", "Delete Profile", "Reset ESP Colours",
-    "Restore Bow Timings", "Scan All Entities", "Toggle Manip",
-    "Apply Overrides Now", "Rebind Selected", "Cancel Rebind",
-    "Reset to Defaults",
+    "Load Profile", "Lock Nearest as Aim Target", "Pin Nearest Player",
+    "Rebind Selected", "Rebuild Character", "Rebuild ESP Preview",
+    "Rebuild Player ESP", "Refresh Manip Popup", "Refresh Nearest HUD",
+    "Refresh Player Warning", "Rescan Attachments", "Rescan Characters",
+    "Rescan Crates", "Rescan NPCs", "Reset ESP Colours", "Reset to Defaults",
+    "Restore Bow Timings", "Restore Hitboxes", "Retry Tap Hooks",
+    "Save Profile", "Set All: Hold", "Set All: Toggle",
+    "Show ESP Preview Panel", "Sync Gun Defs (GC)", "Sync Gun Defs + Diff",
+    "Toggle Manip",
 }
 for _, name in ipairs(buttonNames) do
     local fn = library.buttons[name]
@@ -1700,13 +1666,87 @@ end
 SA.CancelRebind()
 SA.ClearPinnedTarget()
 quiet(function()
-    SA.DisposeSelfCheckPanel()
     SA.SetAllKeybindModes("toggle")
     SA.ResetToDefaults()
     window.set_menu_visibility(true)
 end)
 eq(#SA.KeybindConflicts(), 0, "no conflicts after button sweep")
 eq(CFG.keybindMode, "toggle", "modes restored after button sweep")
+
+-- ── features-only regression: no print/debug UI, no console output ────
+eq(CFG.debug, nil, "debug config key removed")
+eq(CFG.gunDiffOnScan, nil, "print-on-sync config key removed")
+eq(library.config_flags["hn_debug"], nil, "no Debug Log toggle")
+eq(library.config_flags["hn_gunDiffOnScan"], nil, "no print-on-sync toggle")
+local removedOutputAPIs = {
+    "PrintDrawSyncStats", "PrintForceHeadState", "PrintScan",
+    "PrintManipNpcState", "PrintAttachments", "PrintPrediction",
+    "PrintGunSpec", "PrintGunDiff", "PrintGunOverrides", "PrintGunTable",
+    "PrintFireAssist", "PrintGhettoGun", "PlayerEspDiag", "PrintCrateStates",
+    "PrintCrateCandidates", "PrintCrateFovState", "PrintEspFrameBudget",
+    "PrintEspPerfState", "PrintHitbox", "FeatureBindDiag", "EspPreviewDiag",
+    "EspFeatureDiag", "NearestWindowDiag", "PrintManipPopup",
+    "PrintPlayerWarning", "PrintKeybindConflicts", "PrintAllKeybinds",
+    "PrintProfiles", "PrintSelfCheck", "ShowSelfCheck", "HideSelfCheck",
+    "DisposeSelfCheckPanel",
+}
+for _, name in ipairs(removedOutputAPIs) do
+    eq(SA[name], nil, "removed output API: " .. name)
+end
+local keptStateAPIs = {
+    "SelfCheck", "SelfCheckState", "GhettoGunState", "GhettoGunRefresh",
+    "GhettoGunRestore", "GhettoGunDispose", "EspPerfState", "EspFrameBudget",
+    "HitboxState", "HitboxScan", "HitboxRestore", "DrawSyncStats",
+    "DrawSyncPending", "DrawDiag", "DrawWriteFailures", "KeybindConflicts",
+    "ConfigCoverage", "SilentAimState", "FireAssistState", "ForceHeadState",
+    "ManipNpcState", "CrateFovState", "PlayerWarningState",
+    "ManipPopupState", "NearestWindowState", "EspPassStats", "DrawPoolStats",
+    "PerfState", "GunDiff", "ApplyGunOverrides", "SyncGunDefs",
+    "TestConfigRoundTrip", "EspPreviewRefresh",
+}
+for _, name in ipairs(keptStateAPIs) do
+    eq(type(SA[name]), "function", "kept state API: " .. name)
+end
+for label in pairs(library.buttons) do
+    ok(not label:find("Print", 1, true) and not label:find("Debug", 1, true)
+        and not label:find("Self-Check", 1, true)
+        and not label:find("Scan ", 1, true),
+        "no print/debug button: " .. label)
+end
+local featureOutput = 0
+local saved = { print = print, warn = warn }
+print = function(...)
+    local first = tostring(select(1, ...) or "")
+    if first:find("[mock]", 1, true) or first:find("[warn]", 1, true) then
+        real_print(...)
+    else
+        featureOutput = featureOutput + 1
+    end
+end
+warn = function(...)
+    local first = tostring(select(1, ...) or "")
+    if first:find("[mock]", 1, true) or first:find("[warn]", 1, true) then
+        saved.warn(...)
+    else
+        featureOutput = featureOutput + 1
+    end
+end
+local silentOk, silentErr = pcall(function()
+    SA.SelfCheck()
+    SA.GunDiff()
+    SA.ApplyGunOverrides("assault_rifle.speed=1555;typo_field=3")
+    SA.SyncGunDefs()
+    SA.SetAllKeybindModes("toggle")
+    SA.StartRebind("hn_bind_espEnabled")
+    SA.CancelRebind()
+    SA.ExportConfig()
+    SA.TestConfigRoundTrip()
+    SA.DrawDiag()
+    mock_frame(0.016)
+end)
+print, warn = saved.print, saved.warn
+ok(silentOk, "silent feature calls: " .. tostring(silentErr))
+eq(featureOutput, 0, "features emit no console output")
 
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then
@@ -1776,7 +1816,6 @@ else
     eq(window.opened, false, "menu hidden by unload")
     eq(gethui():FindFirstChild("HanamiNearestPlayer"), nil, "HUD destroyed")
     eq(gethui():FindFirstChild("HanamiPerfOverlay"), nil, "FPS overlay destroyed")
-    eq(gethui():FindFirstChild("HanamiSelfCheck"), nil, "self-check destroyed")
     eq(SA.ManipPopupState().built, false, "manip popup disposed by full unload")
 end
 

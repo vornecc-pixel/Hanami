@@ -1,6 +1,7 @@
 /* Hanami / tools/check.js — committed static checks for npm test.
  * Verifies Lua syntax, loader/parts synchronisation, the hoisted bundle,
- * README file rows / line counts, and the BETTER config-key coverage.
+ * README file rows / line counts, the BETTER config-key coverage and that
+ * the shipped source contains no console output or print/debug UI.
  */
 'use strict';
 
@@ -70,50 +71,74 @@ assert(loaderAst.body.length > 0, 'loader parsed to an empty chunk');
 const requiredDist = [
   'SA.FullUnload', 'SA.SaveProfile', 'SA.LoadProfile', 'SA.DeleteProfile',
   'SA.ExportConfig', 'SA.ImportConfig', 'SA.TestConfigRoundTrip',
-  'SA.ConfigCoverage', 'SA.SelfCheck', 'SA.ShowSelfCheck',
-  'SA.DisposeSelfCheckPanel', 'SA.SetAllKeybindModes', 'SA.KeybindConflicts',
+  'SA.ConfigCoverage', 'SA.SelfCheck', 'SA.SelfCheckState',
+  'SA.SetAllKeybindModes', 'SA.KeybindConflicts',
   'SA.StartRebind', 'SA.ClearSelectedKeybind', 'SA.DisposePerfOverlay',
-  'HanamiPerfOverlay', 'HanamiSelfCheck', 'SA.NearestWindowState',
+  'HanamiPerfOverlay', 'SA.NearestWindowState',
   'SA.EspPassAllowed', 'SA.EspPassStats', 'SA.PerfEffectiveRebuildMs',
   'SA.PerfEffectiveEntityCap', 'SA.DrawPoolStats', 'SA.DrawWriteFailures',
   'SA.GunDiff', 'SA.ApplyGunOverrides', 'SA.SyncGunDefs',
   'SA.PinNearestTarget', 'SA.NoTargetReason', 'SA.ResolveTargetBone',
-  'SA.IsNpcModel', 'SA.ManipNpcState', 'SA.PrintManipNpcState',
+  'SA.IsNpcModel', 'SA.ManipNpcState',
   'SA.TriggerBonePart', 'SA.TriggerTarget', 'SA.ForceHeadState',
-  'SA.PrintForceHeadState', 'SA.FireOnce', 'SA.FireAssistTick',
-  'SA.FireAssistState', 'SA.PrintFireAssist', 'SA.CrateFovState',
-  'SA.PrintCrateFovState', 'SA.PlayerWarningState', 'SA.PrintPlayerWarning',
+  'SA.FireOnce', 'SA.FireAssistTick',
+  'SA.FireAssistState', 'SA.CrateFovState',
+  'SA.PlayerWarningState',
   'SA.DisposePlayerWarning', 'SA.DisposeFireAssist',
-  'SA.HitboxScan', 'SA.HitboxRestore', 'SA.HitboxState', 'SA.PrintHitbox',
+  'SA.HitboxScan', 'SA.HitboxRestore', 'SA.HitboxState',
   'hitboxNpcs', 'npcParts', 'npcModels', 'fireWallCheck',
   'SA.DrawSyncFlush', 'SA.DrawSyncPending', 'SA.DrawSyncStats',
-  'SA.PrintDrawSyncStats', 'SA.EspDataIntervalFrames', 'SA.EspPerfState',
-  'SA.PrintEspPerfState', 'SA.NpcListRaw', 'SA.CrateListRaw',
+  'SA.EspDataIntervalFrames', 'SA.EspPerfState',
+  'SA.NpcListRaw', 'SA.CrateListRaw',
   'SA.DrawSyncReset', 'SA.ApplyInstProp', 'SA.EspFrameBudget',
-  'SA.EspFrameBudgetReset', 'SA.PrintEspFrameBudget', 'instanceWrites',
+  'SA.EspFrameBudgetReset', 'instanceWrites',
   'instanceSkips', 'frameBudget',
   'SA.GhettoGunState', 'SA.GhettoGunRefresh', 'SA.GhettoGunRestore',
-  'SA.GhettoGunDispose', 'SA.GhettoGunTick', 'SA.PrintGhettoGun',
-  'ghettoGunDesync', 'Print Ghetto Gun Desync', 'hide + anchor',
+  'SA.GhettoGunDispose', 'SA.GhettoGunTick',
+  'ghettoGunDesync', 'hide + anchor',
   'camera viewmodel', 'local arms',
   'pvFindSourceModel', 'pvCloneModel', 'pvBuildOverlays', 'pvApplyStyleTo',
+  'SA.DrawDiag', 'SA.DrawBackend', 'SA.EspPreviewRefresh',
 ];
 for (const needle of requiredDist) {
   assert(dist.includes(needle), `dist/Hanami.lua is missing ${needle}`);
+}
+
+// The shipped bundle must be features-only: no console output, no debug
+// config/toggles, no print-only APIs and no self-check panel. The npm /
+// Fengari harness in tools/ still prints its own results; that is separate.
+const forbiddenDist = [
+  'print(', 'warn(', 'dbg(', 'CFG.debug', 'gunDiffOnScan', 'HanamiSelfCheck',
+  'SA.Print', 'SA.PlayerEspDiag', 'SA.EspPreviewDiag', 'SA.EspFeatureDiag',
+  'SA.FeatureBindDiag', 'SA.NearestWindowDiag', 'SA.ShowSelfCheck',
+  'SA.HideSelfCheck', 'SA.DisposeSelfCheckPanel',
+  'Debug Log', 'name = "Debug"', 'Print Ghetto Gun Desync',
+  'Print ESP Frame Budget', 'SA.PrintEspFrameBudget()',
+];
+for (const needle of forbiddenDist) {
+  assert(!dist.includes(needle),
+    `dist/Hanami.lua still has print/debug surface: ${needle}`);
+}
+for (const name of files) {
+  const text = read(`src/${name}`);
+  assert(!/\bprint\s*\(/.test(text), `${name} still calls print()`);
+  assert(!/\bdbg\s*\(/.test(text), `${name} still calls dbg()`);
+  assert(!/\bwarn\s*\(/.test(text), `${name} still calls warn()`);
+  assert(!/\bCFG\.debug\b/.test(text), `${name} still uses CFG.debug`);
 }
 
 // New settings must exist in the shipped defaults, the backfill table,
 // the clamp/normalisation pass, and at least one bound UI widget.
 const newKeys = [
   'configProfile', 'configName', 'autoLoadConfig', 'keybindMode',
-  'keybindConflictWarn', 'keybindSelected', 'nearestTopN',
+  'keybindSelected', 'nearestTopN',
   'nearestShowHealth', 'nearestShowState', 'nearestShowTeam',
   'nearestCorner', 'nearestScale', 'nearestTransparency',
   'showNoTargetReason', 'espOnlyNearest', 'espNearestCount',
   'espOnlyAimTarget', 'espTeamMode', 'espShowLiveCount', 'targetPriority',
   'fovPreset', 'targetBoneMode', 'espPreviewSource', 'espPreviewCompare',
   'perfMode', 'perfEspRebuildMs', 'perfMaxEntities', 'perfShowFps',
-  'gunDiffOnScan', 'gunOverrideString', 'showManipPopup', 'espCleanMode',
+  'gunOverrideString', 'showManipPopup', 'espCleanMode',
   'manipNpcs', 'crateFovAware', 'showPlayerWarning', 'forceHead',
   'triggerbot', 'autoFire', 'triggerHeadOnly', 'triggerRandomPart',
   'triggerPart', 'triggerUseManip',
@@ -122,7 +147,7 @@ const newKeys = [
   'hitboxVisible', 'hitboxNpcs', 'fireWallCheck', 'espDataRefreshMs',
   'ghettoGunDesync',
 ];
-assert(newKeys.length === 55, `expected 55 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 53, `expected 53 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -229,10 +254,9 @@ for (const [name, needles] of Object.entries(requiredDescriptions)) {
 const requiredDocs = [
   '## BETTER quality-of-life pass',
   'Native Atlanta config profiles',
-  'In-game self-check panel',
   'Real full unload',
   'Top-N nearest-player HUD',
-  'All-keybind console',
+  'All-keybind manager',
   'ESP decluttering',
   'real-model',
   'side-by-side',
@@ -268,9 +292,12 @@ const requiredDocs = [
   '### Hitbox Expander v2',
   'Enable Hitbox Expander',
   'SA.HitboxState()',
+  'SA.SelfCheck()',
+  'SA.SelfCheckState()',
+  '## Features only (no console output)',
+  'no console output',
   'SA.HitboxRestore()',
   'SA.HitboxScan()',
-  'SA.PrintHitbox()',
   'R6/R15',
   'self-healing',
   'getgenv().hitbox',
@@ -278,8 +305,8 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '2,994 assertions',
-  'all 55 new CFG keys',
+  '3,214 assertions',
+  'all 53 new CFG keys',
   '37-part list',
   '### Ghetto gun desync',
   'Ghetto Gun Desync',
@@ -287,16 +314,12 @@ const requiredDocs = [
   'SA.GhettoGunRefresh()',
   'SA.GhettoGunRestore()',
   'SA.GhettoGunDispose()',
-  'SA.PrintGhettoGun()',
   'ghettoGunDesync',
-  'Print Ghetto Gun Desync',
   'hide + anchor',
   'local arms',
   'camera-snap resolver',
   'ESP 60 FPS frame-budget pass',
-  'Print ESP Frame Budget',
   'SA.EspFrameBudget()',
-  'SA.PrintEspFrameBudget()',
   'per-property instance writes',
   'usage marks',
   'frame budget',

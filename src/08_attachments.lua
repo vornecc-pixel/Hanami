@@ -163,7 +163,7 @@ local function attCollect(found, s, source, lookup)
     end
 end
 
--- Fit check is INFORMATIONAL (a warning in Print Attachments), not a hard
+-- Fit check is INFORMATIONAL, not a hard
 -- gate: the game may allow a combination the pasted AttFit omits, and the
 -- new duel_rifle is not in any list. duel_rifle is a semi_auto_rifle clone.
 function SA.AttachmentFits(attId, gunId)
@@ -353,7 +353,7 @@ function SA.ApplyAttachments(gun, tool)
     end
 
     gun.ads = SA.IsAds()
-    -- Diagnostic-only spread estimate: the game's spread units are not
+    -- State-only spread estimate: the game's spread units are not
     -- documented, so this NEVER changes the computed aim point.
     local moveFactor = 0
     pcall(function()
@@ -364,7 +364,7 @@ function SA.ApplyAttachments(gun, tool)
         + (gun.moveSpread or 0) * moveFactor
 end
 
--- ── DIAGNOSTICS ─────────────────────────────────────────────────────
+-- ── STATE ACCESSORS ────────────────────────────────────────────────
 function SA.AttachmentState()
     local g = SA.GetEquippedGun()
     local ids = {}
@@ -385,28 +385,6 @@ function SA.RescanAttachments()
     return SA.AttachmentState()
 end
 
-function SA.PrintAttachments()
-    local s = SA.RescanAttachments()
-    print("════════════ ATTACHMENTS ════════════")
-    print(string.format("  gun    : %s | auto tune %s | detected %d",
-        tostring(s.gunId), s.auto and "ON" or "OFF", s.count))
-    if s.count == 0 then
-        print("  none   : check the tool's attributes/children, or set a slot override")
-    end
-    for _, e in ipairs(s.list) do
-        print(string.format("  %-16s slot %-7s tag %-8s fit %-3s from %s",
-            e.id, e.slot, e.tag, e.fits and "yes" or "NO", tostring(e.source)))
-    end
-    print(string.format("  speed  : %.0f -> %.0f studs/s (x%.3f)%s",
-        s.baseSpeed or 0, s.speed or 0, s.speedMult or 1,
-        CFG.gunBulletSpeed > 0 and "  [manual override wins]" or ""))
-    print(string.format("  aimtime: +%.0f ms | ADS %s | effSpread %.2f | zoom %.1fx",
-        s.aimMs or 0, tostring(s.ads), s.effSpread or 0, s.zoom or 1))
-    print(string.format("  mag    : %s | damage %.2f | rate %.4fs",
-        tostring(s.mag), s.damage or 0, s.rate or 0))
-    print("═══════════════════════════════════")
-    return s
-end
 
 SA.ATTACHMENTS   = ATTACHMENTS
 SA.ATT_FIT       = ATT_FIT

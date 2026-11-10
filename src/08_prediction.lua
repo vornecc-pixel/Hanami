@@ -1,5 +1,5 @@
 -- ==================================================================
--- Hanami / 08_prediction.lua — Ballistic intercept solver + gun debug
+-- Hanami / 08_prediction.lua — Ballistic intercept solver + live gun tuning
 -- Loaded in order by loader.lua. Parts are joined into ONE chunk;
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
@@ -159,77 +159,6 @@ function SA.Predict(origin, targetPos, model, gun)
     }
 end
 
-function SA.PrintPrediction(origin, targetPos, model)
-    local aim, i = SA.Predict(origin, targetPos, model)
-    print(string.format(
-        "[pred] %s | ammo %s | speed %.0f | t %.3fs | lead %.1f | drop %.2f | range %d %s",
-        i.id, tostring(i.ammo), i.speed, i.t, i.lead, i.drop, i.range,
-        i.inRange and "OK" or "OUT OF RANGE"))
-    print(string.format("[pred] ping %.0f ms | auto %s | scale %.1f | offset %.0f ms | aimtime %.0f ms | total %.0f ms",
-        SA.GetPing(), CFG.predictionAutoPing and "ON" or "OFF",
-        CFG.predictionPingScale or 1, CFG.predictionLatency or 0,
-        i.aimMs, i.latency * 1000))
-    print(string.format("[pred] attachments %d [%s] | speed x%.3f | iters %d | ADS %s | effSpread %.2f | zoom %.1fx",
-        i.attachments, i.attIds, i.speedMult, i.iterations,
-        tostring(i.ads), i.effSpread, i.zoom))
-    return aim, i
-end
-
--- ────────────────────────────────────────────────────────────────────
--- GUN DEBUG HELPERS
--- ────────────────────────────────────────────────────────────────────
-
-function SA.PrintGunSpec()
-    local g = SA.GetEquippedGun(true)
-    local s = g.spec
-    local baseAmmo = g.alt and AMMO_ALTS[g.ammo] and AMMO_ALTS[g.ammo].base or g.ammo
-    local baseDmg  = AMMO_DAMAGE[baseAmmo] or 0
-    print("════════════ GUN SPEC ════════════")
-    print(string.format("  id       : %s  (%s)%s", g.id, s.name, g.known and "" or "  [UNKNOWN -> fallback]"))
-    print(string.format("  ammo     : %s%s", tostring(g.ammo), g.alt and "  [alt ammo]" or ""))
-    print(string.format("  speed    : %.0f studs/s%s", g.speed,
-        g.manualSpeed and "  [manual override]" or ""))
-    print(string.format("  drop     : gravity %.1f  life %s", g.gravity or 0,
-        g.life and tostring(g.life) .. "s" or "none"))
-    print(string.format("  range    : %d studs   pellets %d   rate %.3fs   mag %d   reload %.2fs",
-        g.range, g.pellets, g.rate, g.mag or 0, g.reload or 0))
-    print(string.format("  spread   : hip %.2f  ads %.2f  move %.2f  | eff %.2f  ADS %s",
-        g.spread or 0, g.adsSpread or 0, g.moveSpread or 0,
-        g.effSpread or 0, tostring(g.ads)))
-    print(string.format("  recoil   : pitch %.2f  yaw %.2f  recover %.2f  rise %s  sway %s",
-        g.recoil.pitch or 0, g.recoil.yaw or 0, g.recoil.recover or 0,
-        tostring(g.recoil.rise), tostring(g.recoil.sway)))
-    print(string.format("  damage   : %.2f / pellet   (Defs[%s].damage %s x damageMult %s)",
-        g.damage, tostring(g.ammo), tostring(baseDmg), tostring(s.damageMult)))
-    print(string.format("  burst    : %.1f total per shot   ~%.1f DPS", g.damage * g.pellets,
-        g.rate > 0 and (g.damage * g.pellets) / g.rate or 0))
-    print(string.format("  tags     : scope %s | zoom %.1fx | s2Damage %s | rocket %s | huntOnly %s | duelOnly %s",
-        tostring(s.scope), g.zoom or 1, tostring(s.s2Damage),
-        tostring(g.rocket), tostring(g.huntOnly), tostring(g.duelOnly)))
-    if s.headGuard then
-        print(string.format("  headguard: %s keeps %s damage", tostring(s.headGuard.item), tostring(s.headGuard.keep)))
-    end
-    if s.shellReload then
-        print(string.format("  shellrl  : lead %.2f  per %.2f  tail %.2f",
-            s.shellReload.lead, s.shellReload.per, s.shellReload.tail))
-    end
-    print(string.format("  NOTE     : GUN_BALANCE.damage = %s (legacy, NOT the real damage)",
-        tostring(s.balance)))
-    if s.falloff then
-        print(string.format("  falloff  : full %s  min %s  mult %s", tostring(s.falloff.full),
-            tostring(s.falloff.min), tostring(s.falloff.mult)))
-    end
-    local ids = {}
-    for _, e in ipairs(g.attachments or {}) do ids[#ids + 1] = e.id end
-    print(string.format("  attach   : %d [%s] | base speed %.0f -> %.0f | +%.0f ms aim",
-        #ids, table.concat(ids, ","), g.baseSpeed or 0, g.speed,
-        g.attAimMs or 0))
-    print("═══════════════════════════════════")
-end
-
--- Optional: pull live speed/gravity/range straight out of the game's
--- GC tables (u3492.GUN_RANGE / u3338.GUNS) instead of trusting the
--- static numbers. Off by default; call from the Debug button.
 -- ── BETTER: live gun tuning ─────────────────────────────────────────
 -- Snapshot the SHIPPED DB once. "Gun Diff" compares live GC values and
 -- manual overrides against this baseline, and reports guns the game has
@@ -271,15 +200,6 @@ function SA.GunDiff()
     return { added = added, changed = changed }
 end
 
-function SA.PrintGunDiff()
-    local d = SA.GunDiff()
-    print("════════════ LIVE GUN DIFF ════════════")
-    print("  new guns:", #d.added == 0 and "none" or table.concat(d.added, ", "))
-    print("  changed fields:", #d.changed)
-    for _, c in ipairs(d.changed) do print("   -", c) end
-    print("══════════════════════════════════════")
-    return d
-end
 
 -- Manual editor: "assault_rifle.speed=1400;lr_sniper.gravity=20".
 -- Only numeric ballistics fields are accepted, so a typo can never
@@ -304,18 +224,9 @@ function SA.ApplyGunOverrides(text)
         end
     end
     SA.InvalidateGunCache()
-    print(string.format("[gun] applied %d manual overrides (%d ignored)", n, #bad))
-    for _, b in ipairs(bad) do print("  ignored:", b) end
     return n, bad
 end
 
-function SA.PrintGunOverrides()
-    print("════════════ MANUAL GUN OVERRIDES ════════════")
-    print("  format: gun_id.field=value;gun_id.field=value")
-    print("  fields:", table.concat(SA_GUN_FIELDS, ", "))
-    print("  current:", tostring(CFG.gunOverrideString or ""))
-    print("══════════════════════════════════════════")
-end
 
 function SA.SyncGunDefs()
     if typeof(getgc) ~= "function" then return 0, "getgc unavailable" end
@@ -389,32 +300,11 @@ function SA.SyncGunDefs()
         end
     end)
     SA.InvalidateGunCache()
-    if CFG.gunDiffOnScan == true then pcall(SA.PrintGunDiff) end
     if CFG.gunOverrideString and CFG.gunOverrideString ~= "" then
         pcall(SA.ApplyGunOverrides, CFG.gunOverrideString)
     end
-    print(string.format("[sa] synced %d live gun fields from GC", n))
     return n, err
 end
 
 -- Dump every gun's attributes (the "update the prediction for every gun"
 -- audit). Static DB + any fields merged by Sync Gun Defs (GC).
-function SA.PrintGunTable()
-    local ids = {}
-    for id in pairs(SA.GUN_SPECS) do ids[#ids + 1] = id end
-    table.sort(ids)
-    print("════════════ GUN TABLE ════════════")
-    print(string.format("  %-22s %6s %-16s %5s %4s %6s %6s %6s %5s %5s %5s",
-        "id", "speed", "ammo", "mag", "pel", "rate", "range", "s2", "hip", "ads", "move"))
-    for _, id in ipairs(ids) do
-        local s = SA.GUN_SPECS[id]
-        print(string.format("  %-22s %6.0f %-16s %5d %4d %6.3f %6d %6s %5.2f %5.2f %5.2f",
-            id, s.speed, tostring(s.ammo), s.mag or 0, s.pellets or 1,
-            s.rate or 0, s.range or 0, tostring(s.s2Damage),
-            s.spread or 0, s.adsSpread or 0, s.moveSpread or 0))
-    end
-    print(string.format("  %d guns | gravity/life: %s",
-        #ids, "SMGs 8/1, bolt 30/1.9, lr 24/1.8"))
-    print("═══════════════════════════════════")
-    return #ids
-end

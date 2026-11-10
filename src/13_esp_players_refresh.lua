@@ -80,7 +80,7 @@ local function refreshOnePlayer(plr, o, cam)
     -- 18_esp_fx_draw.lua anchors these strings to the box: name above,
     -- distance at the top-LEFT corner, weapon BELOW the box, and the
     -- VIS/WALL + state + HP tags at the top-RIGHT corner. The old
-    -- BillboardGui labels are still filled (fallback / console debug)
+    -- BillboardGui labels are still filled (fallback / legacy state)
     -- but are hidden by the FX pass so no text is drawn twice.
     local info = SA.ScanEntity(char, hum)   -- cached ~0.25 s, safe per frame
     local hpPct = math.floor(100 * math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1))
@@ -144,7 +144,7 @@ local function refreshOnePlayer(plr, o, cam)
     end
 end
 
-local espErrAt, espErrCount = 0, 0
+local espErrCount = 0
 
 local function refreshESP()
     local cam = ws.CurrentCamera
@@ -155,11 +155,6 @@ local function refreshESP()
             -- isolate this player, keep the rest of the server updating
             pcall(hidePlayerEsp, o)
             espErrCount = espErrCount + 1
-            local now = tick()
-            if now - espErrAt > 5 then
-                espErrAt = now
-                warn("[esp] player refresh error (" .. espErrCount .. " total): " .. tostring(err))
-            end
         end
     end
 end

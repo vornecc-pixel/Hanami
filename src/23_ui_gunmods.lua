@@ -37,15 +37,8 @@ bindToggle(bowSec, "Instant Charge (max draw)", "bowInstantCharge",
     "Forces drawStart back 10 s so every shot counts as fully charged")
 bindToggle(bowSec, "No Shot Cooldown", "bowNoCooldown",
     "Zeros SHOT_GAP / REDRAW_GAP / MIN_DRAW and keeps lastShot cleared")
-addButton(bowSec, "Print Bow Mods State", function()
-    local b = SA.BowModsState()
-    print(string.format("[bow] master=%s instantCharge=%s noCooldown=%s | u10=%d u14=%d patched=%d | getgc=%s setreadonly=%s",
-        tostring(b.enabled), tostring(b.instantCharge), tostring(b.noCooldown),
-        b.configTables, b.liveStates, b.patched, tostring(b.gc), tostring(b.readonly)))
-end)
 addButton(bowSec, "Restore Bow Timings", function()
     SA.BowModsRestore()
-    print("[bow] original SHOT_GAP / REDRAW_GAP / MIN_DRAW restored")
 end)
 
 -- ── BETTER : live gun tuning ────────────────────────────────────────
@@ -54,8 +47,6 @@ end)
 -- solver. Overrides are re-applied after every GC sync.
 local tuneCol = GunTab:column()
 local tuneSec = tuneCol:section({ name = "Live Gun Tuning / Overrides" })
-bindToggle(tuneSec, "Print New-Gun Diff on Sync", "gunDiffOnScan",
-    "After Sync Gun Defs, list guns added by the game and every field that differs from the shipped DB")
 tuneSec:textbox({
     name = "Per-Gun Overrides", flag = "hn_gunOverrideString",
     default = CFG.gunOverrideString or "",
@@ -70,11 +61,6 @@ tuneSec:label({ name = "Fields: speed, gravity, life, range, mag, spread …" })
 addButton(tuneSec, "Apply Overrides Now", function()
     SA.ApplyGunOverrides(CFG.gunOverrideString or "")
 end)
-addButton(tuneSec, "Print Override Help", function() SA.PrintGunOverrides() end)
-addButton(tuneSec, "Print Live Gun Diff", function() SA.PrintGunDiff() end)
 addButton(tuneSec, "Sync Gun Defs + Diff", function()
-    local n = SA.SyncGunDefs()
-    print("[gun] synced", n, "live fields")
-    SA.PrintGunDiff()
+    SA.SyncGunDefs()
 end)
-addButton(tuneSec, "Print Full Gun Table", function() SA.PrintGunTable() end)

@@ -15,7 +15,7 @@
 --     Peek Delta could never reject a peek — it was a dead slider. Now
 --     deltaCap is just the slider value and genuinely caps peekDist.
 --   * Every slider is clamped to its UI range each frame, so imported
---     profiles and console edits can't silently break a control.
+--     profiles and manual edits can't silently break a control.
 --   * one shared RaycastParams (target model included in the filter)
 --   * GUNS ONLY: bows bail out before any ray is cast
 --   * 8 peek directions: 4 cardinals + 4 diagonals
@@ -256,15 +256,6 @@ function SA.ManipNpcState()
     }
 end
 
-function SA.PrintManipNpcState()
-    local s = SA.ManipNpcState()
-    print("========== NPC MANIPULATION ==========")
-    print("  enabled:", tostring(s.enabled), "| target NPCs:", tostring(s.targeting),
-        "| registry:", tostring(s.count))
-    print("  range:", tostring(s.range), "| peek:", tostring(s.peek),
-        "| parts:", tostring(s.parts), "| last target NPC:", tostring(s.lastNpc))
-    print("======================================")
-end
 
 -- ── BETTER: read-only "can manipulation find a shot?" probe ─────────
 -- The crosshair popup needs the SAME answer as saManipResolve() without
@@ -381,7 +372,7 @@ do
         local origin = cam.CFrame.Position
         local best
         if modelOverride then
-            -- Diagnostics / tests can probe one specific NPC without
+            -- State checks / tests can probe one specific NPC without
             -- fighting the crosshair picker for the closest target.
             local boneName = SA.ResolveTargetBone and SA.ResolveTargetBone()
                 or (CFG.targetBone or "Head")

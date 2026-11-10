@@ -27,15 +27,10 @@ bindToggle(playerSec, "Show Weapon", "espShowTool",
 bindToggle(playerSec, "Show State", "espShowState",
     "Reads Knocked / Downed / Dead / State attributes, else HumanoidStateType")
 bindSlider(playerSec, "Max Distance (studs)", "espMaxDist", 200, 5000, 10, "")
-addButton(playerSec, "Scan Players", function() SA.PrintScan("PLAYER") end)
-addButton(playerSec, "Print Player ESP State", function()
-    SA.PlayerEspDiag()
-end)
 addButton(playerSec, "Rebuild Player ESP", function()
     local list = {}
     for plr in pairs(espObjects) do list[#list + 1] = plr end
     for _, plr in ipairs(list) do clearESP(plr) end
-    print("[esp] cleared " .. #list .. " objects; render loop will rebuild them")
 end)
 addButton(playerSec, "Show ESP Preview Panel", function()
     if SA.EspPreviewSet then SA.EspPreviewSet(true) end
@@ -69,9 +64,7 @@ addButton(npcSec, "Rescan NPCs", function()
     for m in pairs(npcObjects) do table.insert(snap, m) end
     for _, m in ipairs(snap) do clearNpc(m) end
     SA.RequestScan()
-    print("[sa] NPC rescan queued — background walker, no frame freeze")
 end)
-addButton(npcSec, "Scan NPCs", function() SA.PrintScan("NPC") end)
 
 -- ── ESP : column 2 — Crates / shared visual features ────────────────
 local espCol2 = EspTab:column()
@@ -106,14 +99,6 @@ addButton(crateSec, "Rescan Crates", function()
     for m in pairs(crateObjects) do table.insert(snap, m) end
     for _, m in ipairs(snap) do clearCrate(m) end
     SA.RequestScan()
-    print("[sa] crate rescan queued —", #SA.GetCrates(), "known so far")
-end)
-addButton(crateSec, "Print Crate FOV State", function() SA.PrintCrateFovState() end)
-addButton(crateSec, "Print Crate Names (debug)", function()
-    SA.PrintCrateCandidates()
-end)
-addButton(crateSec, "Print Crate States (debug)", function()
-    SA.PrintCrateStates()
 end)
 
 bindToggle(featSec, "Per-Element Colours", "espPerElementColors",
@@ -186,7 +171,6 @@ function SA.ApplyBestEsp()
     end
     -- Re-open the floating preview so the result is visible immediately.
     if SA.EspPreviewSet then pcall(SA.EspPreviewSet, true) end
-    print("[esp] Best ESP applied (Player + NPC): clean mode OFF, 15 visual features ON")
 end
 
 -- ── CLEAN ESP PRESET (outline-only) ─────────────────────────────────
@@ -211,7 +195,6 @@ function SA.ApplyCleanEsp()
         CFG[k] = v
     end
     if SA.EspPreviewSet then pcall(SA.EspPreviewSet, true) end
-    print("[esp] Clean ESP applied: dark pills / fill removed, outlines only")
 end
 
 function SA.CleanEspState()
@@ -228,47 +211,10 @@ function SA.CleanEspState()
     }
 end
 
-function SA.EspFeatureDiag()
-    print("════════════ ESP FEATURES ════════════")
-    local groups = {
-        { "PLAYER", { "espEnabled", "espVisibleCheck", "espShowName",
-            "espShowDist", "espShowHealth", "espShowTool", "espShowState" } },
-        { "NPC", { "npcEspEnabled", "npcVisibleCheck", "npcShowName",
-            "npcShowDist", "npcShowHealth", "npcShowTool", "npcShowState",
-            "npcUseTypeColors" } },
-        { "SHARED", { "espCleanMode", "espPerElementColors", "espShowBox", "espCornerBox",
-            "espShowFill", "espShowOutline", "espShowSkeleton", "espShowHeadDot",
-            "espShowTracer", "espShowOffscreen", "espHighlightTarget",
-            "espRainbow", "espFade", "espArrowFOV", "espShowHealthText",
-            "espTextOutline", "espTagSide", "espTagBackdrop" } },
-    }
-    for _, g in ipairs(groups) do
-        local bits = {}
-        for _, k in ipairs(g[2]) do
-            bits[#bits + 1] = k .. "=" .. tostring(CFG[k])
-        end
-        print(string.format("[%-6s] %s", g[1], table.concat(bits, " | ")))
-    end
-    local missing = {}
-    for _, tbl in ipairs({ BEST_ESP, CLEAN_ESP }) do
-        for k in pairs(tbl) do
-            if not library.config_flags["hn_" .. k] then
-                missing[#missing + 1] = k
-            end
-        end
-    end
-    table.sort(missing)
-    print("unbound UI flags:", #missing == 0 and "none (all functional)"
-        or table.concat(missing, ", "))
-    print("preview kind:", tostring(CFG.espPreviewKind),
-        "| target sim:", tostring(CFG.espPreviewTarget))
-    print("══════════════════════════════════════")
-end
 
 featSec:label({ name = "── CLEAN / BEST ESP PRESETS ──" })
 addButton(featSec, "Apply Clean ESP", function() SA.ApplyCleanEsp() end)
 addButton(featSec, "Apply Best ESP", function() SA.ApplyBestEsp() end)
-addButton(featSec, "Print ESP Features", function() SA.EspFeatureDiag() end)
 
 -- ── ESP : column 3 — one colourpicker for EVERY drawn element ────────
 -- Atlanta labels expose a `right_holder`, so each labelled row can carry
@@ -374,13 +320,6 @@ bindDropdown(declutterSec, "Team Filter", "espTeamMode", {
 })
 bindToggle(declutterSec, "Show Live On-Screen Count", "espShowLiveCount")
 local saEspCountLabel = declutterSec:label({ name = "players 0 · npcs 0 · crates 0" })
-addButton(declutterSec, "Print Live ESP Counts", function()
-    local v = SA.EspPassStats()
-    print(string.format("[esp] on screen: %d players · %d npcs · %d crates",
-        v.players, v.npcs, v.crates))
-    print("[esp] filters: nearest", tostring(v.nearest),
-        "| team", tostring(v.teamMode), "| only aim", tostring(v.onlyAimTarget))
-end)
 
 local saEspCountLast = 0
 bindRender(function()
