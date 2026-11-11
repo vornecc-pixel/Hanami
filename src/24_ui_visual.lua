@@ -11,8 +11,8 @@ local fovSec = fovCol:section({ name = "FOV Circle / Snapline" })
 bindToggle(fovSec, "Show FOV Circle", "showFov",
     "The circle IS the aim reference point: silent aim, snapline, tracers and arrows all use the same centre + radius")
 bindToggle(fovSec, "Filled", "fovFilled")
-bindDropdown(fovSec, "FOV Centre", "fovCenterMode", { "Mouse", "Screen Center" })
-fovSec:label({ name = "Centre = crosshair / screen centre; invalid mouse -> centre" })
+bindDropdown(fovSec, "FOV Reference", "fovCenterMode", { "Mouse" })
+fovSec:label({ name = "Reference = crosshair; invalid mouse -> screen centre" })
 bindToggle(fovSec, "Force ScreenGui Drawing", "forceGuiDrawing",
     "OFF by default = try native Drawing first, then reliable Roblox GUI frames. Turn ON to force ScreenGui")
 fovSec:label({ name = "FOV / snapline / lead colour pickers are inline on their own toggles" })
@@ -24,8 +24,8 @@ bindSlider(fovSec, "Thickness", "fovThickness", 1, 5, 1, "")
 
 bindToggle(fovSec, "Snapline (aim preview)", "snapLineEnabled",
     "Line from the FOV centre to the exact target silent aim would pick. GREEN = clear, RED = blocked")
-bindDropdown(fovSec, "Line Origin", "snapLineOrigin", { "Mouse", "Center", "Bottom" })
-bindSlider(fovSec, "Snapline Thickness", "snapLineThickness", 1, 5, 1, "")
+bindDropdown(fovSec, "Line Origin", "snapLineOrigin", { "FOV Reference" })
+bindSlider(fovSec, "Snapline Size / Thickness", "snapLineThickness", 1, 10, 1, "")
 bindToggle(fovSec, "Show Lead Marker", "snapShowLead",
     "Ring = the exact point the ballistic solver will aim at (moving targets / bullet drop)")
 

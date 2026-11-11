@@ -436,6 +436,114 @@ if _G.__saWhiteColorFix ~= 1 then
     _G.__saWhiteColorFix = 1
 end
 
+-- ── SAVED COLOUR PICKERS ────────────────────────────────────────────
+-- Atlanta's native config already round-trips hn_col_* flags, but some
+-- library builds omit colourpickers from get_config()/load_config(). These
+-- helpers embed all 48 picked colours in the profile JSON and a sidecar.
+-- They live here to keep 25_ui_misc.lua inside Luau's local-register cap.
+function SA.EspJson()
+    if SA.__espJson then return SA.__espJson end
+    local svc = nil
+    pcall(function()
+        if type(http_service) == "table"
+            and type(http_service.JSONEncode) == "function" then
+            svc = http_service
+        else
+            svc = game:GetService("HttpService")
+        end
+    end)
+    if svc and type(svc.JSONEncode) == "function"
+        and type(svc.JSONDecode) == "function" then
+        SA.__espJson = svc
+    end
+    return SA.__espJson
+end
+function SA.EspColorHex(c)
+    -- Roblox Color3 is userdata; the Fengari mock uses a tagged table.
+    if typeof(c) == "Color3" or type(c) == "table" then
+        local ok, hex = pcall(function() return c:ToHex() end)
+        if ok and type(hex) == "string" and hex ~= "" then
+            if hex:sub(1, 1) ~= "#" then return "#" .. hex end
+            return hex
+        end
+        return string.format("#%02X%02X%02X",
+            math.floor((c.R or 0) * 255 + 0.5),
+            math.floor((c.G or 0) * 255 + 0.5),
+            math.floor((c.B or 0) * 255 + 0.5))
+    end
+    return "#FFFFFF"
+end
+function SA.EspColorFromHex(hex)
+    local r, g, b = tostring(hex or ""):match("#?(%x%x)(%x%x)(%x%x)")
+    if not r then return nil end
+    return Color3.fromRGB(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
+end
+function SA.EspColorSnapshot()
+    local out = {}
+    for k in pairs(ESP_DEFAULT_COLORS or {}) do
+        out[k] = SA.EspColorHex(ESP_COLORS[k] or ESP_DEFAULT_COLORS[k])
+    end
+    return out
+end
+function SA.EspColorCount()
+    local n = 0
+    for _ in pairs(ESP_DEFAULT_COLORS or {}) do n = n + 1 end
+    return n
+end
+function SA.EspColorRestore(saved)
+    if type(saved) ~= "table" then return 0 end
+    local n = 0
+    for k, hex in pairs(saved) do
+        if ESP_DEFAULT_COLORS[k] ~= nil then
+            local c = SA.EspColorFromHex(hex)
+            if c then
+                ESP_COLORS[k] = c
+                local setter = library.config_flags["hn_col_" .. k]
+                if setter then pcall(setter, c, 1) end
+                n = n + 1
+            end
+        end
+    end
+    return n
+end
+function SA.EspColorText()
+    local rows = {}
+    for k, hex in pairs(SA.EspColorSnapshot()) do
+        rows[#rows + 1] = k .. "=" .. tostring(hex)
+    end
+    table.sort(rows)
+    return table.concat(rows, "\n")
+end
+function SA.EspColorFromText(text)
+    local out = {}
+    for line in tostring(text or ""):gmatch("[^\r\n]+") do
+        local k, hex = line:match(
+            "^%s*([A-Za-z0-9_]+)%s*=%s*(#[0-9A-Fa-f]+)%s*$")
+        if k and hex then out[k] = hex end
+    end
+    return out
+end
+function SA.EspColorEncode(data)
+    local js = SA.EspJson()
+    if not js or type(data) ~= "string" then return data end
+    local ok, cfg = pcall(function() return js:JSONDecode(data) end)
+    if not ok or type(cfg) ~= "table" then return data end
+    cfg.__saEspColors = SA.EspColorSnapshot()
+    local okEnc, enc = pcall(function() return js:JSONEncode(cfg) end)
+    if okEnc and type(enc) == "string" then return enc end
+    return data
+end
+function SA.EspColorDecode(data)
+    local js = SA.EspJson()
+    if js and type(data) == "string" then
+        local ok, cfg = pcall(function() return js:JSONDecode(data) end)
+        if ok and type(cfg) == "table" and type(cfg.__saEspColors) == "table" then
+            return SA.EspColorRestore(cfg.__saEspColors)
+        end
+    end
+    return 0
+end
+
 -- ── INLINE COLOURPICKER BINDINGS ───────────────────────────────────
 -- These are the ONLY colourpicker rows. bindToggle / bindSlider /
 -- bindDropdown chain the picker(s) onto the widget they are styling,
@@ -570,12 +678,14 @@ local SA_CFG_SHIPPED = {
     attOverrideUnder        = "Auto",
     attOverrideMag          = "Auto",
 
-    -- fov visual (the FOV circle is THE reference point for aiming)
+    -- fov visual (the FOV circle is THE reference point for aiming).
+    -- The shipped literal stays OFF; SA.FOV_STARTUP below turns the circle
+    -- ON at load so the reference point is actually visible.
     showFov         = false,
     fovFilled       = false,
-    fovTransparency = 50,
-    fovThickness    = 1,
-    fovCenterMode   = "Mouse",     -- "Mouse" / "Screen Center"
+    fovTransparency = 1,
+    fovThickness    = 2,
+    fovCenterMode   = "Mouse",     -- always the mouse / crosshair reference
     forceGuiDrawing = false,        -- ScreenGui backend always works; native Drawing often doesn't
 
     -- manipulation — CLASSIC six-slider set (8 peek dirs + shared ray params)
@@ -614,9 +724,9 @@ local SA_CFG_SHIPPED = {
     npcVisibleCheck = false,
     npcMaxDist      = 2000,
 
-    -- aim preview / snapline
+    -- aim preview / snapline (size is a separate 1-10 control)
     snapLineEnabled   = false,
-    snapLineOrigin    = "Mouse",
+    snapLineOrigin    = "FOV Reference",
     snapLineThickness = 1,
     snapShowLead      = false,
 
@@ -732,7 +842,7 @@ local SA_CFG_SHIPPED = {
     gunOverrideString = "",
     uiTheme = "Atlanta", uiFont = "Source Sans Pro",
 }
-local saFreshEspStartup = _G.__saCFG == nil
+local saFreshStartup = _G.__saCFG == nil
 local CFG = _G.__saCFG or SA_CFG_SHIPPED
 _G.__saCFG = CFG
 -- Snapshot the SHIPPED literal, not the live CFG (which may be a saved
@@ -771,8 +881,23 @@ SA.BEST_ESP_STARTUP = {
     espShowLiveCount = true, espDataRefreshMs = 100,
 }
 for k, v in pairs(SA.BEST_ESP_STARTUP) do SA.CFG_DEFAULTS[k] = v end
-if saFreshEspStartup then
+if saFreshStartup then
     for k, v in pairs(SA.BEST_ESP_STARTUP) do CFG[k] = v end
+end
+
+-- The FOV circle is the ONE non-ESP startup exception. It is ON, solid
+-- (1% transparent) and thick enough to see; every other non-ESP feature
+-- keeps the old OFF startup. ResetToDefaults() preserves this split, and
+-- FullUnload() clears the fresh-session marker for the next load.
+SA.FOV_STARTUP = {
+    showFov = true, fov = 220, fovFilled = false,
+    fovTransparency = 1, fovThickness = 2,
+    fovCenterMode = "Mouse", forceGuiDrawing = false,
+    snapLineOrigin = "FOV Reference", snapLineThickness = 1,
+}
+for k, v in pairs(SA.FOV_STARTUP) do SA.CFG_DEFAULTS[k] = v end
+if saFreshStartup then
+    for k, v in pairs(SA.FOV_STARTUP) do CFG[k] = v end
 end
 
 -- backfill (keeps settings from older versions usable)
@@ -791,7 +916,8 @@ for k, v in pairs({
     npcEspEnabled = false, npcShowName = false, npcShowDist = false,
     npcShowHealth = false, npcShowTool = false, npcShowState = false,
     npcVisibleCheck = false, npcMaxDist = 2000,
-    snapLineEnabled = false, snapLineOrigin = "Mouse", snapLineThickness = 1,
+    snapLineEnabled = false, snapLineOrigin = "FOV Reference",
+    snapLineThickness = 1,
     snapShowLead = false,
     prediction = false, predictionGravity = false, predictionAmmo = false,
     predictionIterations = 4, predictionAutoPing = false, predictionPingScale = 1,
@@ -806,7 +932,7 @@ for k, v in pairs({
     crateShowLoot = false, crateShowOpened = false, crateLooseDetect = false,
     crateHighlight = false, crateInvertState = false, crateLidDetect = false,
     crateMaxDist = 3000,
-    showFov = false, fovFilled = false, fovTransparency = 50, fovThickness = 1,
+    showFov = false, fovFilled = false, fovTransparency = 1, fovThickness = 2,
     fovCenterMode = "Mouse", forceGuiDrawing = false,
     espCleanMode = false,
     espPerElementColors = false, espShowBox = false, espCornerBox = false,
@@ -859,18 +985,14 @@ if type(SA.CFG_DEFAULTS) ~= "table" then
     for k, v in pairs(CFG) do SA.CFG_DEFAULTS[k] = v end
 end
 
--- One-time migration for configs saved by older builds. Those forced the
--- FOV circle, GUI backend and tap hooks ON; all non-ESP features still
--- start OFF, so clear those legacy values only ONCE. The ESP best preset
--- above is the only startup exception.
-if _G.__saFovFix ~= 3 then
-    CFG.showFov = false
-    CFG.fovTransparency = 50
-    CFG.fovThickness = math.max(CFG.fovThickness or 1, 1)
-    CFG.fovCenterMode = "Mouse"
-    CFG.forceGuiDrawing = false
+-- One-time migration for configs saved by older builds. Those forced a
+-- faint 50%-transparent circle and a legacy snapline origin; reset them to
+-- the visible FOV reference startup ONCE. Saved user tweaks after this
+-- point are preserved. FOV is the only non-ESP startup exception.
+if _G.__saFovFix ~= 4 then
+    for k, v in pairs(SA.FOV_STARTUP) do CFG[k] = v end
     CFG.saTapReorder = false
-    _G.__saFovFix = 3
+    _G.__saFovFix = 4
 end
 
 -- One-time migration back to the CLASSIC manipulation slider set. v7.7
@@ -919,6 +1041,17 @@ CFG.espPreviewSpeed  = saClampNum(CFG.espPreviewSpeed, 0, 90, 25)
 CFG.espPreviewKind   = (CFG.espPreviewKind == "NPC") and "NPC" or "Player"
 CFG.espPreviewTarget = CFG.espPreviewTarget == true
 CFG.nearestWindow    = CFG.nearestWindow == true  -- HUD defaults OFF
+
+-- FOV reference + visible circle + separate customizable snapline size.
+-- Clamp on EVERY load so a stale saved profile cannot hide the circle,
+-- put it back to 50% transparency, or put the slider outside its range.
+CFG.showFov           = CFG.showFov == true
+CFG.fovTransparency   = saClampNum(CFG.fovTransparency, 0, 100, 1)
+CFG.fovThickness      = saClampNum(CFG.fovThickness, 1, 5, 2)
+CFG.fovCenterMode     = "Mouse"
+CFG.snapLineEnabled   = CFG.snapLineEnabled == true
+CFG.snapLineOrigin    = "FOV Reference"
+CFG.snapLineThickness = saClampNum(CFG.snapLineThickness, 1, 10, 1)
 
 -- Clamp every new BETTER input too: a stale / hand-edited saved profile
 -- must never put a dropdown outside its items or a slider outside range.

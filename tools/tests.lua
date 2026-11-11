@@ -119,8 +119,8 @@ if run > 1 then
         "single re-execution-safe keybind wrapper")
 end
 
--- A fresh chunk applies ONLY the ESP best preset. Everything outside ESP
--- keeps the old all-OFF startup, including gun mods / Visual / Misc.
+-- A fresh chunk applies the ESP best preset plus ONE visible FOV circle.
+-- Every other non-ESP family keeps the old all-OFF startup.
 if run == 1 or run == 3 then
     eq(CFG.espEnabled, true, "ESP best startup: player ESP ON")
     eq(CFG.npcEspEnabled, true, "ESP best startup: NPC ESP ON")
@@ -131,7 +131,20 @@ if run == 1 or run == 3 then
     eq(CFG.espPreview, true, "ESP best startup: preview ON")
     eq(CFG.masterEnabled, false, "ESP best startup: silent aim stays OFF")
     eq(CFG.gmEnabled, false, "ESP best startup: gun mods stay OFF")
-    eq(CFG.showFov, false, "ESP best startup: FOV circle stays OFF")
+    eq(CFG.showFov, true, "FOV startup: circle ON so the reference is visible")
+    eq(CFG.fovTransparency, 1, "FOV startup: 1% transparent / solid")
+    eq(CFG.fovThickness, 2, "FOV startup: visible 2px stroke")
+    eq(CFG.fovCenterMode, "Mouse", "FOV startup: mouse / crosshair reference")
+    eq(CFG.snapLineOrigin, "FOV Reference", "FOV startup: snapline shares reference")
+    eq(CFG.snapLineThickness, 1, "FOV startup: snapline size default")
+    ok(type(SA.FOV_STARTUP) == "table", "FOV startup snapshot")
+    eq(SA.AimPoint().X, 640, "FOV reference X follows mock mouse")
+    eq(SA.AimPoint().Y, 360, "FOV reference Y follows mock mouse")
+    eq(SA.FovState().enabled, true, "FOV state enabled at load")
+    eq(SA.FovState().transparency, 1, "FOV state solid")
+    eq(SA.FovState().thickness, 2, "FOV state visible thickness")
+    eq(SA.SnaplineState().thickness, 1, "snapline state size")
+    eq(SA.SnaplineState().origin, "FOV Reference", "snapline state origin")
     eq(CFG.snapLineEnabled, false, "ESP best startup: snapline stays OFF")
     eq(CFG.nearestWindow, false, "ESP best startup: HUD stays OFF")
     eq(CFG.triggerbot, false, "ESP best startup: auto fire stays OFF")
@@ -205,16 +218,18 @@ do
     end
     local function white(c) return rgbEq(c, 255, 255, 255) end
 
-    -- Every non-ESP shipped boolean stays OFF. The ESP best snapshot is
-    -- the only startup exception, both in defaults and after reset.
+    -- Every other shipped boolean stays OFF. ESP best + visible FOV circle
+    -- are the only startup exceptions, in defaults and after reset.
     local booleanDefaults = 0
-    local bestEspDefaults = SA.BEST_ESP_STARTUP or {}
+    local startupDefaults = {}
+    for k, v in pairs(SA.BEST_ESP_STARTUP or {}) do startupDefaults[k] = v end
+    for k, v in pairs(SA.FOV_STARTUP or {}) do startupDefaults[k] = v end
     for k, v in pairs(SA.CFG_DEFAULTS) do
         if type(v) == "boolean" then
             booleanDefaults = booleanDefaults + 1
-            if bestEspDefaults[k] ~= nil then
-                ok(v == bestEspDefaults[k], "best ESP default: " .. k)
-                ok(CFG[k] == bestEspDefaults[k], "live best ESP default: " .. k)
+            if startupDefaults[k] ~= nil then
+                ok(v == startupDefaults[k], "startup default: " .. k)
+                ok(CFG[k] == startupDefaults[k], "live startup default: " .. k)
             else
                 ok(v == false, "shipped default OFF: " .. k)
                 ok(CFG[k] == false, "live default OFF: " .. k)
@@ -464,6 +479,52 @@ for _, name in ipairs(SA.ListProfiles()) do
 end
 ok(profileFound == false, "deleted profile gone from list")
 ok(type(SA.ListProfiles()) == "table", "profile list state")
+contains(rtDetail, "48 colours", "colour round-trip detail")
+
+-- Save / Load / Export / Import must preserve the exact inline picker
+-- colours even on library builds that omit hn_col_* from get_config().
+function saColorProfileRegression()
+    local key = "playerBox"
+    local flag = "hn_col_" .. key
+    local setter = library.config_flags[flag]
+    ok(type(setter) == "function", "inline colour setter available")
+    local custom = Color3.fromRGB(12, 34, 56)
+    setter(custom, 1)
+    near(ESP_COLORS[key].R * 255, 12, 0.6, "custom picker colour applied")
+    local saved, saveErr = SA.SaveProfile("Colour Probe")
+    ok(saved == true, "save colour profile: " .. tostring(saveErr))
+    eq(SA.LastConfigResult.colors, 48, "save reports all 48 colours")
+    local data = readfile(SA.ProfileDir .. "/Colour_Probe.cfg")
+    local decoded = http_service:JSONDecode(data)
+    ok(type(decoded.__saEspColors) == "table",
+        "saved profile carries ESP colours")
+    eq(decoded.__saEspColors[key], "#0C2238", "saved picker hex")
+    local sidecar = readfile(SA.ProfileDir .. "/Colour_Probe.colors")
+    contains(sidecar, key .. "=#0C2238", "colour sidecar")
+    ESP_COLORS[key] = ESP_DEFAULT_COLORS[key]
+    setter(ESP_DEFAULT_COLORS[key], 1)
+    near(ESP_COLORS[key].R * 255, 255, 0.6,
+        "picker colour reset before load")
+    local loaded, loadErr = SA.LoadProfile("Colour_Probe")
+    ok(loaded == true, "load colour profile: " .. tostring(loadErr))
+    eq(SA.LastConfigResult.colors, 48, "load restores all 48 colours")
+    near(ESP_COLORS[key].R * 255, 12, 0.6,
+        "saved colour restored after load")
+    near(library.flags[flag].Color.R * 255, 12, 0.6,
+        "picker swatch restored after load")
+    local colorOnly = http_service:JSONEncode({
+        __saEspColors = { [key] = "#112233" },
+    })
+    ESP_COLORS[key] = ESP_DEFAULT_COLORS[key]
+    local imported, importErr = SA.ImportConfig(colorOnly)
+    ok(imported == true, "import colour block: " .. tostring(importErr))
+    near(ESP_COLORS[key].R * 255, 17, 0.6,
+        "import-only colour block restores pickers")
+    ESP_COLORS[key] = ESP_DEFAULT_COLORS[key]
+    setter(ESP_DEFAULT_COLORS[key], 1)
+    ok(SA.DeleteProfile("Colour Probe") == true, "colour profile deleted")
+end
+saColorProfileRegression()
 
 -- ── self-check state API ───────────────────────────────────────────
 local report = SA.SelfCheck()
@@ -483,6 +544,82 @@ eq(gethui():FindFirstChild("HanamiSelfCheck"), nil, "no self-check panel GUI")
 local aim = SA.AimPoint()
 ok(type(aim.X) == "number" and type(aim.Y) == "number", "aim point")
 ok(SA.FovRadius() > 0, "FOV radius")
+
+-- FOV, snapline and ESP must share ONE live mouse / crosshair reference,
+-- even if an old saved profile still says "Screen Center".
+function saFovReferenceRegression()
+    local savedMode = CFG.fovCenterMode
+    local savedMouse = UserInputService.GetMouseLocation
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(512, 256)
+    end
+    CFG.fovCenterMode = "Screen Center"
+    local point = SA.AimPoint()
+    eq(point.X, 512, "FOV reference follows mouse X despite stale centre mode")
+    eq(point.Y, 256, "FOV reference follows mouse Y despite stale centre mode")
+    eq(SA.FovState().centre.X, 512, "FOV circle uses the same reference")
+    eq(SA.SnaplineState().reference.X, 512, "snapline uses the same reference")
+    eq(SA.EspFovState().center.X, 512, "ESP FOV state uses the same reference")
+    eq(SA.FovState().centreMode, "Mouse / crosshair reference",
+        "FOV state names the live reference")
+    eq(SA.EspFovState().reference, "Mouse / crosshair",
+        "ESP FOV state names the live reference")
+    UserInputService.GetMouseLocation = function() return Vector2.new(0, 0) end
+    eq(SA.AimPoint().X, 640, "invalid 0,0 mouse falls back to centre X")
+    eq(SA.AimPoint().Y, 360, "invalid 0,0 mouse falls back to centre Y")
+    UserInputService.GetMouseLocation = function() return Vector2.new(-5, 200) end
+    eq(SA.AimPoint().X, 640, "off-viewport mouse falls back to centre X")
+    UserInputService.GetMouseLocation = function() return Vector2.new(512, 256) end
+    quiet(function() frameTimes(1) end)
+    eq(SA.FovState().enabled, true, "FOV circle is enabled at startup")
+    eq(SA.FovState().exists, true, "FOV circle object exists")
+    eq(SA.FovState().visible, "true", "FOV circle is actually drawn")
+    eq(SA.FovState().transparency, 1, "FOV circle is solid, not 50% faint")
+    eq(SA.FovState().thickness, 2, "FOV circle stroke is visible")
+    UserInputService.GetMouseLocation = savedMouse
+    CFG.fovCenterMode = savedMode
+end
+saFovReferenceRegression()
+
+-- Snapline size is a separate 1-10 control; FOV thickness is independent.
+function saSnaplineSizeRegression()
+    local saved = CFG.snapLineThickness
+    setFlags({ snapLineThickness = 7 })
+    eq(CFG.snapLineThickness, 7, "custom snapline size written")
+    eq(SA.SnaplineState().thickness, 7, "custom snapline size state")
+    eq(SA.SnaplineState().origin, "FOV Reference", "snapline starts at FOV point")
+    eq(SA.SnaplineState().reference.X, SA.AimPoint().X,
+        "snapline reference equals FOV reference")
+    setFlags({ snapLineThickness = 20 })
+    eq(SA.SnaplineState().thickness, 10, "custom snapline size clamps to 10")
+    setFlags({ snapLineThickness = 0 })
+    eq(SA.SnaplineState().thickness, 1, "custom snapline size clamps to 1")
+    setFlags({ snapLineThickness = saved })
+end
+saSnaplineSizeRegression()
+
+-- Hiding the snapline must not leave a stale target for ESP / state APIs.
+function saSnapTargetCleanupRegression()
+    local savedFlags = {
+        masterEnabled = CFG.masterEnabled,
+        gunEnabled = CFG.gunEnabled,
+        snapLineEnabled = CFG.snapLineEnabled,
+    }
+    local savedTarget = {}
+    for k, v in pairs(SA.Target or {}) do savedTarget[k] = v end
+    SA.Target.model = "stale target"
+    SA.Target.screen = Vector2.new(12, 34)
+    setFlags({ snapLineEnabled = false })
+    frameTimes(1)
+    eq(SA.Target.model, nil, "hidden snapline clears stale target model")
+    eq(SA.Target.screen, nil, "hidden snapline clears stale target pixel")
+    eq(SA.SnaplineState().target, nil, "snapline state has no stale target")
+    for k in pairs(SA.Target) do SA.Target[k] = nil end
+    for k, v in pairs(savedTarget) do SA.Target[k] = v end
+    setFlags(savedFlags)
+end
+saSnapTargetCleanupRegression()
+
 setFlags({ masterEnabled = true, gunEnabled = true })
 quiet(function() setFlag("fovPreset", "Legit") end)
 eq(CFG.fovPreset, "Legit", "FOV preset state")
@@ -1682,7 +1819,8 @@ eq(CFG.espPreview, true, "best ESP preset: preview ON")
 eq(SA.BestEspState().box, true, "best ESP preset forces a box")
 eq(CFG.masterEnabled, false, "best ESP preset leaves silent aim OFF")
 eq(CFG.gmEnabled, false, "best ESP preset leaves gun mods OFF")
-eq(CFG.showFov, false, "best ESP preset leaves FOV circle OFF")
+eq(CFG.showFov, true, "best ESP preset keeps visible FOV circle ON")
+eq(CFG.fovTransparency, 1, "best ESP preset keeps FOV circle solid")
 eq(CFG.snapLineEnabled, false, "best ESP preset leaves snapline OFF")
 eq(CFG.nearestWindow, false, "best ESP preset leaves HUD OFF")
 quiet(function() SA.ApplyCleanEsp() end)
@@ -2055,12 +2193,17 @@ function saEspFovTransitionRegression()
         espShowOffscreen = true, espArrowFOV = true,
         espOnlyNearest = false, espOnlyAimTarget = false,
         espTeamMode = "All", espMaxDist = 5000, espDataRefreshMs = 16,
-        perfMode = false, fov = 100, fovCenterMode = "Screen Center",
+        perfMode = false, fov = 100, fovCenterMode = "Mouse",
         masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
         showManipPopup = false,
     })
     local savedW2v = MOCK_CAMERA.WorldToViewportPoint
     local savedCam = MOCK_CAMERA.CFrame
+    local savedMouse = UserInputService.GetMouseLocation
+    local beforeFovTransitions = SA.EspFovState().transitions
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
     MOCK_CAMERA.WorldToViewportPoint = function(self, worldPos)
         local camX = (self.CFrame and self.CFrame.Position.X) or 0
         return Vector3.new(640 + ((worldPos and worldPos.X or 0) - camX) * 10,
@@ -2087,6 +2230,14 @@ function saEspFovTransitionRegression()
     -- Target on screen but outside the FOV circle: box/name at raw 800,
     -- off-screen arrow at the FOV edge. No BillboardGui duplicate label.
     turnCamera(-6)
+    local outsideFovState = SA.EspFovSnapshot(MOCK_CAMERA,
+        fovObj.geomCache, SA.AimPoint(), SA.FovRadius())
+    eq(outsideFovState.onScreen, true, "outside FOV: still in viewport")
+    eq(outsideFovState.inside, false, "outside FOV: raw point is outside")
+    near(outsideFovState.point.X, 800, 0.001,
+        "outside FOV: snapshot uses real projection")
+    near(outsideFovState.edge.X, 740, 0.001,
+        "outside FOV: arrow edge uses real direction")
     near(fovObj.geomCache.raw.X, 800, 0.001,
         "outside FOV: target projection")
     eq(fovObj.lines.top.Visible, true,
@@ -2115,6 +2266,14 @@ function saEspFovTransitionRegression()
     fovObj.bb.Enabled = true
     fovObj.nameLbl.Visible = true
     turnCamera(10)
+    ok(SA.EspFovState().transitions > beforeFovTransitions,
+        "FOV enter triggers one-time overlay cleanup")
+    local insideFovState = SA.EspFovSnapshot(MOCK_CAMERA,
+        fovObj.geomCache, SA.AimPoint(), SA.FovRadius())
+    eq(insideFovState.inside, true, "inside FOV: raw point is inside")
+    near(insideFovState.point.X, 640, 0.001,
+        "inside FOV: snapshot not clamped to old edge")
+    eq(fovObj.geomForceFresh, true, "FOV transition forces fresh geometry")
     near(fovObj.geomCache.raw.X, 640, 0.001,
         "inside FOV: fresh projection after camera turn")
     eq(fovObj.lines.top.Visible, true, "inside FOV: main box still drawn")
@@ -2146,6 +2305,7 @@ function saEspFovTransitionRegression()
     fovObj.geomKey, fovObj.geomCache, fovObj.geomAnchor = nil, nil, nil
     MOCK_CAMERA.CFrame = savedCam
     MOCK_CAMERA.WorldToViewportPoint = savedW2v
+    UserInputService.GetMouseLocation = savedMouse
     SA.EspGeomInvalidate()
     quiet(function() SA.ResetToDefaults() end)
 end
@@ -2166,12 +2326,17 @@ function saNpcFovTransitionRegression()
         espShowOffscreen = false, espArrowFOV = false,
         espOnlyNearest = false, espOnlyAimTarget = false,
         espTeamMode = "All", espDataRefreshMs = 16,
-        perfMode = false, fov = 100, fovCenterMode = "Screen Center",
+        perfMode = false, fov = 100, fovCenterMode = "Mouse",
         masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
         showManipPopup = false,
     })
     local savedW2v = MOCK_CAMERA.WorldToViewportPoint
     local savedCam = MOCK_CAMERA.CFrame
+    local savedMouse = UserInputService.GetMouseLocation
+    local beforeFovTransitions = SA.EspFovState().transitions
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
     MOCK_CAMERA.WorldToViewportPoint = function(self, worldPos)
         local camX = (self.CFrame and self.CFrame.Position.X) or 0
         return Vector3.new(640 + ((worldPos and worldPos.X or 0) - camX) * 10,
@@ -2196,6 +2361,11 @@ function saNpcFovTransitionRegression()
     end
 
     turnNpcCamera(-6)
+    local npcOutsideFov = SA.EspFovSnapshot(MOCK_CAMERA,
+        npcObj.geomCache, SA.AimPoint(), SA.FovRadius())
+    eq(npcOutsideFov.inside, false, "NPC outside FOV: raw point is outside")
+    near(npcOutsideFov.point.X, 800, 0.001,
+        "NPC outside FOV: snapshot uses real projection")
     near(npcObj.geomCache.raw.X, 800, 0.001,
         "NPC outside FOV: target projection")
     eq(npcObj.lines.top.Visible, true, "NPC outside FOV: main box drawn")
@@ -2212,6 +2382,14 @@ function saNpcFovTransitionRegression()
     npcObj.bb.Enabled = true
     npcObj.nameLbl.Visible = true
     turnNpcCamera(10)
+    ok(SA.EspFovState().transitions > beforeFovTransitions,
+        "NPC FOV enter triggers one-time overlay cleanup")
+    local npcInsideFov = SA.EspFovSnapshot(MOCK_CAMERA,
+        npcObj.geomCache, SA.AimPoint(), SA.FovRadius())
+    eq(npcInsideFov.inside, true, "NPC inside FOV: raw point is inside")
+    near(npcInsideFov.point.X, 640, 0.001,
+        "NPC inside FOV: snapshot not clamped to old edge")
+    eq(npcObj.geomForceFresh, true, "NPC FOV transition forces fresh geometry")
     near(npcObj.geomCache.raw.X, 640, 0.001,
         "NPC inside FOV: fresh projection after camera turn")
     eq(npcObj.lines.top.Visible, true, "NPC inside FOV: main box still drawn")
@@ -2233,10 +2411,102 @@ function saNpcFovTransitionRegression()
     npcObj.geomKey, npcObj.geomCache, npcObj.geomAnchor = nil, nil, nil
     MOCK_CAMERA.CFrame = savedCam
     MOCK_CAMERA.WorldToViewportPoint = savedW2v
+    UserInputService.GetMouseLocation = savedMouse
     SA.EspGeomInvalidate()
     quiet(function() SA.ResetToDefaults() end)
 end
 saNpcFovTransitionRegression()
+
+-- Crate ESP uses the same raw FOV reference. Its outside-circle dot must
+-- disappear on entry and return on exit, without a stuck world-anchored label.
+function saCrateFovTransitionRegression()
+    quiet(function() SA.ResetToDefaults() end)
+    setFlags({
+        espEnabled = false, npcEspEnabled = false, crateEnabled = true,
+        crateFovAware = true, crateMaxDist = 5000,
+        espShowOffscreen = false, espArrowFOV = false,
+        espShowTracer = false, espShowBox = false, espCornerBox = false,
+        espCleanMode = false, espShowFill = false, espDataRefreshMs = 16,
+        perfMode = false, fov = 100, fovCenterMode = "Mouse",
+        masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
+        showManipPopup = false,
+    })
+    local savedW2v = MOCK_CAMERA.WorldToViewportPoint
+    local savedCam = MOCK_CAMERA.CFrame
+    local savedMouse = UserInputService.GetMouseLocation
+    local beforeFovTransitions = SA.EspFovState().transitions
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    MOCK_CAMERA.WorldToViewportPoint = function(self, worldPos)
+        local camX = (self.CFrame and self.CFrame.Position.X) or 0
+        return Vector3.new(640 + ((worldPos and worldPos.X or 0) - camX) * 10,
+            360 - (worldPos and worldPos.Y or 0) * 10, 1), true
+    end
+    MOCK_CAMERA.CFrame = CFrame.new(-6, 3, 0)
+    SA.EspFrameBudgetReset()
+    SA.EspGeomInvalidate()
+    frameTimes(8)
+    local crateObj = nil
+    for _, obj in pairs(crateObjects) do crateObj = obj; break end
+    ok(crateObj ~= nil, "crate object built for FOV transition regression")
+    local savedPos, savedVisible = crateObj.pos, crateObj.visible
+    local savedDist, savedKind = crateObj.dist, crateObj.kind
+    local savedOpened = crateObj.opened
+    crateObj.pos = Vector3.new(10, 0, 0)
+    crateObj.visible, crateObj.dist = true, 20
+    crateObj.kind, crateObj.opened = "Loot", false
+    local function turnCrateCamera(camX)
+        MOCK_CAMERA.CFrame = CFrame.new(camX, 3, 0)
+        crateObj.geomKey, crateObj.geomCache = nil, nil
+        crateObj.geomAnchor, crateObj.geomForceFresh = nil, false
+        SA.EspGeomInvalidate()
+        quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    end
+
+    turnCrateCamera(-6)
+    near(crateObj.geomCache.raw.X, 800, 0.001,
+        "crate outside FOV: target projection")
+    ok(crateObj.fx and crateObj.fx.cratefovdot
+        and crateObj.fx.cratefovdot.Visible == true,
+        "crate outside FOV: dot drawn")
+    near(crateObj.fx.cratefovdot.Position.X, 800, 0.001,
+        "crate outside FOV: dot at real projection")
+    ok(SA.CrateFovState().outside >= 1, "crate outside FOV counted")
+
+    turnCrateCamera(10)
+    ok(SA.EspFovState().transitions > beforeFovTransitions,
+        "crate FOV enter triggers one-time overlay cleanup")
+    local crateFov = SA.EspFovSnapshot(MOCK_CAMERA, crateObj.geomCache,
+        SA.AimPoint(), SA.FovRadius())
+    eq(crateFov.inside, true, "crate inside FOV: raw point is inside")
+    near(crateObj.geomCache.raw.X, 640, 0.001,
+        "crate inside FOV: fresh projection")
+    if crateObj.fx and crateObj.fx.cratefovdot then
+        eq(crateObj.fx.cratefovdot.Visible, false,
+            "crate inside FOV: stale edge dot hidden")
+    end
+    eq(crateObj.bb.Enabled, false, "crate inside FOV: BillboardGui hidden")
+    ok(SA.CrateFovState().inside >= 1, "crate inside FOV counted")
+
+    turnCrateCamera(-6)
+    ok(crateObj.fx and crateObj.fx.cratefovdot
+        and crateObj.fx.cratefovdot.Visible == true,
+        "crate leave FOV: dot restored immediately")
+    eq(crateObj.bb.Enabled, false, "crate leave FOV: BillboardGui stays hidden")
+
+    crateObj.pos, crateObj.visible = savedPos, savedVisible
+    crateObj.dist, crateObj.kind = savedDist, savedKind
+    crateObj.opened = savedOpened
+    crateObj.geomKey, crateObj.geomCache = nil, nil
+    crateObj.geomAnchor, crateObj.geomForceFresh = nil, false
+    MOCK_CAMERA.CFrame = savedCam
+    MOCK_CAMERA.WorldToViewportPoint = savedW2v
+    UserInputService.GetMouseLocation = savedMouse
+    SA.EspGeomInvalidate()
+    quiet(function() SA.ResetToDefaults() end)
+end
+saCrateFovTransitionRegression()
 
 -- All ESP OFF must hide each object list ONCE, then early-out before the
 -- aim / FOV / nearest work. The master render callback still runs normally.
@@ -2320,6 +2590,11 @@ local keptStateAPIs = {
     "DrawSyncPending", "DrawDiag", "DrawWriteFailures", "KeybindConflicts",
     "ConfigCoverage", "SilentAimState", "FireAssistState", "ForceHeadState",
     "ManipNpcState", "CrateFovState", "PlayerWarningState",
+    "EspFovState", "EspFovSnapshot", "SnaplineState",
+    "EspColorSnapshot", "EspColorRestore", "EspColorCount",
+    "EspColorEncode", "EspColorDecode", "EspColorText",
+    "EspColorFromText", "EspColorHex", "EspColorFromHex",
+    "EspJson",
     "ApplyBestEsp", "ApplyCleanEsp", "BestEspState", "HideEspBillboard",
     "ManipPopupState", "NearestWindowState", "EspPassStats", "DrawPoolStats",
     "PerfState", "GunDiff", "ApplyGunOverrides", "SyncGunDefs",

@@ -263,6 +263,34 @@ local function screenPoint(cam, v3, ok)
     return Vector2.new(cx + dx * k, cy + dy * k), false
 end
 
+-- FOV state must be computed from the real WorldToViewportPoint result.
+-- The old code used screenPoint()'s border-clamped pixel for BOTH the arrow
+-- and the inside/outside test, so a target entering the circle inherited the
+-- clamped edge direction and its box/name stayed "stuck outside" until the
+-- camera turned away. Arrows/tracers still use the clamped/edge anchor.
+local function espFovSnapshot(cam, g, fovCenter, fovRadius)
+    local vp = cam.ViewportSize or Vector2.new(1280, 720)
+    local center = fovCenter or SA.AimPoint()
+    local radius = math.max(tonumber(fovRadius) or SA.FovRadius(), 20)
+    local raw = g and g.raw
+    local fallback = raw or Vector3.new(vp.X / 2, vp.Y / 2, 1)
+    local clamped, clampedOn = screenPoint(cam, fallback, g and g.ok)
+    local inFront = g and g.ok == true and raw
+        and (tonumber(raw.Z) or 0) > 0
+    local point = inFront and Vector2.new(raw.X, raw.Y) or clamped
+    local onScreen = inFront and (g.onScreen == true or clampedOn) or false
+    local dir = point - center
+    if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
+    local inside = onScreen and (dir.Magnitude <= radius)
+    return {
+        point = point, clamped = clamped, dir = dir,
+        center = center, radius = radius, onScreen = onScreen,
+        inside = inside, outside = not inside,
+        edge = center + dir.Unit * radius,
+    }
+end
+SA.EspFovSnapshot = espFovSnapshot
+
 local function boxSegments(g, corner)
     local x, y, w, h = g.x, g.y, g.w, g.h
     if not corner then

@@ -25,6 +25,10 @@ infoSec:label({ name = "Brightness: local ColorCorrectionEffect, clamped 0-0.5" 
 infoSec:label({ name = "Silent aim + manip: GUNS ONLY (bows skipped)" })
 infoSec:label({ name = "BETTER: profiles · self-check · perf mode · preview compare" })
 
+-- Colour-picker helpers are defined once in 01_config.lua so this UI part
+-- stays inside Luau's 200-local-register limit. Save / Load / Export /
+-- Import call SA.EspColorEncode / Decode / Text / FromText below.
+
 -- ── MISC : Quick Actions ───────────────────────────────────────────
 local actCol = MiscTab:column()
 local actSec = actCol:section({ name = "Quick Actions" })
@@ -114,16 +118,21 @@ end
 
 function SA.SaveProfile(name)
     name = saCfgSafeName(name)
+    local encoded = nil
     local ok, err = pcall(function()
         makefolder(library.directory or "Atlanta")
         makefolder(SA.ProfileDir)
-        writefile(SA.ProfileDir .. "/" .. name .. ".cfg", library:get_config())
+        encoded = SA.EspColorEncode(library:get_config())
+        writefile(SA.ProfileDir .. "/" .. name .. ".cfg", encoded)
+        writefile(SA.ProfileDir .. "/" .. name .. ".colors", SA.EspColorText())
         writefile(SA.ProfileLast, name)
         library:config_list_update()
     end)
     if not ok then return false, tostring(err) end
     CFG.configName, CFG.configProfile = name, name
-    SA.LastConfigResult = { profile = name, flags = SA.FlagCount(), bytes = nil }
+    local colorCount = SA.EspColorCount()
+    SA.LastConfigResult = { profile = name, flags = SA.FlagCount(),
+                            colors = colorCount, bytes = encoded and #encoded or nil }
     return true
 end
 
@@ -139,11 +148,18 @@ function SA.LoadProfile(name)
     pcall(function() library.old_config = library:get_config() end)
     local okLoad, loadErr = pcall(function() library:load_config(data) end)
     if not okLoad then return false, tostring(loadErr) end
+    local colorCount = SA.EspColorDecode(data)
+    pcall(function()
+        local sidecar = readfile(SA.ProfileDir .. "/" .. name .. ".colors")
+        if type(sidecar) == "string" then
+            colorCount = SA.EspColorRestore(SA.EspColorFromText(sidecar))
+        end
+    end)
     CFG.configName, CFG.configProfile = name, name
     pcall(function() writefile(SA.ProfileLast, name) end)
     pcall(function() library:config_list_update() end)
     SA.LastConfigResult = { profile = name, flags = SA.FlagCount(),
-                            bytes = #data }
+                            colors = colorCount, bytes = #data }
     return true
 end
 
@@ -154,6 +170,7 @@ function SA.DeleteProfile(name)
     end
     local ok, err = pcall(function()
         delfile(SA.ProfileDir .. "/" .. name .. ".cfg")
+        pcall(function() delfile(SA.ProfileDir .. "/" .. name .. ".colors") end)
         library:config_list_update()
     end)
     if not ok then return false, tostring(err) end
@@ -162,7 +179,7 @@ end
 
 
 function SA.ExportConfig()
-    local data = library:get_config()
+    local data = SA.EspColorEncode(library:get_config())
     pcall(function() setclipboard(data) end)
     return data
 end
@@ -170,6 +187,7 @@ end
 function SA.ImportConfig(data)
     if type(data) ~= "string" or data == "" then return false, "empty input" end
     local ok, err = pcall(function() library:load_config(data) end)
+    if ok then SA.EspColorDecode(data) end
     return ok, err
 end
 
@@ -212,12 +230,14 @@ end
 function SA.TestConfigRoundTrip()
     local okGet, data = pcall(function() return library:get_config() end)
     if not okGet then return false, "get_config failed: " .. tostring(data) end
-    local before = SA.FlagSnapshot()
+    local before = SA.FlagSnapshot() .. "\n" .. SA.EspColorText()
     local okLoad, err = pcall(function() library:load_config(data) end)
     if not okLoad then return false, "load_config failed: " .. tostring(err) end
-    local after = SA.FlagSnapshot()
-    if before ~= after then return false, "flag snapshot changed" end
-    return true, SA.FlagCount() .. " flags round-tripped"
+    local after = SA.FlagSnapshot() .. "\n" .. SA.EspColorText()
+    if before ~= after then return false, "flag / colour snapshot changed" end
+    local colorCount = SA.EspColorCount()
+    return true, SA.FlagCount() .. " flags round-tripped + "
+        .. colorCount .. " colours"
 end
 
 function SA.ResetKeybindDefaults()
@@ -391,6 +411,15 @@ function SA.SelfCheck()
         { "esp perf", "EspPerfState" },
         { "esp frame budget", "EspFrameBudget" },
         { "hitbox", "HitboxState" },
+        { "FOV reference", "EspFovState" },
+        { "snapline", "SnaplineState" },
+        { "saved colours", "EspColorSnapshot" },
+        { "colour count", "EspColorCount" },
+        { "colour restore", "EspColorRestore" },
+        { "colour encode", "EspColorEncode" },
+        { "colour decode", "EspColorDecode" },
+        { "colour text", "EspColorText" },
+        { "colour parse", "EspColorFromText" },
     }
     for _, d in ipairs(stateCalls) do
         local ok = false

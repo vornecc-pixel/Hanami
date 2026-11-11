@@ -29,13 +29,19 @@ function SA.ViewportSize()
 end
 
 function SA.AimPoint()
+    -- ONE reference point for the FOV circle, silent aim, snapline, ESP
+    -- arrows and crate FOV checks: the live mouse / crosshair location.
+    -- Screen Center is only the fallback when that location is missing or
+    -- invalid. A stale "Screen Center" saved profile can no longer move the
+    -- circle away from the crosshair and leave ESP clamped to the old edge.
     local vp = SA.ViewportSize()
-    if CFG.fovCenterMode ~= "Screen Center" then
-        local ok, p = pcall(function() return UserInputService:GetMouseLocation() end)
-        if ok and p and type(p.X) == "number" and type(p.Y) == "number" then
-            if p.X > 0 and p.Y > 0 and p.X < vp.X and p.Y < vp.Y then
-                return Vector2.new(p.X, p.Y)
-            end
+    local ok, p = pcall(function() return UserInputService:GetMouseLocation() end)
+    if ok and p and type(p.X) == "number" and type(p.Y) == "number" then
+        -- (0,0) is the classic "mouse API unavailable" sentinel, not a
+        -- real crosshair position. Off-viewport coordinates are invalid too.
+        if p.X >= 0 and p.Y >= 0 and p.X <= vp.X and p.Y <= vp.Y
+            and (p.X > 0 or p.Y > 0) then
+            return Vector2.new(p.X, p.Y)
         end
     end
     return Vector2.new(vp.X / 2, vp.Y / 2)

@@ -120,12 +120,15 @@ end
 function SA.EspGeomInvalidate()
     for _, o in pairs(espObjects or {}) do
         o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+        o.geomForceFresh = false
     end
     for _, o in pairs(npcObjects or {}) do
         o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+        o.geomForceFresh = false
     end
     for _, o in pairs(crateObjects or {}) do
         o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+        o.geomForceFresh = false
     end
     espCamSig.has = false
     espCamSig.fxKey = nil
@@ -291,6 +294,16 @@ function SA.EspPassAllowed(kind, model, dist, targetModel)
     return true
 end
 
+function SA.EspFovState()
+    return {
+        center = SA.AimPoint and SA.AimPoint() or nil,
+        radius = SA.FovRadius and SA.FovRadius() or nil,
+        signature = SA.EspDrawSignature or "",
+        transitions = SA.EspFovTransitions or 0,
+        reference = "Mouse / crosshair",
+    }
+end
+
 function SA.CrateFovState()
     local c = SA.CrateFovCount or {}
     return {
@@ -428,13 +441,10 @@ local function countCrateFovFromCache(cam, o, fovC, fovR)
     if CFG.crateFovAware == false then return end
     local g = o.geomCache
     if not g or not g.raw then return end
-    local vp = cam.ViewportSize or Vector2.new(1280, 720)
-    local px, onScr = screenPoint(cam, g.raw, g.ok)
-    local center = fovC or Vector2.new(vp.X / 2, vp.Y / 2)
-    local radius = math.max(fovR or 150, 20)
-    local outside = (px - center).Magnitude > radius
+    -- Raw projection, not screenPoint()'s clamped border pixel.
+    local fov = SA.EspFovSnapshot(cam, g, fovC, fovR)
     local c = SA.CrateFovCount
-    if not onScr or outside then
+    if not fov.onScreen or fov.outside then
         c.outside = c.outside + 1
         c.dots = c.dots + 1
     else
@@ -478,6 +488,24 @@ function SA.ApplyEspFx(cam)
     local seed = 0
     local fovC = SA.AimPoint()
     local fovR = SA.FovRadius()
+    SA.EspFovTransitions = SA.EspFovTransitions or 0
+    -- Changing the circle radius or any ESP draw flag invalidates the
+    -- per-entity FOV state once; ordinary mouse movement does NOT, because
+    -- arrows/tracers are repositioned from the current fovC every frame.
+    SA.EspDrawSignature = table.concat({
+        tostring(CFG.fov), espNum(fovR),
+        tostring(CFG.espShowOffscreen), tostring(CFG.espArrowFOV),
+        tostring(CFG.espShowTracer), tostring(CFG.espTracerOrigin),
+        tostring(CFG.espShowBox), tostring(CFG.espCornerBox),
+        tostring(CFG.espCleanMode), tostring(CFG.espShowFill),
+        tostring(CFG.espShowOutline), tostring(CFG.espShowSkeleton),
+        tostring(CFG.espShowHeadDot), tostring(CFG.espShowName),
+        tostring(CFG.espShowDist), tostring(CFG.espShowHealth),
+        tostring(CFG.espShowTool), tostring(CFG.espShowState),
+        tostring(CFG.espTextOutline), tostring(CFG.espTagBackdrop),
+        tostring(CFG.espTagSide), tostring(CFG.espHighlightTarget),
+        tostring(CFG.crateFovAware), tostring(CFG.crateHighlight),
+    }, "|")
     local geomBudget = SA.EspGeometryBudget and SA.EspGeometryBudget()
         or { stride = 1, bucket = 0 }
     -- Cached screen coordinates are only valid while the camera is static.
@@ -491,6 +519,10 @@ function SA.ApplyEspFx(cam)
     -- when slicing is active. Only the remaining entities rotate buckets,
     -- so the entity the user is actually aiming at never waits 4 frames.
     local function dueGeometry(model, isTarget, o)
+        if o and o.geomForceFresh then
+            o.geomForceFresh = false
+            return true
+        end
         if stride <= 1 or isTarget then return true end
         if model and espNearestSet[model] then return true end
         if not o or not o.geomCache then return true end

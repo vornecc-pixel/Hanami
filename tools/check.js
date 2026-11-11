@@ -248,12 +248,12 @@ for (const needle of [
   'espEnabled = true', 'npcEspEnabled = true', 'espCornerBox = true',
   'espShowFill = false', 'espShowTracer = false',
   'espShowOffscreen = false', 'espPreview = true',
-  'if saFreshEspStartup then',
+  'if saFreshStartup then',
 ]) {
   assert(startupBlock.includes(needle) || config.includes(needle),
     `ESP-only startup missing ${needle}`);
 }
-assert(config.includes('local saFreshEspStartup = _G.__saCFG == nil'),
+assert(config.includes('local saFreshStartup = _G.__saCFG == nil'),
   'fresh-session marker must be cleared by FullUnload');
 assert(allSource.includes('function SA.BestEspState()'),
   'src/22_ui_esp.lua: BestEspState() missing');
@@ -261,10 +261,70 @@ assert(allSource.includes('SA.HideEspBillboard = hideEspBillboard'),
   'src/18_esp_fx_colours.lua: legacy-label hide missing');
 assert(allSource.includes('cameraTurned and 1'),
   'src/18_esp_fx_frame.lua: camera-turn fresh geometry missing');
+
+// FOV circle is the sole non-ESP startup exception: ON, solid, visible,
+// mouse reference, with a separate 1-10 snapline size control.
+const fovStart = config.indexOf('SA.FOV_STARTUP = {');
+const fovEnd = config.indexOf('for k, v in pairs(SA.FOV_STARTUP)', fovStart);
+assert(fovStart > 0 && fovEnd > fovStart,
+  'src/01_config.lua: FOV startup snapshot missing');
+const fovBlock = config.slice(fovStart, fovEnd);
+const fovBody = fovBlock.slice(fovBlock.indexOf('{') + 1,
+  fovBlock.indexOf('}'));
+const fovKeys = Array.from(
+  fovBody.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*=/g), (m) => m[1]);
+assert(fovKeys.length >= 6,
+  `expected a full FOV startup preset, found ${fovKeys.length} keys`);
+for (const key of fovKeys) {
+  assert(/^(fov|show|snapLine|force)/.test(key),
+    `non-FOV key in FOV_STARTUP: ${key}`);
+}
+for (const needle of [
+  'showFov = true', 'fovTransparency = 1', 'fovThickness = 2',
+  'fovCenterMode = "Mouse"', 'snapLineThickness = 1',
+]) {
+  assert(fovBlock.includes(needle), `FOV startup missing ${needle}`);
+}
+assert(!/CFG\.fovCenterMode\s*~=\s*"Screen Center"/.test(allSource),
+  'FOV reference must not fall back to a stale Screen Center mode');
+assert(allSource.includes('SA.EspFovSnapshot = espFovSnapshot'),
+  'raw FOV projection snapshot missing');
+assert(allSource.includes('function SA.EspFovState()'),
+  'ESP FOV state API missing');
+assert(allSource.includes('function SA.SnaplineState()'),
+  'snapline state API missing');
+assert(allSource.includes('SA.EspDrawSignature = table.concat'),
+  'per-frame FOV / draw signature missing');
+assert(allSource.includes('SA.EspFovTransitions'),
+  'FOV transition counter missing');
+assert(read('src/10_fov_circle.lua').includes('CFG.fovTransparency or 1'),
+  'FOV circle must default to the solid 1% transparency');
+assert(read('src/02_shared.lua').includes('(p.X > 0 or p.Y > 0)'),
+  'AimPoint must reject the invalid (0,0) mouse sentinel');
+assert(read('src/24_ui_visual.lua').includes('"snapLineThickness", 1, 10'),
+  'customizable snapline size slider missing');
+
+// Inline colour picks must survive native profile save / load / import.
+for (const needle of [
+  'function SA.EspColorSnapshot()', 'function SA.EspColorRestore',
+  '__saEspColors', 'name .. ".colors"',
+  'typeof(c) == \"Color3\" or type(c) == \"table\"',
+]) {
+  assert(allSource.includes(needle), `saved colour picker support missing ${needle}`);
+}
 const tests = read('tools/tests.lua');
 for (const needle of [
   'saEspFovTransitionRegression', 'saNpcFovTransitionRegression',
+  'saCrateFovTransitionRegression', 'saFovReferenceRegression',
+  'saSnaplineSizeRegression', 'saColorProfileRegression',
   'WorldToViewportPoint = function',
+  'FOV reference follows mouse X despite stale centre mode',
+  'FOV enter triggers one-time overlay cleanup',
+  'NPC FOV enter triggers one-time overlay cleanup',
+  'crate FOV enter triggers one-time overlay cleanup',
+  'custom snapline size state',
+  'saved profile carries ESP colours',
+  'import-only colour block restores pickers',
   'inside FOV: stale FOV-edge box replaced',
   'NPC inside FOV: stale FOV-edge box replaced',
   'leave FOV: name tag follows target out again',
@@ -360,14 +420,14 @@ for (const name of files) {
 }
 const requiredDescriptions = {
   'src/01_config.lua': ['themes', 'fonts', 'white', 'startup off',
-    'esp-only best startup',
+    'esp-only best startup', 'fov startup', 'snapline size', 'mouse reference',
     'inline colours', 'profiles', 'self-check', 'perf', 'clean',
     'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
     'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching',
     'per-property'],
   'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list'],
-  'src/02_shared.lua': ['fov', 'pinned', 'npc classifier', 'force head',
+  'src/02_shared.lua': ['fov', 'mouse reference', 'pinned', 'npc classifier', 'force head',
     'trigger bone', 'vis', 'wall check'],
   'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist'],
   'src/08_prediction.lua': ['gun diff', 'override'],
@@ -376,19 +436,21 @@ const requiredDescriptions = {
     'dedicated fust bow part'],
   'src/09_z_fust_bow.lua': ['fust bow', 'ballistic', 'hookfunction',
     'shoot.fireserver', 'peek-origin', 'fov', 'bow specs', 'state'],
+  'src/10_fov_circle.lua': ['solid', 'visible', 'reference point'],
+  'src/11_snapline.lua': ['fov reference', 'snapline size'],
   'src/13_esp_players_refresh.lua': ['per-player', 'cached player rig', 'vis',
     'shared projection cache', 'geometry cache'],
   'src/14_esp_npcs.lua': ['npc esp', 'cached rig'],
   'src/15_esp_npcs_refresh.lua': ['npc esp', 'cached rig', 'vis',
     'shared projection cache', 'geometry cache'],
   'src/16_esp_crates_registry.lua': ['crate registry', 'raw list'],
-  'src/18_esp_fx_colours.lua': ['palette', 'legacy line', 'usage marks',
-    'geometry cache', 'rainbow clock'],
+  'src/18_esp_fx_colours.lua': ['palette', 'fov snapshot', 'raw projection',
+    'legacy line', 'usage marks', 'geometry cache', 'rainbow clock'],
   'src/18_esp_fx_draw.lua': ['clean', 'outline', 'crate fov', 'off-screen',
-    'fov enter/leave',
+    'fov enter/leave', 'transition cleanup',
     'legacy line', 'hoisted helpers', 'usage marks', 'direct segments'],
   'src/18_esp_fx_frame.lua': ['per-frame', 'crate fov', 'team map',
-    'fov enter/leave',
+    'fov enter/leave', 'fov transition',
     'cached rig', 'fps', 'geometry cache', 'geometry slicing',
     'camera signature', 'priority slicing', 'hidden pass',
     'one fewer pcall'],
@@ -406,10 +468,12 @@ const requiredDescriptions = {
   'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov',
     'esp-only best startup',
     'inline', 'no colour mini-tabs'],
-  'src/24_ui_visual.lua': ['theme', 'font', 'top-n', 'performance', 'keybind', 'popup',
+  'src/24_ui_visual.lua': ['fov reference', 'snapline size', 'theme', 'font',
+    'top-n', 'performance', 'keybind', 'popup',
     'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
     'utilities'],
-  'src/25_ui_misc.lua': ['theme', 'font', 'profile', 'self-check', 'full unload',
+  'src/25_ui_misc.lua': ['theme', 'font', 'profile', 'colour profiles',
+    'self-check', 'full unload',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
     'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget',
     'fust bow'],
@@ -475,7 +539,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '5,110 assertions',
+  '5,379 assertions',
   'all 75 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -493,7 +557,19 @@ const requiredDocs = [
   'SA.BEST_ESP_STARTUP',
   'SA.BestEspState()',
   'FOV enter/leave',
-  'Player and NPC FOV enter/leave',
+  'Player, NPC and crate FOV enter/leave',
+  'FOV reference point',
+  'customizable snapline size',
+  'saved colour pickers',
+  'SA.FOV_STARTUP',
+  'SA.EspFovSnapshot()',
+  'SA.EspFovState()',
+  'SA.SnaplineState()',
+  'SA.EspColorSnapshot()',
+  'SA.EspColorRestore()',
+  'SA.EspColorCount()',
+  'SA.EspColorEncode()',
+  'SA.EspColorDecode()',
   'ESP-only best preset',
   'uiTheme',
   'uiFont',

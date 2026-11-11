@@ -16,8 +16,9 @@
 --  3. `SA.NewDraw` only probed "Line", never "Circle", and could never
 --     downgrade after a runtime property failure.
 --  4. `showFov` defaulted to false in older builds and `_G.__saCFG`
---     persists, so the new `true` default never applied (see the one-time
---     migration in 01_config.lua).
+--     persists, so the new `true` default never applied. `SA.FOV_STARTUP`
+--     in 01_config.lua now applies it on a fresh session / migration and
+--     ResetToDefaults() keeps the solid, visible circle.
 --  5. The circle used its own mouse lookup while aim/snapline/arrows each
 --     used `GetMouseLocation()` directly. Now all of them use
 --     SA.AimPoint() + SA.FovRadius() (02_shared.lua) — the FOV circle IS
@@ -66,7 +67,7 @@ local function ensureFov()
     -- None of these is fatal. Even if NumSides / Filled are unsupported the
     -- object can still be shown (the GUI backend supports all of them).
     fovSet(c, "Filled", false)
-    fovSet(c, "Thickness", 1)
+    fovSet(c, "Thickness", math.max(CFG.fovThickness or 2, 1))
     fovSet(c, "NumSides", 64)
     fovSet(c, "Visible", false)
     pcall(function() if c.Backend == "ScreenGui" then fovBackend = "ScreenGui" end end)
@@ -90,7 +91,7 @@ function SA.FovState()
         exists       = c ~= nil,
         backend      = fovBackend,
         centre       = centre,
-        centreMode   = CFG.fovCenterMode,
+        centreMode   = "Mouse / crosshair reference",
         radius       = SA.FovRadius(),
         visible      = vis,
         transparency = CFG.fovTransparency,
@@ -126,8 +127,9 @@ bindRender(function()
     fovSet(c, "Radius",       SA.FovRadius())
     fovSet(c, "Position",     SA.AimPoint())
     fovSet(c, "Filled",       CFG.fovFilled)
-    fovSet(c, "Thickness",    math.max(CFG.fovThickness or 1, 1))
-    fovSet(c, "Transparency", math.clamp((CFG.fovTransparency or 50) / 100, 0, 0.95))
+    fovSet(c, "Thickness",    math.max(CFG.fovThickness or 2, 1))
+    -- 1% transparent = a solid, actually visible circle. 0 is accepted too.
+    fovSet(c, "Transparency", math.clamp((CFG.fovTransparency or 1) / 100, 0, 0.95))
     fovSet(c, "Color",        (CFG.manipulation and ESP_COLORS.fovManip or ESP_COLORS.fov)
                               or Color3.fromRGB(255, 50, 50))
 

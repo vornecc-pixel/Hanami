@@ -35,20 +35,50 @@ local leadLine = initDraw("Line", { Thickness = 1, Transparency = 0.35, Visible 
 local leadDot  = initDraw("Circle", { Radius = 5, Filled = false, NumSides = 24,
                                       Transparency = 0.35, Visible = false })
 
+local function clearSnapTarget()
+    if not SA.Target then return end
+    -- Keep the silent-aim fields (pred / lastShot / lastShotAt) intact.
+    SA.Target.model, SA.Target.pos = nil, nil
+    SA.Target.visible, SA.Target.screen, SA.Target.t = nil, nil, nil
+end
+
 local function hideSnap()
     drawSet(snapLine, "Visible", false)
     drawSet(snapDot,  "Visible", false)
     drawSet(leadLine, "Visible", false)
     drawSet(leadDot,  "Visible", false)
+    clearSnapTarget()
 end
 
-local function snapOrigin(cam)
-    if CFG.snapLineOrigin == "Center" then
-        return Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    elseif CFG.snapLineOrigin == "Bottom" then
-        return Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
-    end
-    return SA.AimPoint()   -- same reference point as the FOV circle
+local function snapOrigin()
+    -- The snapline ALWAYS starts at the same mouse / crosshair reference
+    -- point as the FOV circle. Legacy Center / Bottom origins are gone.
+    return SA.AimPoint()
+end
+
+local function snapSize()
+    return math.clamp(tonumber(CFG.snapLineThickness) or 1, 1, 10)
+end
+
+function SA.SnaplineState()
+    local ref = SA.AimPoint()
+    return {
+        enabled = CFG.snapLineEnabled == true,
+        master = CFG.masterEnabled == true and CFG.gunEnabled == true,
+        thickness = snapSize(),
+        origin = "FOV Reference",
+        reference = ref,
+        target = SA.Target and SA.Target.screen or nil,
+    }
+end
+
+local function snapProject(cam, v3, ok)
+    local vp = cam.ViewportSize or Vector2.new(1280, 720)
+    local m = 34
+    local inView = ok == true and (tonumber(v3.Z) or 0) > 0
+        and v3.X >= -m and v3.X <= vp.X + m
+        and v3.Y >= -m and v3.Y <= vp.Y + m
+    return Vector2.new(v3.X, v3.Y), inView
 end
 
 local function updateSnapLine()
@@ -61,14 +91,10 @@ local function updateSnapLine()
     -- ONE reference point: the centre of the drawn FOV circle.
     local aimPx = SA.AimPoint()
     local best = pickBestTarget(cam, aimPx, cam.CFrame.Position, true)
-    if not best then
-        SA.Target.model, SA.Target.pos = nil, nil
-        hideSnap(); return
-    end
-    local sp, onScreen = cam:WorldToViewportPoint(best.pos)
+    if not best then hideSnap(); return end
+    local sp, w2vOk = cam:WorldToViewportPoint(best.pos)
+    local toPx, onScreen = snapProject(cam, sp, w2vOk)
     if not onScreen then hideSnap(); return end
-
-    local toPx = Vector2.new(sp.X, sp.Y)
     local visible = SA.IsVisible(best.model, best.pos)
     local col = visible and ESP_COLORS.snapVisible or ESP_COLORS.snapHidden
 
@@ -80,15 +106,16 @@ local function updateSnapLine()
     SA.Target.t       = tick()
 
     if snapLine then
-        drawSet(snapLine, "From", snapOrigin(cam))
+        drawSet(snapLine, "From", snapOrigin())
         drawSet(snapLine, "To", toPx)
         drawSet(snapLine, "Color", col)
-        drawSet(snapLine, "Thickness", CFG.snapLineThickness)
+        drawSet(snapLine, "Thickness", snapSize())
         drawSet(snapLine, "Visible", true)
     end
     if snapDot then
         drawSet(snapDot, "Position", toPx)
         drawSet(snapDot, "Color", col)
+        drawSet(snapDot, "Radius", snapSize() + 3)
         drawSet(snapDot, "Visible", true)
     end
 
@@ -96,15 +123,17 @@ local function updateSnapLine()
     local showLead = leadLine and CFG.snapShowLead and CFG.prediction
     if showLead then
         local aimPos, info = SA.Predict(cam.CFrame.Position, best.pos, best.model)
-        local lp2, leadOn = cam:WorldToViewportPoint(aimPos)
-        local leadPx = Vector2.new(lp2.X, lp2.Y)
+        local lp2, leadOk = cam:WorldToViewportPoint(aimPos)
+        local leadPx, leadOn = snapProject(cam, lp2, leadOk)
         if leadOn and (leadPx - toPx).Magnitude > 1.5 and info.inRange then
             drawSet(leadLine, "From", toPx)
             drawSet(leadLine, "To", leadPx)
             drawSet(leadLine, "Color", ESP_COLORS.lead)
+            drawSet(leadLine, "Thickness", snapSize())
             drawSet(leadLine, "Visible", true)
             drawSet(leadDot, "Position", leadPx)
             drawSet(leadDot, "Color", ESP_COLORS.lead)
+            drawSet(leadDot, "Radius", snapSize() + 4)
             drawSet(leadDot, "Visible", true)
         else
             drawSet(leadLine, "Visible", false); drawSet(leadDot, "Visible", false)

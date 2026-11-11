@@ -95,14 +95,14 @@ local function drawEntityInner(cam, o, opt)
     local textOutline= cleanEsp or CFG.espTextOutline == true
 
     -- ONE FOV reference for off-screen arrows AND the crate ESP mode.
-    local px, onScr = screenPoint(cam, g.raw, g.ok)
-    local fovC = opt.fovCenter or Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local fovR = math.max(opt.fovRadius or 150, 20)
-    local dir = px - fovC
-    if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
-    local outsideFov = dir.Magnitude > fovR
+    -- fov.point is the real projection; px is only the clamped edge pixel.
+    local fov = SA.EspFovSnapshot(cam, g, opt.fovCenter, opt.fovRadius)
+    local px = fov.onScreen and fov.point or fov.clamped
+    local onScr = fov.onScreen
+    local fovC, fovR, dir = fov.center, fov.radius, fov.dir
+    local outsideFov = fov.outside
     local crateFov = p == "crate" and CFG.crateFovAware == true
-    local crateInsideFov = onScr and not outsideFov
+    local crateInsideFov = fov.onScreen and fov.inside
 
     local boxCol = fxColor(p, base, seed, "Box")
     local fillCol = fxColor(p, base, seed, "Fill")
@@ -128,6 +128,23 @@ local function drawEntityInner(cam, o, opt)
         elseif o.infoLbl and o.infoLbl.Visible then
             tx.tags = { { text = o.infoLbl.Text, kind = "info" } }
         end
+    end
+
+    -- A FOV enter/leave, viewport enter/leave or visual-toggle change must
+    -- erase every pooled arrow/tracer/box before the new frame is styled.
+    -- Otherwise a clamped edge draw survives while the entity is already
+    -- inside the circle. Only transitions trigger this, not every frame.
+    local stateKey = tostring(p) .. "|" .. tostring(fov.onScreen) .. "|"
+        .. tostring(fov.inside) .. "|" .. tostring(SA.EspDrawSignature or "")
+    if o.espFovState ~= stateKey then
+        o.espFovState = stateKey
+        SA.EspFovTransitions = (SA.EspFovTransitions or 0) + 1
+        pcall(hideFx, o)
+        startFxFrame(o)
+        -- Keep the projection object for state probes, but force ONE fresh
+        -- SA.EspGeom() next frame so a sliced entity cannot reuse it.
+        o.geomKey = nil
+        o.geomForceFresh = true
     end
 
     -- Read label visibility BEFORE hiding them: the refreshes rewrite
@@ -392,7 +409,7 @@ local function drawEntityInner(cam, o, opt)
         local l = getDraw(o, "tracer", "Line")
         if l then
             l.From = opt.origin
-            l.To = (CFG.espArrowFOV and not onScr) and (fovC + dir.Unit * fovR) or px
+            l.To = (CFG.espArrowFOV and outsideFov) and fov.edge or px
             l.Color = fxColor(p, base, seed, "Tracer")
             l.Transparency = t
             l.Thickness = thick
@@ -400,12 +417,16 @@ local function drawEntityInner(cam, o, opt)
         end
     end
 
-    if CFG.espShowOffscreen and playerOnly
-        and (not onScr or (CFG.espArrowFOV and outsideFov)) then
+    -- FOV arrows use the real direction and hide the instant the target is
+    -- inside the circle; screen-edge arrows are shown only off-viewport.
+    local showArrow = CFG.espShowOffscreen and playerOnly
+        and ((CFG.espArrowFOV and outsideFov)
+            or ((not CFG.espArrowFOV) and not onScr))
+    if showArrow then
         local tri = getDraw(o, "arrow", "Triangle")
         if tri then
             pcall(function()
-                local anchorAt = CFG.espArrowFOV and (fovC + dir.Unit * fovR) or px
+                local anchorAt = CFG.espArrowFOV and fov.edge or fov.clamped
                 local a = SA.Atan2(dir.Y, dir.X)
                 local r = math.clamp(fovR * 0.035, 7, 16)
                 tri.PointA = anchorAt + Vector2.new(math.cos(a), math.sin(a)) * r
