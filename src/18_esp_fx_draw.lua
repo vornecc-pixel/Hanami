@@ -89,9 +89,9 @@ local function drawEntityInner(cam, o, opt)
     local g         = opt.geom
 
     -- CLEAN ESP: the screenshot-style dark pills / filled chams covered
-    -- the whole top of the screen. When clean mode is ON (default), force
+    -- the whole top of the screen. When clean mode is explicitly ON, force
     -- thin outlines + text stroke and ignore the busy saved values.
-    local cleanEsp   = CFG.espCleanMode ~= false
+    local cleanEsp   = CFG.espCleanMode == true
     local backdrop   = (not cleanEsp) and CFG.espTagBackdrop == true
     local showBox    = cleanEsp or CFG.espShowBox == true
     local cornerBox  = (not cleanEsp) and CFG.espCornerBox == true
@@ -106,7 +106,7 @@ local function drawEntityInner(cam, o, opt)
     local dir = px - fovC
     if dir.Magnitude < 0.001 then dir = Vector2.new(0, 1) end
     local outsideFov = dir.Magnitude > fovR
-    local crateFov = p == "crate" and CFG.crateFovAware ~= false
+    local crateFov = p == "crate" and CFG.crateFovAware == true
     local crateInsideFov = onScr and not outsideFov
 
     local boxCol = fxColor(p, base, seed, "Box")
@@ -228,7 +228,7 @@ local function drawEntityInner(cam, o, opt)
         elseif tag.kind == "state" and opt.typeColor and not CFG.espRainbow then
             tagColor = opt.typeColor
         end
-        local side = CFG.espTagSide ~= false
+        local side = CFG.espTagSide == true
         showText(o, "txTag" .. i, tag.text,
             side and (g.x + g.w + 7) or cx,
             side and (g.y + (i - 1) * rowH)

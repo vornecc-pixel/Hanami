@@ -237,7 +237,7 @@ function SA.ManipState()
         hysteresis = saManipNum("manipHysteresis", 0, 12, 3),
         deltaCap = saManipNum("manipMaxPeekDelta", 2, 12, 6),
         directions = 8,
-        npcsEnabled = CFG.manipNpcs ~= false,
+        npcsEnabled = CFG.manipNpcs == true,
         npcTargets = #(SA.GetNpcs and SA.GetNpcs() or {}),
         lastNpc = saManipLastNpc,
     }
@@ -246,7 +246,7 @@ end
 function SA.ManipNpcState()
     local npcs = SA.GetNpcs and SA.GetNpcs() or {}
     return {
-        enabled = CFG.manipNpcs ~= false,
+        enabled = CFG.manipNpcs == true,
         targeting = CFG.targetNpcs == true,
         count = #npcs,
         range = saManipNum("manipDist", 0, 300, 30),
@@ -354,7 +354,7 @@ do
             aim = CFG.masterEnabled == true and CFG.gunEnabled == true,
             popup = CFG.showManipPopup == true,
             npc = false,
-            npcEnabled = CFG.manipNpcs ~= false,
+            npcEnabled = CFG.manipNpcs == true,
             targetingNpcs = CFG.targetNpcs == true,
             allowNoAim = allowNoAim == true,
         }

@@ -18,7 +18,7 @@ SA.FeatureKeybind(espEnabledToggle, "Enable Player ESP", "hn_bind_espEnabled",
     Enum.KeyCode.P, "espEnabled")
 
 bindToggle(playerSec, "Visibility Check", "espVisibleCheck",
-    "GREEN = clear line of sight, RED = behind a wall. Both colours are pickable in Colours -> Player")
+    "VIS / WALL / Flat / dot pickers sit inline on this row")
 bindToggle(playerSec, "Show Names", "espShowName")
 bindToggle(playerSec, "Show Distance", "espShowDist")
 bindToggle(playerSec, "Show Health Bar", "espShowHealth")
@@ -49,14 +49,14 @@ SA.FeatureKeybind(npcEspEnabledToggle, "Enable NPC ESP", "hn_bind_npcEspEnabled"
     Enum.KeyCode.N, "npcEspEnabled")
 
 bindToggle(npcSec, "Visibility Check", "npcVisibleCheck",
-    "Uses the NPC green/red colourpickers in Colours -> NPC")
+    "NPC VIS / WALL / Flat pickers sit inline on this row")
 bindToggle(npcSec, "Show Names", "npcShowName")
 bindToggle(npcSec, "Show Distance", "npcShowDist")
 bindToggle(npcSec, "Show Health Bar", "npcShowHealth")
 bindToggle(npcSec, "Show Weapon", "npcShowTool")
 bindToggle(npcSec, "Show State", "npcShowState")
 bindToggle(npcSec, "NPC Type Colours", "npcUseTypeColors",
-    "Guard / Scavenger / Soldier each get their own colour (Colours -> NPC)")
+    "Guard / Scavenger / Soldier pickers sit inline on this row")
 bindSlider(npcSec, "Max Distance (studs)", "npcMaxDist", 200, 5000, 10, "")
 npcSec:label({ name = "Detects: Guard / Scavenger / Soldier" })
 addButton(npcSec, "Rescan NPCs", function()
@@ -78,7 +78,7 @@ local crateEnabledToggle = crateSec:toggle({
 library.config_flags["hn_crateEnabled"] = function(v) setToggle(crateEnabledToggle, v) end
 
 bindToggle(crateSec, "FOV-Aware Crate ESP", "crateFovAware",
-    "Default ON: outside the FOV circle = one dot; inside = name + distance and an outline-only Highlight. No box or corners")
+    "OFF by default: outside the FOV circle = one dot; inside = name + distance and an outline-only Highlight. No box or corners")
 bindToggle(crateSec, "Show Military Crates", "crateShowMilitary")
 bindToggle(crateSec, "Show Elite Crates", "crateShowElite")
 bindToggle(crateSec, "Show Other Loot", "crateShowLoot",
@@ -102,9 +102,9 @@ addButton(crateSec, "Rescan Crates", function()
 end)
 
 bindToggle(featSec, "Per-Element Colours", "espPerElementColors",
-    "ON (default): every element uses its own picker. OFF: the green/red visibility colour paints everything")
+    "OFF by default: every element uses its own inline picker. OFF: the white visibility colour paints everything")
 bindToggle(featSec, "Clean ESP (outlines only)", "espCleanMode",
-    "ON (default): no dark tag pills / chams fill; thin box + chams outline + text stroke only. OFF restores every individual widget")
+    "OFF by default: no dark tag pills / chams fill; thin box + chams outline + text stroke only. OFF restores every individual widget")
 featSec:label({ name = "Visible check: outer frame + dot + VIS tag" })
 bindToggle(featSec, "Box Outline", "espShowBox")
 bindToggle(featSec, "Corner Boxes", "espCornerBox")
@@ -131,13 +131,14 @@ bindSlider(featSec, "Text Size", "espTextSize", 6, 30, 1, "px")
 bindToggle(featSec, "Show Health %", "espShowHealthText",
     "Adds an HP: NN% tag beside the box corner")
 bindToggle(featSec, "Text Outline", "espTextOutline")
-featSec:label({ name = "── TAHOMA LAYOUT ──" })
+featSec:label({ name = "── LIVE FONT / TAG LAYOUT ──" })
 bindToggle(featSec, "Tags On Box Side", "espTagSide",
     "VIS / WALL, state and HP sit beside the top-right corner. OFF stacks them under the weapon")
 bindToggle(featSec, "Tag Backdrops", "espTagBackdrop",
     "Dark pill behind the weapon badge and each side tag")
 featSec:label({ name = "Name above · Weapon below · Flags at corner" })
-featSec:label({ name = "Font: " .. tostring(SA.ESP_FONT_NAME) })
+local fontStatusLabel = featSec:label({ name = "Font: " .. tostring(SA.ESP_FONT_NAME) })
+SA.RegisterFontStatusLabel(fontStatusLabel)
 
 -- ── BEST ESP PRESET (Players + NPCs) ────────────────────────────────
 -- The curated "best" set: every feature that makes an ESP readable and
@@ -198,7 +199,7 @@ function SA.ApplyCleanEsp()
 end
 
 function SA.CleanEspState()
-    local clean = CFG.espCleanMode ~= false
+    local clean = CFG.espCleanMode == true
     return {
         enabled = clean,
         backdrop = (not clean) and CFG.espTagBackdrop == true,
@@ -216,92 +217,9 @@ featSec:label({ name = "── CLEAN / BEST ESP PRESETS ──" })
 addButton(featSec, "Apply Clean ESP", function() SA.ApplyCleanEsp() end)
 addButton(featSec, "Apply Best ESP", function() SA.ApplyBestEsp() end)
 
--- ── ESP : column 3 — one colourpicker for EVERY drawn element ────────
--- Atlanta labels expose a `right_holder`, so each labelled row can carry
--- its own colourpicker without a dummy toggle. `cfg.set` fires on build,
--- which writes straight back into the shared ESP_COLORS table.
-local COLOR_GROUPS = {
-    { title = "Player", rows = {
-        { "Visible (clear LOS)", "playerVisible" },
-        { "Hidden (behind wall)", "playerHidden" },
-        { "Flat (check off)", "playerFlat" },
-        { "Visibility dot", "playerVisDot" },
-        { "Name text", "playerName" },
-        { "Distance text", "playerDistance" },
-        { "Scanner text", "playerInfo" },
-        { "Box outline", "playerBox" },
-        { "Chams fill", "playerFill" },
-        { "Chams outline", "playerOutline" },
-        { "Health · full", "playerHealthHigh" },
-        { "Health · empty", "playerHealthLow" },
-        { "Skeleton", "playerSkeleton" },
-        { "Head dot", "playerHeadDot" },
-        { "Tracer", "playerTracer" },
-        { "Off-screen arrow", "playerOffscreen" },
-    } },
-    { title = "NPC", rows = {
-        { "Visible (clear LOS)", "npcVisible" },
-        { "Hidden (behind wall)", "npcHidden" },
-        { "Flat (check off)", "npcFlat" },
-        { "Guard", "npcGuard" },
-        { "Scavenger", "npcScavenger" },
-        { "Soldier", "npcSoldier" },
-        { "Name text", "npcName" },
-        { "Distance text", "npcDistance" },
-        { "Scanner text", "npcInfo" },
-        { "Box outline", "npcBox" },
-        { "Chams fill", "npcFill" },
-        { "Chams outline", "npcOutline" },
-        { "Health · full", "npcHealthHigh" },
-        { "Health · empty", "npcHealthLow" },
-        { "Skeleton", "npcSkeleton" },
-        { "Head dot", "npcHeadDot" },
-        { "Tracer", "npcTracer" },
-        { "Off-screen arrow", "npcOffscreen" },
-    } },
-    { title = "Crate", rows = {
-        { "Military", "crateMilitary" },
-        { "Elite", "crateElite" },
-        { "Other loot", "crateLoot" },
-        { "Opened", "crateOpened" },
-        { "State text", "crateState" },
-        { "Distance text", "crateDistance" },
-        { "Tracer", "crateTracer" },
-        { "Off-screen arrow", "crateOffscreen" },
-    } },
-    { title = "Global", rows = {
-        { "Snapline visible", "snapVisible" },
-        { "Snapline blocked", "snapHidden" },
-        { "Lead marker", "lead" },
-        { "FOV circle", "fov" },
-        { "FOV (wall pen on)", "fovManip" },
-        { "Aim target", "target" },
-    } },
-}
-
-local colorCol = EspTab:column()
-local groupNames = {}
-for _, g in ipairs(COLOR_GROUPS) do table.insert(groupNames, g.title) end
-local colorSections = { colorCol:multi_section({ names = groupNames }) }
-
-for i, group in ipairs(COLOR_GROUPS) do
-    local sec = colorSections[i]
-    sec:label({ name = "COLOURS · " .. group.title:upper() })
-    sec:label({ name = "Every row has its own picker — instant" })
-    sec:label({ name = "Visible/Hidden = frame, dot and VIS tag" })
-    if group.title == "Crate" then
-        sec:label({ name = "Type colour also paints box / fill / name" })
-    end
-    for _, row in ipairs(group.rows) do
-        local key = row[2]
-        local lbl = sec:label({ name = row[1] })
-        lbl:colorpicker({
-            name = row[1], flag = "hn_col_" .. key,
-            color = ESP_COLORS[key],
-            callback = function(c) ESP_COLORS[key] = c end,
-        })
-    end
-end
+-- Every colourpicker is chained INLINE by bindToggle / bindSlider /
+-- bindDropdown in 21_ui_aiming.lua. The old ESP -> Colours mini-tabs are
+-- gone: no colour picker lives in a different tab or section.
 
 -- ── BETTER : ESP decluttering ───────────────────────────────────────
 -- Four live filters (nearest N, aim target, team rule, entity cap) plus

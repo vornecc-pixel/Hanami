@@ -285,7 +285,7 @@ end
 function SA.CrateFovState()
     local c = SA.CrateFovCount or {}
     return {
-        enabled = CFG.crateFovAware ~= false,
+        enabled = CFG.crateFovAware == true,
         crateEsp = CFG.crateEnabled == true,
         radius = SA.FovRadius and SA.FovRadius() or nil,
         center = SA.AimPoint and SA.AimPoint() or nil,

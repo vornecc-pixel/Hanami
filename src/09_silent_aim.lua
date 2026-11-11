@@ -357,7 +357,7 @@ function SA.SilentAimState()
         gunsOnly = true,
         bowEquipped = SA.IsEquippedBow() == true,
         tapWindow = CFG.saTapWindow or 0.35,
-        forceHead = CFG.forceHead ~= false,
+        forceHead = CFG.forceHead == true,
         resolvedBone = SA.ResolveTargetBone and SA.ResolveTargetBone()
             or CFG.targetBone,
         snapped = snapped, snappedThisFrame = saSnappedThisFrame,
@@ -516,13 +516,13 @@ function SA.FireAssistState()
     return {
         triggerbot = CFG.triggerbot == true,
         autoFire = CFG.autoFire == true,
-        headOnly = CFG.triggerHeadOnly ~= false,
+        headOnly = CFG.triggerHeadOnly == true,
         randomPart = CFG.triggerRandomPart == true,
         part = CFG.triggerPart,
         manipSupport = CFG.triggerUseManip == true,
         wallCheck = CFG.fireWallCheck == true,
         autoFireGated = CFG.autoFire == true and CFG.fireWallCheck == true,
-        forceHead = CFG.forceHead ~= false,
+        forceHead = CFG.forceHead == true,
         resolvedAimBone = SA.ResolveTargetBone and SA.ResolveTargetBone()
             or CFG.targetBone,
         shots = saFireAssist.shots or 0,

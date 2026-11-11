@@ -443,7 +443,7 @@ local function pvApplyStyleTo(ui, isNpc)
     local rowH     = math.floor(ts + 3)   -- EXACTLY drawEntity()'s spacing
     -- Mirror drawEntity()'s clean-mode effective values so the floating
     -- preview never shows dark pills the real ESP no longer draws.
-    local cleanEsp  = CFG.espCleanMode ~= false
+    local cleanEsp  = CFG.espCleanMode == true
     local showBox   = cleanEsp or CFG.espShowBox == true
     local cornerBox = (not cleanEsp) and CFG.espCornerBox == true
     local showFill  = (not cleanEsp) and CFG.espShowFill == true
@@ -545,7 +545,7 @@ local function pvApplyStyleTo(ui, isNpc)
         tagLines[#tagLines + 1] = {
             text = "HP: " .. math.floor(ratio * 100) .. "%", color = col("Info") }
     end
-    local side = CFG.espTagSide ~= false
+    local side = CFG.espTagSide == true
     for i, lbl in ipairs(ui.tags) do
         local tag = tagLines[i]
         lbl.Visible = tag ~= nil

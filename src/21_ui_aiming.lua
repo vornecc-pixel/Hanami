@@ -271,6 +271,24 @@ local function setFlag(key, value)
     if setter then setter(value) end
 end
 
+-- Every customizable colour is chained INLINE onto the exact control
+-- that owns it. The Atlanta widget exposes right_holder, so the picker
+-- appears on the same row: | OFF | Corners | COLOR PICKER |. There is
+-- intentionally no colour mini-tab / colour section anywhere else.
+local function bindInlineColors(widget, key)
+    local rows = SA.INLINE_COLOR_BINDINGS and SA.INLINE_COLOR_BINDINGS[key]
+    if not rows or not widget then return widget end
+    for _, row in ipairs(rows) do
+        local colorKey = row[2]
+        widget:colorpicker({
+            name = row[1], flag = "hn_col_" .. colorKey,
+            color = ESP_COLORS[colorKey],
+            callback = function(c) ESP_COLORS[colorKey] = c end,
+        })
+    end
+    return widget
+end
+
 local function bindToggle(sec, label, key, tooltip)
     local flag = "hn_" .. key
     local obj = sec:toggle({
@@ -280,24 +298,26 @@ local function bindToggle(sec, label, key, tooltip)
     })
     -- keep `.enabled` in sync when a config/quick-action sets the flag
     library.config_flags[flag] = function(v) setToggle(obj, v) end
-    return obj
+    return bindInlineColors(obj, key)
 end
 
 local function bindSlider(sec, label, key, min, max, interval, suffix)
-    return sec:slider({
+    local obj = sec:slider({
         name = label, flag = "hn_" .. key,
         min = min, max = max, default = CFG[key],
         interval = interval, suffix = suffix or "",
         callback = function(v) CFG[key] = v end,
     })
+    return bindInlineColors(obj, key)
 end
 
 local function bindDropdown(sec, label, key, items)
-    return sec:dropdown({
+    local obj = sec:dropdown({
         name = label, flag = "hn_" .. key,
         items = items, default = CFG[key],
         callback = function(v) CFG[key] = v end,
     })
+    return bindInlineColors(obj, key)
 end
 
 -- Atlanta buttons need a button_holder row created on the same section
@@ -379,9 +399,9 @@ bindToggle(triggerSec, "Triggerbot", "triggerbot",
 bindToggle(triggerSec, "Auto Fire", "autoFire",
     "Continuous ~12.5 Hz clicks; Fire Assist Wall Check ON gates clicks on a VIS target in FOV")
 bindToggle(triggerSec, "Fire Assist Wall Check", "fireWallCheck",
-    "ON by default: Triggerbot and Auto Fire require a VIS target in FOV; Manipulation Support cannot bypass it")
+    "OFF by default: Triggerbot and Auto Fire require a VIS target in FOV; Manipulation Support cannot bypass it")
 bindToggle(triggerSec, "Head Only", "triggerHeadOnly",
-    "ON by default. Ignored while Random Hit Part is ON")
+    "OFF by default. Ignored while Random Hit Part is ON")
 bindToggle(triggerSec, "Random Hit Part", "triggerRandomPart",
     "Pick a random available R6/R15 hit part for each triggerbot target")
 bindDropdown(triggerSec, "Hit Part", "triggerPart", {
@@ -401,7 +421,7 @@ local targetSec, ballSec, manipSec = aimCol2:multi_section({
 })
 
 bindToggle(targetSec, "Force Head (Silent Aim)", "forceHead",
-    "Default ON: overrides Target Bone / Per-Weapon Bone so silent aim always resolves Head when the rig has one")
+    "OFF by default: overrides Target Bone / Per-Weapon Bone so silent aim always resolves Head when the rig has one")
 bindDropdown(targetSec, "Target Bone", "targetBone", { "Head", "Hrp" })
 bindDropdown(targetSec, "Per-Weapon Bone", "targetBoneMode", {
     "Global", "Head for snipers", "Hrp for shotguns",
@@ -455,7 +475,7 @@ local manipToggle = bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
 SA.FeatureKeybind(manipToggle, "Enable Manipulation", "hn_bind_manipulation",
     Enum.KeyCode.M, "manipulation")
 bindToggle(manipSec, "Manipulate NPCs", "manipNpcs",
-    "ON (default): wall-peek / CanQuery manipulation also applies when the selected target is a Guard / Scavenger / Soldier NPC")
+    "OFF by default: wall-peek / CanQuery manipulation also applies when the selected target is a Guard / Scavenger / Soldier NPC")
 bindSlider(manipSec, "Range (studs)", "manipDist", 0, 300, 1, "")
 bindSlider(manipSec, "Base Peek Offset", "manipPeek", 4, 6, 0.5, "")
 bindSlider(manipSec, "Max CanQuery Parts", "manipMaxParts", 0, 8, 1, "")
@@ -539,7 +559,7 @@ bindToggle(hitSec, "Alive Only", "hitboxAliveOnly")
 bindToggle(hitSec, "Show Expanded Parts (client only)", "hitboxVisible",
     "LocalTransparencyModifier = 0.55; nobody else sees the tint")
 bindToggle(hitSec, "Expand NPC Hitboxes", "hitboxNpcs",
-    "ON by default: expand live NPC registry models; Team Check applies to players only")
+    "OFF by default: expand live NPC registry models; Team Check applies to players only")
 hitSec:label({ name = "fixed = uniform cube; multiply = original x Scale, capped" })
 hitSec:label({ name = "R6 Torso + R15 UpperTorso / LowerTorso; NPC HRP fallback" })
 addButton(hitSec, "Rescan Characters", function()

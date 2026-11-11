@@ -108,8 +108,8 @@ if run > 1 then
     local after = #RunService.RenderStepped._connections
     ok(after <= before, "re-execute must not grow RenderStepped listeners")
     ok(after < 40, "render listener count is bounded")
-    ok(SA.ManipPopupState and SA.ManipPopupState().built == true,
-        "manip popup rebuilt after re-execute")
+    ok(SA.ManipPopupState and SA.ManipPopupState().built == false,
+        "manip popup stays unbuilt while OFF after re-execute")
     eq(SA.FustBowState().hooked, true, "re-execute reinstalls the Fust bow hook")
     -- The wrapper is installed once on the library, with the stock methods
     -- preserved, so repeated loads cannot stack wrapper call chains.
@@ -160,6 +160,7 @@ local newKeys = {
     "gunCameraKickFilter", "gunFireRate", "gunFireRateMultiplier",
     "gunInfiniteAmmo", "gunMoveShoot",
     "displayBrightnessEnabled", "displayBrightness",
+    "uiTheme", "uiFont",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -169,6 +170,127 @@ for _, key in ipairs(newKeys) do
     ok(library.flags["hn_" .. key] ~= nil, "uninitialised flag " .. key)
 end
 eq(#SA.ConfigCoverage(), 0, "hn_* config coverage")
+
+-- ── OFF defaults, white inline pickers, themes, fonts, 60-50 FPS ────
+do
+    local function rgbEq(c, r, g, b)
+        return type(c) == "table"
+            and math.floor((c.R or 0) * 255 + 0.5) == r
+            and math.floor((c.G or 0) * 255 + 0.5) == g
+            and math.floor((c.B or 0) * 255 + 0.5) == b
+    end
+    local function white(c) return rgbEq(c, 255, 255, 255) end
+
+    -- Every shipped boolean is a feature toggle and must start OFF, both
+    -- in the immutable snapshot and in the live CFG after reset.
+    local booleanDefaults = 0
+    for k, v in pairs(SA.CFG_DEFAULTS) do
+        if type(v) == "boolean" then
+            booleanDefaults = booleanDefaults + 1
+            ok(v == false, "shipped default OFF: " .. k)
+            ok(CFG[k] == false, "live default OFF: " .. k)
+        end
+    end
+    ok(booleanDefaults >= 100, "all boolean feature defaults covered")
+
+    -- Every customizable colour is white and chained INLINE onto the
+    -- toggle / slider / dropdown that owns it, never a separate section.
+    local pickerCount = 0
+    for colorKey, shipped in pairs(ESP_DEFAULT_COLORS) do
+        ok(white(shipped), "white shipped colour: " .. colorKey)
+        local flag = "hn_col_" .. colorKey
+        local flagValue = library.flags[flag]
+        ok(type(flagValue) == "table" and white(flagValue.Color),
+            "white inline picker: " .. colorKey)
+        local owner = library.__saInlinePickers[flag]
+        local controlKey = SA.INLINE_COLOR_OWNER[colorKey]
+        ok(owner ~= nil and controlKey ~= nil
+            and owner.flag == "hn_" .. controlKey,
+            "inline picker owner: " .. colorKey)
+        pickerCount = pickerCount + 1
+    end
+    eq(pickerCount, 48, "48 inline colourpickers")
+    eq(count(SA.INLINE_COLOR_OWNER), 48, "one owner per colourpicker")
+    eq(count(library.__saInlinePickers), 48, "no separate colour section")
+
+    -- 9 additional full Atlanta presets (10 total) and 10 font picks.
+    ok(#SA.UI_THEME_NAMES >= 9, "9+ named theme presets")
+    ok(#SA.UI_FONT_NAMES >= 10, "10 popular font picks")
+    eq(#SA.UI_THEME_KEYS, 9, "all Atlanta theme colours")
+    local complete = 0
+    for _, name in ipairs(SA.UI_THEME_NAMES) do
+        local preset = SA.UI_THEMES[name]
+        ok(type(preset) == "table", "theme preset: " .. name)
+        local keys = 0
+        for _, themeKey in ipairs(SA.UI_THEME_KEYS) do
+            local rgb = preset[themeKey]
+            if type(rgb) == "table" and #rgb == 3 then keys = keys + 1 end
+        end
+        eq(keys, 9, "full theme palette: " .. name)
+        complete = complete + 1
+    end
+    eq(complete, #SA.UI_THEME_NAMES, "every named theme is complete")
+    eq(#SA.UI_FONTS, 10, "ten font definitions")
+    eq(CFG.uiTheme, SA.CFG_DEFAULTS.uiTheme, "theme default")
+    eq(CFG.uiFont, SA.CFG_DEFAULTS.uiFont, "font default")
+
+    -- Event-driven only: applying a theme/font adds no render listener,
+    -- forces no performance mode, and keeps the existing 60 FPS budget.
+    local listenersBefore = #RunService.RenderStepped._connections
+    local updatesBefore = {}
+    for _, themeKey in ipairs(SA.UI_THEME_KEYS) do
+        updatesBefore[themeKey] = library.__saThemeUpdates[themeKey] or 0
+    end
+    local themeOk, applied = SA.ApplyTheme("Sakura")
+    eq(themeOk, true, "theme applies all colours")
+    eq(applied, 9, "nine theme colours applied")
+    eq(CFG.uiTheme, "Sakura", "theme CFG updated")
+    eq(SA.ThemeState().name, "Sakura", "theme state updated")
+    ok(rgbEq(SA.ThemeState().colors.accent, 255, 110, 170),
+        "Sakura accent colour applied")
+    for _, themeKey in ipairs(SA.UI_THEME_KEYS) do
+        ok((library.__saThemeUpdates[themeKey] or 0) > updatesBefore[themeKey],
+            "Atlanta theme update: " .. themeKey)
+    end
+
+    local fontBefore = library.font
+    local statusLabel = nil
+    for obj in pairs(SA.__saFontStatusLabels or {}) do
+        statusLabel = obj
+        break
+    end
+    ok(statusLabel ~= nil, "font status label registered")
+    local espLabel = Instance.new("TextLabel")
+    SA.ApplyEspFont(espLabel)
+    local fontOk, fontName = SA.ApplyFont("Gotham Bold")
+    eq(fontOk, true, "font applies")
+    eq(fontName, "Gotham Bold", "font name")
+    eq(CFG.uiFont, "Gotham Bold", "font CFG updated")
+    eq(SA.FontState().name, "Gotham Bold", "font state updated")
+    eq(SA.ESP_FONT.Name, "GothamBold", "ESP font enum updated")
+    ok(library.font ~= nil and library.font ~= fontBefore,
+        "Atlanta menu font updated")
+    eq(espLabel.Font, SA.ESP_FONT, "live ESP label Font refreshed")
+    eq(espLabel.FontFace, library.font, "live ESP label FontFace refreshed")
+    local menuText = nil
+    for _, inst in ipairs(library.instances or {}) do
+        if inst:IsA("TextLabel") then menuText = inst; break end
+    end
+    ok(menuText ~= nil, "menu text instance available")
+    eq(menuText.FontFace, library.font, "menu text FontFace refreshed")
+    contains(statusLabel.inst.Text, "Font: Gotham Bold",
+        "font status label refreshed")
+    eq(#RunService.RenderStepped._connections, listenersBefore,
+        "theme/font add no render listeners")
+    eq(CFG.perfMode, false, "theme/font do not force perfMode")
+    eq(SA.EspFrameBudget().targetFps, 60, "60 FPS budget preserved")
+    ok(SA.ApplyEspFontAll() >= 1, "ESP font registry refresh")
+    pcall(SA.ApplyTheme, SA.CFG_DEFAULTS.uiTheme)
+    pcall(SA.ApplyFont, SA.CFG_DEFAULTS.uiFont)
+    eq(CFG.uiTheme, SA.CFG_DEFAULTS.uiTheme, "theme default restored")
+    eq(CFG.uiFont, SA.CFG_DEFAULTS.uiFont, "font default restored")
+end
+
 eq(CFG.fustBowEnabled, false, "Fust bow ballistic aim default OFF")
 eq(SA.FustBowState().hooked, true, "hookfunction installed at startup")
 eq(SA.FustBowState().remotesReady, true, "Fust Shoot remote resolved")
@@ -415,8 +537,8 @@ ok(npcForManip ~= nil, "NPC fixture available")
 eq(SA.IsNpcModel(npcForManip), true, "registry model classified as NPC")
 eq(SA.IsNpcModel(playerForManip), false, "player character NOT classified as NPC")
 local npcManipState = SA.ManipNpcState()
-eq(npcManipState.enabled, true, "NPC manipulation default ON")
-eq(npcManipState.targeting, true, "NPC targeting default ON")
+eq(npcManipState.enabled, false, "NPC manipulation default OFF")
+eq(npcManipState.targeting, false, "NPC targeting default OFF")
 ok(npcManipState.count >= 1, "NPC manipulation sees registry count")
 eq(type(SA.ManipNpcState), "function", "NPC manipulation state API")
 
@@ -534,6 +656,11 @@ local savedFovCentre = CFG.fovCenterMode
 local savedPrediction = CFG.prediction
 local savedCrateEnabled = CFG.crateEnabled
 local savedCrateFov = CFG.crateFovAware
+local savedCrateMilitary = CFG.crateShowMilitary
+local savedCrateElite = CFG.crateShowElite
+local savedCrateLoot = CFG.crateShowLoot
+local savedCrateOpened = CFG.crateShowOpened
+local savedCrateLoose = CFG.crateLooseDetect
 local savedWarning = CFG.showPlayerWarning
 local savedForceHead = CFG.forceHead
 local savedTargetBone = CFG.targetBone
@@ -559,6 +686,9 @@ local savedPerfMode = CFG.perfMode
 CFG.perfMode = false
 CFG.crateEnabled = true
 CFG.crateFovAware = true
+CFG.crateShowMilitary, CFG.crateShowElite = true, true
+CFG.crateShowLoot, CFG.crateShowOpened = true, true
+CFG.crateLooseDetect = true
 CFG.crateMaxDist = 3000
 CFG.fovCenterMode = "Mouse"
 CFG.fov = 1
@@ -968,6 +1098,11 @@ CFG.fovCenterMode = savedFovCentre
 CFG.prediction = savedPrediction
 CFG.crateEnabled = savedCrateEnabled
 CFG.crateFovAware = savedCrateFov
+CFG.crateShowMilitary = savedCrateMilitary
+CFG.crateShowElite = savedCrateElite
+CFG.crateShowLoot = savedCrateLoot
+CFG.crateShowOpened = savedCrateOpened
+CFG.crateLooseDetect = savedCrateLoose
 CFG.showPlayerWarning = savedWarning
 CFG.forceHead = savedForceHead
 CFG.targetBone = savedTargetBone
@@ -1036,9 +1171,9 @@ do
     eq(st.teamCheck, true, "hitbox default teamCheck")
     eq(st.aliveOnly, true, "hitbox default aliveOnly")
     eq(st.visible, false, "hitbox default visible")
-    eq(st.npcs, true, "hitbox NPC expansion default ON")
+    eq(st.npcs, false, "hitbox NPC expansion default OFF")
     eq(st.npcParts, 0, "no NPC parts while OFF")
-    eq(getgenv().hitbox.npcs, true, "global hitbox mirror exposes NPC toggle")
+    eq(getgenv().hitbox.npcs, false, "global hitbox mirror exposes NPC toggle")
     eq(st.parts, 0, "no tracked parts while OFF")
     eq(st.accessories, 0, "no tracked accessories while OFF")
     eq(part(otherChar, "Head").Size.X, 2, "head original size while OFF")
@@ -1341,6 +1476,7 @@ end
 
 -- ── top-N HUD / performance overlay ─────────────────────────────────
 setFlags({
+    nearestWindow = true,
     nearestTopN = 2,
     showNoTargetReason = true,
     perfShowFps = true,
@@ -1453,7 +1589,8 @@ setFlags({
 })
 
 -- ── clean ESP / outline-only preset ─────────────────────────────────
-eq(CFG.espCleanMode, true, "clean ESP default ON")
+eq(CFG.espCleanMode, false, "clean ESP default OFF")
+quiet(function() setFlag("espCleanMode", true) end)
 local cleanState = SA.CleanEspState()
 eq(cleanState.enabled, true, "clean state enabled")
 eq(cleanState.backdrop, false, "clean hides tag backdrops")

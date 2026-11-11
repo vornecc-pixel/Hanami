@@ -113,7 +113,7 @@ function SA.Predict(origin, targetPos, model, gun)
     local range = gun.range or DEFAULT_RANGE
     -- Attachment sight/grip aim-time joins the ONE latency term, so it is
     -- still applied exactly once (never once per solver iteration).
-    local aimMs = (CFG.attachmentAimTune ~= false and gun.attAimMs) or 0
+    local aimMs = (CFG.attachmentAimTune == true and gun.attAimMs) or 0
     local latency = (SA.LeadLatencyMs() + aimMs) / 1000
     local speedMult = gun.attSpeedMult or 1
     local iters = math.clamp(CFG.predictionIterations or 4, 1, 8)

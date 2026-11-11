@@ -269,7 +269,7 @@ function SA.GetEquippedGun(force)
         attachments = {}, att = nil, attSpeedMult = 1, attAimMs = 0,
         ads = false, effSpread = spec.spread or 0,
     }
-    if CFG.attachmentAutoTune ~= false then
+    if CFG.attachmentAutoTune == true then
         if type(SA.ApplyAttachments) == "function" then
             pcall(SA.ApplyAttachments, out, tool)
         end

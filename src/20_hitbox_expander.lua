@@ -68,10 +68,10 @@ local function hbSync()
     hb.scale     = tonumber(CFG.hitboxScale) or 8
     hb.cap       = tonumber(CFG.hitboxCap) or 8
     hb.maxDist   = tonumber(CFG.hitboxMaxDist) or 300
-    hb.teamCheck = CFG.hitboxTeamCheck ~= false
-    hb.aliveOnly = CFG.hitboxAliveOnly ~= false
+    hb.teamCheck = CFG.hitboxTeamCheck == true
+    hb.aliveOnly = CFG.hitboxAliveOnly == true
     hb.visible   = CFG.hitboxVisible == true
-    hb.npcs      = CFG.hitboxNpcs ~= false
+    hb.npcs      = CFG.hitboxNpcs == true
 end
 
 local function hbClear(t)

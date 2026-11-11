@@ -318,7 +318,7 @@ function SA.ApplyAttachments(gun, tool)
         if tonumber(m.adsSpread)   then eff.adsSpread   = eff.adsSpread * m.adsSpread end
         if tonumber(m.moveSpread)  then eff.moveSpread  = eff.moveSpread * m.moveSpread end
         if tonumber(m.zoom)        then eff.zoom = math.max(eff.zoom, m.zoom) end
-        if tonumber(m.aimMs) and CFG.attachmentAimTune ~= false then
+        if tonumber(m.aimMs) and CFG.attachmentAimTune == true then
             eff.aimMs = eff.aimMs + m.aimMs * math.clamp(CFG.attachmentAimScale or 1, 0, 3)
         end
         if m.mag == "ext" then eff.magExt = true end
@@ -370,7 +370,7 @@ function SA.AttachmentState()
     local ids = {}
     for _, e in ipairs(g.attachments or {}) do ids[#ids + 1] = e.id end
     return {
-        auto = CFG.attachmentAutoTune ~= false,
+        auto = CFG.attachmentAutoTune == true,
         gunId = g.id, count = #ids, ids = ids, list = g.attachments or {},
         speedMult = g.attSpeedMult or 1,
         baseSpeed = g.baseSpeed, speed = g.speed,

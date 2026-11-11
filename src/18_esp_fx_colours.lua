@@ -6,8 +6,8 @@
 
 -- ────────────────────────────────────────────────────────────────────
 -- One styling pipeline for PLAYERS, NPCs and CRATES. Every colour comes
--- from ESP_COLORS (01_config.lua) and every key has a colourpicker in the
--- ESP -> Colours mini-tabs. New visuals are created lazily, so a feature
+-- from ESP_COLORS (01_config.lua) and every key has a white colourpicker
+-- chained INLINE onto the control it styles. New visuals are created lazily, so a feature
 -- that is switched off costs zero Drawing objects.
 --
 -- New features: corner boxes, chams fill/outline, skeleton, head dot,

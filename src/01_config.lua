@@ -65,32 +65,178 @@ local function bindRender(fn)
 end
 
 -- ────────────────────────────────────────────────────────────────────
--- ESP FONT — TAHOMA
--- Roblox's `Enum.Font` has NO "Tahoma" member (Legacy / Arial / Gotham /
--- SourceSans / ... only). Prefer a real Tahoma `FontFace` through the
--- newer Font datatype (Font.fromName, then the Tahoma family asset), and
--- keep a bundled enum as a hard fallback so text never disappears on a
--- client that cannot load a custom family. Every ESP TextLabel goes
--- through SA.ApplyEspFont(), including the screen-space labels added by
--- SA.NewDraw("Text") and the ESP Preview panel.
+-- EVENT-DRIVEN FONT + ATLANTA THEME REGISTRY
+-- Ten built-in / script-community font picks and ten full Atlanta theme
+-- presets are resolved only on a dropdown change or once at startup.
+-- Nothing here runs in RenderStepped: live font changes walk existing
+-- text instances once, then every ESP label is refreshed from a weak
+-- registry. Theme changes call Atlanta's update_theme once per colour key.
 -- ────────────────────────────────────────────────────────────────────
-local tahomaEnum, tahomaFace = nil, nil
-pcall(function() tahomaEnum = Enum.Font.Tahoma end)  -- patched executors
-pcall(function()
-    tahomaFace = Font.fromName("Tahoma", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-end)
-if not tahomaFace then
-    pcall(function()
-        tahomaFace = Font.new("rbxasset://fonts/families/Tahoma.json",
-            Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    end)
+function SA.EspFontRegistryReset()
+    SA.__saEspFontLabels = setmetatable({}, { __mode = "k" })
+    SA.__saFontStatusLabels = setmetatable({}, { __mode = "k" })
 end
-SA.ESP_FONT      = tahomaEnum or Enum.Font.ArialBold
-SA.ESP_FONT_FACE = tahomaFace
-SA.ESP_FONT_NAME = (tahomaFace or tahomaEnum) and "Tahoma" or "ArialBold (Tahoma fallback)"
+SA.EspFontRegistryReset()
+SA.__saThemeApplyCount, SA.__saFontApplyCount = 0, 0
+SA.__saThemeApplied, SA.__saFontApplied = nil, nil
+SA.__saThemeLastApplied, SA.__saFontMenuInstances = 0, 0
+
+SA.UI_FONTS = {
+    { name = "Tahoma",           enum = "ArialBold",      family = "Tahoma" },
+    { name = "Arial Bold",       enum = "ArialBold",      family = "Arial" },
+    { name = "Arial",            enum = "Arial",          family = "Arial" },
+    { name = "Gotham Bold",      enum = "GothamBold",     family = "GothamSSm" },
+    { name = "Gotham",           enum = "Gotham",         family = "GothamSSm" },
+    { name = "Source Sans Bold", enum = "SourceSansBold", family = "SourceSansPro" },
+    { name = "Source Sans Pro",  enum = "SourceSans",     family = "SourceSansPro" },
+    { name = "Roboto Mono",      enum = "RobotoMono",     family = "RobotoMono" },
+    { name = "Ubuntu",           enum = "Ubuntu",         family = "Ubuntu" },
+    { name = "Code",             enum = "Code",           family = "Code" },
+}
+SA.UI_FONT_NAMES, SA.UI_FONT_BY_NAME = {}, {}
+for _, entry in ipairs(SA.UI_FONTS) do
+    SA.UI_FONT_NAMES[#SA.UI_FONT_NAMES + 1] = entry.name
+    SA.UI_FONT_BY_NAME[entry.name] = entry
+end
+
+SA.UI_THEME_KEYS = { "outline", "inline", "accent", "contrast",
+    "high_contrast", "low_contrast", "text", "text_outline", "glow" }
+SA.UI_THEME_NAMES = { "Atlanta", "Midnight", "Sakura", "Ocean",
+    "Cyberpunk", "Crimson", "Forest", "Violet", "Mono", "Sunset" }
+SA.UI_THEMES = {
+    ["Atlanta"] = {
+        outline = { 10, 10, 10 }, inline = { 45, 45, 45 },
+        accent = { 96, 120, 190 }, contrast = { 20, 20, 20 },
+        high_contrast = { 20, 20, 20 }, low_contrast = { 30, 30, 30 },
+        text = { 180, 180, 180 }, text_outline = { 0, 0, 0 },
+        glow = { 96, 120, 190 },
+    },
+    ["Midnight"] = {
+        outline = { 5, 8, 18 }, inline = { 18, 27, 48 },
+        accent = { 72, 130, 255 }, contrast = { 8, 12, 24 },
+        high_contrast = { 10, 15, 30 }, low_contrast = { 16, 24, 42 },
+        text = { 220, 230, 255 }, text_outline = { 0, 0, 0 },
+        glow = { 64, 110, 220 },
+    },
+    ["Sakura"] = {
+        outline = { 35, 12, 24 }, inline = { 70, 28, 50 },
+        accent = { 255, 110, 170 }, contrast = { 28, 10, 20 },
+        high_contrast = { 42, 14, 28 }, low_contrast = { 58, 20, 40 },
+        text = { 255, 225, 238 }, text_outline = { 20, 0, 10 },
+        glow = { 255, 95, 155 },
+    },
+    ["Ocean"] = {
+        outline = { 4, 18, 28 }, inline = { 12, 48, 66 },
+        accent = { 40, 190, 210 }, contrast = { 6, 24, 35 },
+        high_contrast = { 8, 32, 48 }, low_contrast = { 14, 42, 58 },
+        text = { 215, 245, 250 }, text_outline = { 0, 10, 15 },
+        glow = { 35, 170, 210 },
+    },
+    ["Cyberpunk"] = {
+        outline = { 8, 5, 20 }, inline = { 30, 12, 55 },
+        accent = { 255, 60, 210 }, contrast = { 12, 8, 28 },
+        high_contrast = { 18, 10, 38 }, low_contrast = { 26, 16, 48 },
+        text = { 230, 220, 255 }, text_outline = { 0, 0, 0 },
+        glow = { 0, 230, 255 },
+    },
+    ["Crimson"] = {
+        outline = { 22, 5, 8 }, inline = { 60, 14, 18 },
+        accent = { 230, 45, 55 }, contrast = { 18, 4, 6 },
+        high_contrast = { 30, 8, 10 }, low_contrast = { 42, 10, 14 },
+        text = { 255, 225, 225 }, text_outline = { 10, 0, 0 },
+        glow = { 255, 70, 60 },
+    },
+    ["Forest"] = {
+        outline = { 6, 18, 10 }, inline = { 18, 48, 28 },
+        accent = { 80, 200, 110 }, contrast = { 8, 22, 12 },
+        high_contrast = { 10, 30, 16 }, low_contrast = { 14, 38, 22 },
+        text = { 225, 250, 230 }, text_outline = { 0, 10, 0 },
+        glow = { 65, 190, 105 },
+    },
+    ["Violet"] = {
+        outline = { 14, 8, 26 }, inline = { 40, 24, 70 },
+        accent = { 160, 110, 255 }, contrast = { 18, 10, 32 },
+        high_contrast = { 24, 14, 44 }, low_contrast = { 32, 20, 56 },
+        text = { 238, 228, 255 }, text_outline = { 5, 0, 10 },
+        glow = { 145, 90, 255 },
+    },
+    ["Mono"] = {
+        outline = { 8, 8, 8 }, inline = { 38, 38, 38 },
+        accent = { 190, 190, 190 }, contrast = { 12, 12, 12 },
+        high_contrast = { 18, 18, 18 }, low_contrast = { 28, 28, 28 },
+        text = { 235, 235, 235 }, text_outline = { 0, 0, 0 },
+        glow = { 160, 160, 160 },
+    },
+    ["Sunset"] = {
+        outline = { 28, 12, 8 }, inline = { 72, 34, 22 },
+        accent = { 255, 145, 60 }, contrast = { 24, 10, 8 },
+        high_contrast = { 36, 16, 12 }, low_contrast = { 50, 22, 16 },
+        text = { 255, 238, 215 }, text_outline = { 12, 4, 0 },
+        glow = { 255, 95, 70 },
+    },
+}
+SA.UI_THEME_BY_NAME = SA.UI_THEMES
+
+function SA.FontEnum(name)
+    local item = nil
+    pcall(function() item = Enum.Font[name] end)
+    if not item then pcall(function() item = Enum.Font.ArialBold end) end
+    return item
+end
+
+function SA.FontFace(entry, enumItem)
+    local face = nil
+    if type(Font) ~= "table" then return nil end
+    if entry.family == "Tahoma" then
+        if type(Font.fromName) == "function" then
+            pcall(function()
+                face = Font.fromName("Tahoma", Enum.FontWeight.Regular,
+                    Enum.FontStyle.Normal)
+            end)
+        end
+        if not face and type(Font.new) == "function" then
+            pcall(function()
+                face = Font.new("rbxasset://fonts/families/Tahoma.json",
+                    Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+            end)
+        end
+    end
+    if not face and type(Font.fromEnum) == "function" then
+        pcall(function() face = Font.fromEnum(enumItem) end)
+    end
+    if not face and type(Font.fromName) == "function" then
+        pcall(function()
+            face = Font.fromName(entry.family, Enum.FontWeight.Regular,
+                Enum.FontStyle.Normal)
+        end)
+    end
+    if not face and type(Font.new) == "function" then
+        pcall(function()
+            face = Font.new("rbxasset://fonts/families/" .. entry.family .. ".json",
+                Enum.FontWeight.Regular, Enum.FontStyle.Normal)
+        end)
+    end
+    return face
+end
+
+function SA.ResolveFont(name)
+    local wanted = tostring(name or "Source Sans Pro")
+    local entry = SA.UI_FONT_BY_NAME[wanted] or SA.UI_FONT_BY_NAME["Source Sans Pro"]
+    local enumItem = SA.FontEnum(entry.enum)
+    return {
+        name = entry.name, display = entry.name, family = entry.family,
+        enumName = entry.enum, enum = enumItem,
+        face = SA.FontFace(entry, enumItem),
+    }
+end
+
+SA.ESP_FONT      = SA.FontEnum("SourceSans")
+SA.ESP_FONT_FACE = nil
+SA.ESP_FONT_NAME = "Source Sans Pro"
 
 function SA.ApplyEspFont(lbl)
     if not lbl then return end
+    SA.__saEspFontLabels[lbl] = true
     pcall(function() lbl.Font = SA.ESP_FONT end)
     if SA.ESP_FONT_FACE then
         -- FontFace wins over the legacy Font property when it loads; if
@@ -99,98 +245,285 @@ function SA.ApplyEspFont(lbl)
     end
 end
 
+function SA.ApplyEspFontAll()
+    local n = 0
+    for lbl in pairs(SA.__saEspFontLabels or {}) do
+        pcall(function() SA.ApplyEspFont(lbl) end)
+        n = n + 1
+    end
+    return n
+end
+
+function SA.RegisterFontStatusLabel(obj)
+    if not obj then return end
+    SA.__saFontStatusLabels[obj] = true
+    pcall(function() obj.set("Font: " .. tostring(SA.ESP_FONT_NAME)) end)
+end
+
+function SA.UpdateFontStatusLabels()
+    local n = 0
+    for obj in pairs(SA.__saFontStatusLabels or {}) do
+        pcall(function() obj.set("Font: " .. tostring(SA.ESP_FONT_NAME)) end)
+        n = n + 1
+    end
+    return n
+end
+
+local function saApplyFontInstance(inst, resolved, seen)
+    if not inst or seen[inst] then return end
+    seen[inst] = true
+    local isText = false
+    pcall(function()
+        isText = inst:IsA("TextLabel") or inst:IsA("TextButton")
+            or inst:IsA("TextBox")
+    end)
+    if not isText then return end
+    pcall(function() inst.Font = resolved.enum end)
+    if resolved.face then pcall(function() inst.FontFace = resolved.face end) end
+end
+
+function SA.ApplyFont(name)
+    local resolved = SA.ResolveFont(name)
+    if type(CFG) == "table" then CFG.uiFont = resolved.name end
+    SA.ESP_FONT, SA.ESP_FONT_FACE = resolved.enum, resolved.face
+    SA.ESP_FONT_NAME = resolved.display
+    local seen, menuInstances = {}, 0
+    if type(library) == "table" then
+        if resolved.face then library.font = resolved.face end
+        for _, gui in ipairs(library.guis or {}) do
+            pcall(function()
+                saApplyFontInstance(gui, resolved, seen)
+                for _, child in ipairs(gui:GetDescendants()) do
+                    saApplyFontInstance(child, resolved, seen)
+                    menuInstances = menuInstances + 1
+                end
+            end)
+        end
+        for _, inst in ipairs(library.instances or {}) do
+            saApplyFontInstance(inst, resolved, seen)
+        end
+    end
+    SA.__saFontMenuInstances = menuInstances
+    SA.ApplyEspFontAll()
+    SA.UpdateFontStatusLabels()
+    SA.__saFontApplied = resolved.name
+    SA.__saFontApplyCount = (SA.__saFontApplyCount or 0) + 1
+    return true, resolved.name
+end
+
+function SA.FontState()
+    return {
+        name = SA.__saFontApplied, display = SA.ESP_FONT_NAME,
+        family = (SA.ResolveFont(SA.__saFontApplied)).family,
+        enumName = (SA.ResolveFont(SA.__saFontApplied)).enumName,
+        face = SA.ESP_FONT_FACE, menuInstances = SA.__saFontMenuInstances,
+        espLabels = SA.ApplyEspFontAll(), statusLabels = SA.UpdateFontStatusLabels(),
+        picks = #SA.UI_FONT_NAMES, applyCount = SA.__saFontApplyCount or 0,
+    }
+end
+
+function SA.ApplyTheme(name)
+    local wanted = tostring(name or "Atlanta")
+    if not SA.UI_THEME_BY_NAME[wanted] then wanted = "Atlanta" end
+    local preset = SA.UI_THEME_BY_NAME[wanted]
+    if type(CFG) == "table" then CFG.uiTheme = wanted end
+    if type(themes) ~= "table" or type(library) ~= "table"
+        or type(library.update_theme) ~= "function" then
+        return false, 0
+    end
+    local applied = 0
+    for _, key in ipairs(SA.UI_THEME_KEYS) do
+        local rgb = preset[key]
+        if rgb then
+            local color = Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+            local good = pcall(function() library:update_theme(key, color) end)
+            if good then applied = applied + 1 end
+        end
+    end
+    SA.__saThemeApplied = wanted
+    SA.__saThemeApplyCount = (SA.__saThemeApplyCount or 0) + 1
+    SA.__saThemeLastApplied = applied
+    return applied == #SA.UI_THEME_KEYS, applied
+end
+
+function SA.ThemeState()
+    return {
+        name = SA.__saThemeApplied, presets = #SA.UI_THEME_NAMES,
+        keys = #SA.UI_THEME_KEYS, applied = SA.__saThemeLastApplied or 0,
+        applyCount = SA.__saThemeApplyCount or 0,
+        colors = (type(themes) == "table") and themes.preset or {},
+    }
+end
+
 -- ────────────────────────────────────────────────────────────────────
--- UNIFIED ESP PALETTE
--- One table for EVERY drawn element. Each key has its own colourpicker in
--- the ESP -> Colours mini-tabs, and the table survives re-execution via _G.
+-- UNIFIED ESP PALETTE — EVERY INLINE PICKER SHIPS WHITE
+-- One table for EVERY drawn element. Every key has its own picker
+-- chained INLINE onto the toggle / slider / dropdown it belongs to;
+-- there is no separate Colours tab or mini-tab. The table survives
+-- re-execution via _G. One-time migration clears older saved palettes.
 -- --------------------------------------------------------------------
 local ESP_DEFAULT_COLORS = {
-    -- dynamic visibility (the user-facing green / red check)
-    playerVisible    = Color3.fromRGB(60, 255, 100),
-    playerHidden     = Color3.fromRGB(255, 60, 60),
-    playerFlat       = Color3.fromRGB(255, 60, 60),
-    npcVisible       = Color3.fromRGB(60, 255, 100),
-    npcHidden        = Color3.fromRGB(255, 60, 60),
-    npcFlat          = Color3.fromRGB(255, 60, 60),
+    -- dynamic visibility (white until the user picks a colour)
+    playerVisible        = Color3.fromRGB(255, 255, 255),
+    playerHidden         = Color3.fromRGB(255, 255, 255),
+    playerFlat           = Color3.fromRGB(255, 255, 255),
+    npcVisible           = Color3.fromRGB(255, 255, 255),
+    npcHidden            = Color3.fromRGB(255, 255, 255),
+    npcFlat              = Color3.fromRGB(255, 255, 255),
 
-    -- per-NPC-archetype colours (optional override)
-    npcGuard         = Color3.fromRGB(90, 200, 255),
-    npcScavenger     = Color3.fromRGB(255, 180, 70),
-    npcSoldier       = Color3.fromRGB(255, 90, 90),
+    -- per-NPC-archetype colours (all white by default)
+    npcGuard             = Color3.fromRGB(255, 255, 255),
+    npcScavenger         = Color3.fromRGB(255, 255, 255),
+    npcSoldier           = Color3.fromRGB(255, 255, 255),
 
     -- player per-element
-    playerName       = Color3.fromRGB(255, 255, 255),
-    playerDistance   = Color3.fromRGB(210, 210, 210),
-    playerInfo       = Color3.fromRGB(210, 210, 210),
-    playerBox        = Color3.fromRGB(255, 255, 255),
-    playerFill       = Color3.fromRGB(255, 60, 60),
-    playerOutline    = Color3.fromRGB(255, 255, 255),
-    playerHealthHigh = Color3.fromRGB(60, 255, 100),
-    playerHealthLow  = Color3.fromRGB(255, 60, 60),
-    playerSkeleton   = Color3.fromRGB(120, 220, 255),
-    playerHeadDot    = Color3.fromRGB(255, 255, 255),
-    playerTracer     = Color3.fromRGB(255, 120, 200),
-    playerOffscreen  = Color3.fromRGB(255, 200, 60),
-    playerVisDot     = Color3.fromRGB(60, 255, 100),
+    playerName           = Color3.fromRGB(255, 255, 255),
+    playerDistance       = Color3.fromRGB(255, 255, 255),
+    playerInfo           = Color3.fromRGB(255, 255, 255),
+    playerBox            = Color3.fromRGB(255, 255, 255),
+    playerFill           = Color3.fromRGB(255, 255, 255),
+    playerOutline        = Color3.fromRGB(255, 255, 255),
+    playerHealthHigh     = Color3.fromRGB(255, 255, 255),
+    playerHealthLow      = Color3.fromRGB(255, 255, 255),
+    playerSkeleton       = Color3.fromRGB(255, 255, 255),
+    playerHeadDot        = Color3.fromRGB(255, 255, 255),
+    playerTracer         = Color3.fromRGB(255, 255, 255),
+    playerOffscreen      = Color3.fromRGB(255, 255, 255),
+    playerVisDot         = Color3.fromRGB(255, 255, 255),
 
     -- npc per-element
-    npcName          = Color3.fromRGB(255, 255, 255),
-    npcDistance      = Color3.fromRGB(210, 210, 210),
-    npcInfo          = Color3.fromRGB(210, 210, 210),
-    npcBox           = Color3.fromRGB(255, 255, 255),
-    npcFill          = Color3.fromRGB(255, 160, 60),
-    npcOutline       = Color3.fromRGB(255, 255, 255),
-    npcHealthHigh    = Color3.fromRGB(60, 255, 100),
-    npcHealthLow     = Color3.fromRGB(255, 60, 60),
-    npcSkeleton      = Color3.fromRGB(255, 190, 90),
-    npcHeadDot       = Color3.fromRGB(255, 255, 255),
-    npcTracer        = Color3.fromRGB(255, 170, 60),
-    npcOffscreen     = Color3.fromRGB(255, 200, 60),
+    npcName              = Color3.fromRGB(255, 255, 255),
+    npcDistance          = Color3.fromRGB(255, 255, 255),
+    npcInfo              = Color3.fromRGB(255, 255, 255),
+    npcBox               = Color3.fromRGB(255, 255, 255),
+    npcFill              = Color3.fromRGB(255, 255, 255),
+    npcOutline           = Color3.fromRGB(255, 255, 255),
+    npcHealthHigh        = Color3.fromRGB(255, 255, 255),
+    npcHealthLow         = Color3.fromRGB(255, 255, 255),
+    npcSkeleton          = Color3.fromRGB(255, 255, 255),
+    npcHeadDot           = Color3.fromRGB(255, 255, 255),
+    npcTracer            = Color3.fromRGB(255, 255, 255),
+    npcOffscreen         = Color3.fromRGB(255, 255, 255),
 
     -- crates
-    crateMilitary    = Color3.fromRGB(80, 200, 255),
-    crateElite       = Color3.fromRGB(255, 200, 60),
-    crateLoot        = Color3.fromRGB(180, 130, 255),
-    crateOpened      = Color3.fromRGB(120, 120, 120),
-    crateState       = Color3.fromRGB(60, 255, 120),
-    crateDistance    = Color3.fromRGB(210, 210, 210),
-    crateTracer      = Color3.fromRGB(140, 200, 255),
-    crateOffscreen   = Color3.fromRGB(255, 200, 60),
+    crateMilitary        = Color3.fromRGB(255, 255, 255),
+    crateElite           = Color3.fromRGB(255, 255, 255),
+    crateLoot            = Color3.fromRGB(255, 255, 255),
+    crateOpened          = Color3.fromRGB(255, 255, 255),
+    crateState           = Color3.fromRGB(255, 255, 255),
+    crateDistance        = Color3.fromRGB(255, 255, 255),
+    crateTracer          = Color3.fromRGB(255, 255, 255),
+    crateOffscreen       = Color3.fromRGB(255, 255, 255),
 
-    -- global overlays (snapline / FOV / lead / current target)
-    snapVisible      = Color3.fromRGB(60, 255, 100),
-    snapHidden       = Color3.fromRGB(255, 60, 60),
-    lead             = Color3.fromRGB(255, 200, 60),
-    fov              = Color3.fromRGB(255, 50, 50),
-    fovManip         = Color3.fromRGB(255, 160, 40),
-    target           = Color3.fromRGB(255, 240, 120),
+    -- global overlays (snapline / FOV / lead / current target; all white by default)
+    snapVisible          = Color3.fromRGB(255, 255, 255),
+    snapHidden           = Color3.fromRGB(255, 255, 255),
+    lead                 = Color3.fromRGB(255, 255, 255),
+    fov                  = Color3.fromRGB(255, 255, 255),
+    fovManip             = Color3.fromRGB(255, 255, 255),
+    target               = Color3.fromRGB(255, 255, 255),
 }
 local ESP_COLORS = _G.__saEspColors or {}
 for k, v in pairs(ESP_DEFAULT_COLORS) do
     if typeof(ESP_COLORS[k]) ~= "Color3" then ESP_COLORS[k] = v end
 end
 _G.__saEspColors = ESP_COLORS
+-- Ship every inline picker white even when an older run left a semantic
+-- green / red / crate palette in _G. One migration only, so a user's
+-- later colour choices survive re-execution and profiles keep working.
+if _G.__saWhiteColorFix ~= 1 then
+    for k, v in pairs(ESP_DEFAULT_COLORS) do ESP_COLORS[k] = v end
+    _G.__saWhiteColorFix = 1
+end
+
+-- ── INLINE COLOURPICKER BINDINGS ───────────────────────────────────
+-- These are the ONLY colourpicker rows. bindToggle / bindSlider /
+-- bindDropdown chain the picker(s) onto the widget they are styling,
+-- in the SAME section and tab as that control. Never a separate tab.
+SA.INLINE_COLOR_BINDINGS = {
+    espVisibleCheck = {
+        { "VIS", "playerVisible" }, { "WALL", "playerHidden" },
+        { "Flat", "playerFlat" }, { "Dot", "playerVisDot" },
+    },
+    espShowName = { { "Name", "playerName" } },
+    espShowDist = { { "Distance", "playerDistance" } },
+    espShowTool = { { "Weapon", "playerInfo" } },
+    espShowHealth = {
+        { "HP high", "playerHealthHigh" }, { "HP low", "playerHealthLow" },
+    },
+    espShowBox = { { "Player box", "playerBox" }, { "NPC box", "npcBox" } },
+    espShowFill = { { "Player fill", "playerFill" }, { "NPC fill", "npcFill" } },
+    espShowOutline = {
+        { "Player outline", "playerOutline" }, { "NPC outline", "npcOutline" },
+    },
+    espShowSkeleton = {
+        { "Player skeleton", "playerSkeleton" }, { "NPC skeleton", "npcSkeleton" },
+    },
+    espShowHeadDot = {
+        { "Player head", "playerHeadDot" }, { "NPC head", "npcHeadDot" },
+    },
+    espShowTracer = {
+        { "Player tracer", "playerTracer" }, { "NPC tracer", "npcTracer" },
+    },
+    espShowOffscreen = {
+        { "Player arrow", "playerOffscreen" }, { "NPC arrow", "npcOffscreen" },
+    },
+    espHighlightTarget = { { "Target", "target" } },
+    npcVisibleCheck = {
+        { "VIS", "npcVisible" }, { "WALL", "npcHidden" }, { "Flat", "npcFlat" },
+    },
+    npcUseTypeColors = {
+        { "Guard", "npcGuard" }, { "Scavenger", "npcScavenger" },
+        { "Soldier", "npcSoldier" },
+    },
+    npcShowName = { { "Name", "npcName" } },
+    npcShowDist = { { "Distance", "npcDistance" } },
+    npcShowTool = { { "Weapon", "npcInfo" } },
+    npcShowHealth = {
+        { "HP high", "npcHealthHigh" }, { "HP low", "npcHealthLow" },
+    },
+    crateShowMilitary = { { "Military", "crateMilitary" } },
+    crateShowElite = { { "Elite", "crateElite" } },
+    crateShowLoot = { { "Loot", "crateLoot" } },
+    crateShowOpened = { { "Opened", "crateOpened" } },
+    crateInvertState = { { "State", "crateState" } },
+    crateMaxDist = { { "Distance", "crateDistance" } },
+    crateFovAware = {
+        { "Tracer", "crateTracer" }, { "Arrow", "crateOffscreen" },
+    },
+    showFov = { { "FOV", "fov" }, { "Wall pen", "fovManip" } },
+    snapLineEnabled = {
+        { "Snap VIS", "snapVisible" }, { "Snap WALL", "snapHidden" },
+    },
+    snapShowLead = { { "Lead", "lead" } },
+}
+SA.INLINE_COLOR_OWNER = {}
+for controlKey, rows in pairs(SA.INLINE_COLOR_BINDINGS) do
+    for _, row in ipairs(rows) do
+        SA.INLINE_COLOR_OWNER[row[2]] = controlKey
+    end
+end
 
 -- ────────────────────────────────────────────────────────────────────
 -- CONFIG
 -- ────────────────────────────────────────────────────────────────────
 
 local SA_CFG_SHIPPED = {
-    masterEnabled = true,
+    masterEnabled = false,
 
     -- targeting
     fov        = 220,
     distance   = 0,
     wallCheck  = false,
-    teamCheck  = true,
+    teamCheck  = false,
     hitChance  = 100,
-    targetNpcs = true,
+    targetNpcs = false,
     targetBone = "Head",
-    forceHead = true,           -- silent aim always resolves Head when present
+    forceHead = false,           -- silent aim always resolves Head when present
 
     -- gun silent aim
-    gunEnabled     = true,
-    gunShotOnly    = true,
+    gunEnabled     = false,
+    gunShotOnly    = false,
     gunCooldown    = 0,
 
     -- Fust bow: ballistic silent aim + peek-origin wallbang (default OFF).
@@ -199,7 +532,7 @@ local SA_CFG_SHIPPED = {
     fustBowEnabled      = false,
     fustBowFov          = 400,
     fustBowTargetPart   = "Head",
-    fustBowManipulation = true,
+    fustBowManipulation = false,
     fustBowManipPeek    = 4,
     fustBowManipMaxDist = 60,
     fustBowOriginRadius = 12,
@@ -207,18 +540,18 @@ local SA_CFG_SHIPPED = {
     -- triggerbot / auto fire (guns only; both OFF by default)
     triggerbot       = false,
     autoFire         = false,
-    triggerHeadOnly  = true,
+    triggerHeadOnly  = false,
     triggerRandomPart= false,
     triggerPart      = "Head",
     triggerUseManip  = false,
-    fireWallCheck    = true,   -- dedicated fire-assist VIS gate (default ON)
+    fireWallCheck    = false,   -- dedicated fire-assist VIS gate (default OFF)
 
     -- ballistics / prediction
-    prediction           = true,
-    predictionGravity    = true,
-    predictionAmmo       = true,
+    prediction           = false,
+    predictionGravity    = false,
+    predictionAmmo       = false,
     predictionIterations = 4,
-    predictionAutoPing   = true,   -- read live ping, no manual guessing
+    predictionAutoPing   = false,   -- read live ping, no manual guessing
     predictionPingScale  = 1,      -- multiplier on the measured ping
     predictionLatency    = 0,      -- extra manual offset on top of auto ping
     gunBulletSpeed       = 0,     -- 0 = exact speed from 07_gun_specs.lua
@@ -227,9 +560,9 @@ local SA_CFG_SHIPPED = {
     muzzleBoost          = false,   -- manual fallback for muzzle_boost
 
     -- attachment auto tune (08_attachments.lua)
-    attachmentAutoTune      = true,   -- detect + fold attachments into prediction
+    attachmentAutoTune      = false,   -- detect + fold attachments into prediction
     attachmentAds           = false,  -- force ADS spread (else RMB is read)
-    attachmentAimTune       = true,   -- sights/grip add aim-time lead
+    attachmentAimTune       = false,   -- sights/grip add aim-time lead
     attachmentAimScale      = 1,      -- 0 disables the aim-time lead
     attachmentSilencerSpeed = 0.85,   -- ESTIMATE: "slower bullets"
     attOverrideSight        = "Auto", -- Auto / None / <attachment id>
@@ -238,18 +571,18 @@ local SA_CFG_SHIPPED = {
     attOverrideMag          = "Auto",
 
     -- fov visual (the FOV circle is THE reference point for aiming)
-    showFov         = true,
+    showFov         = false,
     fovFilled       = false,
     fovTransparency = 50,
     fovThickness    = 1,
     fovCenterMode   = "Mouse",     -- "Mouse" / "Screen Center"
-    forceGuiDrawing = true,        -- ScreenGui backend always works; native Drawing often doesn't
+    forceGuiDrawing = false,        -- ScreenGui backend always works; native Drawing often doesn't
 
     -- manipulation — CLASSIC six-slider set (8 peek dirs + shared ray params)
     -- Ranges are deliberately tight: 0-300 studs, base peek 4-6 only.
     -- Every slider below has a real effect in 05_manipulation.lua.
     manipulation      = false,
-    manipNpcs         = true,   -- wall-peek / CanQuery also for NPC targets
+    manipNpcs         = false,   -- wall-peek / CanQuery also for NPC targets
     manipDist         = 30,     -- studs, slider 0..300
     manipPeek         = 4,      -- base peek, slider 4..6
     manipMaxParts     = 3,      -- slider 0..8
@@ -258,82 +591,81 @@ local SA_CFG_SHIPPED = {
     manipMaxPeekDelta = 6,      -- slider 2..12 (genuinely caps the peek)
 
     -- silent aim v7.7 (tap-fire reorder; GUNS ONLY — bows are skipped)
-    saTapReorder = true,        -- Fix A (InputBegan) + Fix B (Tool.Activated)
+    saTapReorder = false,        -- Fix A (InputBegan) + Fix B (Tool.Activated)
     saTapWindow  = 0.35,        -- PATCH: widened from 0.2
 
     -- player esp
     espEnabled      = false,
-    espShowName     = true,
-    espShowDist     = true,
-    espShowHealth   = true,
+    espShowName     = false,
+    espShowDist     = false,
+    espShowHealth   = false,
     espMaxDist      = 2000,
-    espVisibleCheck = true,
-    espShowTool     = true,
-    espShowState    = true,
+    espVisibleCheck = false,
+    espShowTool     = false,
+    espShowState    = false,
 
     -- npc esp (Guard / Scavenger / Soldier)
     npcEspEnabled   = false,
-    npcShowName     = true,
-    npcShowDist     = true,
-    npcShowHealth   = true,
-    npcShowTool     = true,
-    npcShowState    = true,
-    npcVisibleCheck = true,
+    npcShowName     = false,
+    npcShowDist     = false,
+    npcShowHealth   = false,
+    npcShowTool     = false,
+    npcShowState    = false,
+    npcVisibleCheck = false,
     npcMaxDist      = 2000,
 
     -- aim preview / snapline
-    snapLineEnabled   = true,
+    snapLineEnabled   = false,
     snapLineOrigin    = "Mouse",
     snapLineThickness = 1,
-    snapShowLead      = true,
+    snapShowLead      = false,
 
     -- crate esp
     crateEnabled       = false,
-    crateFovAware      = true,  -- dot outside FOV; name + distance + outline highlight inside
-    crateShowMilitary  = true,
-    crateShowElite     = true,
-    crateShowLoot      = true,
-    crateShowOpened    = true,
-    crateLooseDetect   = true,
+    crateFovAware      = false,  -- dot outside FOV; name + distance + outline highlight inside
+    crateShowMilitary  = false,
+    crateShowElite     = false,
+    crateShowLoot      = false,
+    crateShowOpened    = false,
+    crateLooseDetect   = false,
     crateHighlight     = false,    -- off by default: no stray chams on scenery
     crateInvertState   = false,    -- flip if the game's opened/closed signal is inverted
     crateLidDetect     = false,    -- lid-angle guess is unreliable; opt-in only
     crateMaxDist       = 3000,
 
     -- esp visual features (shared by players, NPCs and crates)
-    -- CLEAN MODE is ON by default: no dark tag pills / chams fill, only
-    -- thin outlines plus text stroke. Toggle it off to restore the old
-    -- busy look; saved older configs are overridden by the effective
-    -- values in 18_esp_fx_draw.lua, not silently edited here.
-    espCleanMode        = true,
-    espPerElementColors = true,
-    espShowBox          = true,
+    -- Every feature starts OFF. CLEAN MODE is an explicit opt-in: no dark
+    -- tag pills / chams fill, only thin outlines plus text stroke. Turn it
+    -- ON for that look; effective values still live in 18_esp_fx_draw.lua.
+    espCleanMode        = false,
+    espPerElementColors = false,
+    espShowBox          = false,
     espCornerBox        = false,
     espShowFill         = false,
-    espShowOutline      = true,
+    espShowOutline      = false,
     espShowSkeleton     = false,
     espShowHeadDot      = false,
     espShowTracer       = false,
     espShowOffscreen    = false,
-    espHighlightTarget  = true,
+    espHighlightTarget  = false,
     espRainbow          = false,
     espRainbowSpeed     = 2,
     espFade             = false,
     espFadeStart        = 60,
     espBoxThickness     = 1,
     espTracerOrigin     = "Bottom",
-    espArrowFOV         = true,    -- arrows sit on the FOV circle edge
+    espArrowFOV         = false,    -- arrows sit on the FOV circle edge
     espTextSize         = 11,      -- one slider for ALL ESP text
     espShowHealthText   = false,
-    espTextOutline      = true,
+    espTextOutline      = false,
     -- New ESP text layout (Tahoma, weapon below the box, tags at corner)
-    espTagSide          = true,    -- VIS/WALL, state, HP beside top-right corner
+    espTagSide          = false,    -- VIS/WALL, state, HP beside top-right corner
     espTagBackdrop      = false,   -- dark pill behind each side tag (OFF in clean mode)
     npcUseTypeColors    = false,
 
     -- ESP preview panel (Atlanta's floating "ESP Preview" window)
-    espPreview       = true,
-    espPreviewSpin   = true,
+    espPreview       = false,
+    espPreviewSpin   = false,
     espPreviewSpeed  = 25,         -- degrees / second
     -- The preview mirrors EITHER the Player or the NPC ESP pipeline
     -- (flags, palette, archetype colours, feature set). "Simulate Aim
@@ -342,19 +674,19 @@ local SA_CFG_SHIPPED = {
     espPreviewTarget = false,
     -- Small HUD that appears when the Atlanta menu is hidden / minimised.
     -- Reports the nearest player, their distance in metres and held tool.
-    nearestWindow    = true,
-    showPlayerWarning = true,  -- crosshair warning when any player is within 100 m
+    nearestWindow    = false,
+    showPlayerWarning = false,  -- crosshair warning when any player is within 100 m
 
     -- V16.46-style gun mods (client-local named fields + visual probes)
     gmEnabled               = false,
     gunNoSpread             = false,
     gunShotProbe            = false,
-    gunInspectDefs          = true,
-    gunInspectScripts       = true,
+    gunInspectDefs          = false,
+    gunInspectScripts       = false,
     gunInspectGunControl    = false,
-    gunInspectLiveGun       = true,
+    gunInspectLiveGun       = false,
     gunNoRecoil             = false,
-    gunCameraKickFilter     = true,
+    gunCameraKickFilter     = false,
     gunFireRate             = false,
     gunFireRateMultiplier   = 1.5,
     gunInfiniteAmmo         = false,
@@ -369,10 +701,10 @@ local SA_CFG_SHIPPED = {
     hitboxScale     = 8,
     hitboxCap       = 8,          -- multiply-mode safety cap
     hitboxMaxDist   = 300,        -- 0 = unlimited
-    hitboxTeamCheck = true,
-    hitboxAliveOnly = true,
+    hitboxTeamCheck = false,
+    hitboxAliveOnly = false,
     hitboxVisible   = false,      -- client-only tint
-    hitboxNpcs      = true,       -- expand live NPC registry models too
+    hitboxNpcs      = false,       -- expand live NPC registry models too
 
     -- bow mods (GC scan; NOT part of silent aim / manipulation)
     -- Only two features: instant (max) charge and no shot cooldown.
@@ -384,13 +716,13 @@ local SA_CFG_SHIPPED = {
     configProfile = "default", configName = "default", autoLoadConfig = false,
     keybindMode = "toggle",
     keybindSelected = "hn_menu_bind",
-    nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
+    nearestTopN = 1, nearestShowHealth = false, nearestShowState = false,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
-    showManipPopup = true, showPlayerWarning = true,
-    forceHead = true, triggerbot = false, autoFire = false,
-    triggerHeadOnly = true, triggerRandomPart = false,
-    triggerPart = "Head", triggerUseManip = false, fireWallCheck = true,
+    showManipPopup = false, showPlayerWarning = false,
+    forceHead = false, triggerbot = false, autoFire = false,
+    triggerHeadOnly = false, triggerRandomPart = false,
+    triggerPart = "Head", triggerUseManip = false, fireWallCheck = false,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -398,6 +730,7 @@ local SA_CFG_SHIPPED = {
     perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
     espDataRefreshMs = 100, perfShowFps = false,
     gunOverrideString = "",
+    uiTheme = "Atlanta", uiFont = "Source Sans Pro",
 }
 local CFG = _G.__saCFG or SA_CFG_SHIPPED
 _G.__saCFG = CFG
@@ -408,73 +741,73 @@ for k, v in pairs(SA_CFG_SHIPPED) do SA.CFG_DEFAULTS[k] = v end
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
-    manipulation = false, manipNpcs = true,
+    manipulation = false, manipNpcs = false,
     manipDist = 30, manipPeek = 4,
     manipMaxParts = 3, manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
-    saTapReorder = true, saTapWindow = 0.35,
+    saTapReorder = false, saTapWindow = 0.35,
     fustBowEnabled = false, fustBowFov = 400,
-    fustBowTargetPart = "Head", fustBowManipulation = true,
+    fustBowTargetPart = "Head", fustBowManipulation = false,
     fustBowManipPeek = 4, fustBowManipMaxDist = 60,
     fustBowOriginRadius = 12,
-    espEnabled = false, espShowName = true, espShowDist = true,
-    espShowHealth = true, espMaxDist = 2000,
-    espVisibleCheck = true, espShowTool = true, espShowState = true,
-    npcEspEnabled = false, npcShowName = true, npcShowDist = true,
-    npcShowHealth = true, npcShowTool = true, npcShowState = true,
-    npcVisibleCheck = true, npcMaxDist = 2000,
-    snapLineEnabled = true, snapLineOrigin = "Mouse", snapLineThickness = 1,
-    snapShowLead = true,
-    prediction = true, predictionGravity = true, predictionAmmo = true,
-    predictionIterations = 4, predictionAutoPing = true, predictionPingScale = 1,
+    espEnabled = false, espShowName = false, espShowDist = false,
+    espShowHealth = false, espMaxDist = 2000,
+    espVisibleCheck = false, espShowTool = false, espShowState = false,
+    npcEspEnabled = false, npcShowName = false, npcShowDist = false,
+    npcShowHealth = false, npcShowTool = false, npcShowState = false,
+    npcVisibleCheck = false, npcMaxDist = 2000,
+    snapLineEnabled = false, snapLineOrigin = "Mouse", snapLineThickness = 1,
+    snapShowLead = false,
+    prediction = false, predictionGravity = false, predictionAmmo = false,
+    predictionIterations = 4, predictionAutoPing = false, predictionPingScale = 1,
     predictionLatency = 0, gunBulletSpeed = 0,
     gunAmmoOverride = "Auto", saturday2Mode = false, muzzleBoost = false,
-    attachmentAutoTune = true, attachmentAds = false, attachmentAimTune = true,
+    attachmentAutoTune = false, attachmentAds = false, attachmentAimTune = false,
     attachmentAimScale = 1, attachmentSilencerSpeed = 0.85,
     attOverrideSight = "Auto", attOverrideMuzzle = "Auto",
     attOverrideUnder = "Auto", attOverrideMag = "Auto",
-    crateEnabled = false, crateFovAware = true,
-    crateShowMilitary = true, crateShowElite = true,
-    crateShowLoot = true, crateShowOpened = true, crateLooseDetect = true,
+    crateEnabled = false, crateFovAware = false,
+    crateShowMilitary = false, crateShowElite = false,
+    crateShowLoot = false, crateShowOpened = false, crateLooseDetect = false,
     crateHighlight = false, crateInvertState = false, crateLidDetect = false,
     crateMaxDist = 3000,
-    showFov = true, fovFilled = false, fovTransparency = 50, fovThickness = 1,
-    fovCenterMode = "Mouse", forceGuiDrawing = true,
-    espCleanMode = true,
-    espPerElementColors = true, espShowBox = true, espCornerBox = false,
-    espShowFill = false, espShowOutline = true, espShowSkeleton = false,
+    showFov = false, fovFilled = false, fovTransparency = 50, fovThickness = 1,
+    fovCenterMode = "Mouse", forceGuiDrawing = false,
+    espCleanMode = false,
+    espPerElementColors = false, espShowBox = false, espCornerBox = false,
+    espShowFill = false, espShowOutline = false, espShowSkeleton = false,
     espShowHeadDot = false, espShowTracer = false, espShowOffscreen = false,
-    espHighlightTarget = true, espRainbow = false, espRainbowSpeed = 2,
+    espHighlightTarget = false, espRainbow = false, espRainbowSpeed = 2,
     espFade = false, espFadeStart = 60, espBoxThickness = 1,
-    espTracerOrigin = "Bottom", espArrowFOV = true, espTextSize = 11,
-    espShowHealthText = false, espTextOutline = true,
-    espTagSide = true, espTagBackdrop = false,
-    espPreview = true, espPreviewSpin = true, espPreviewSpeed = 25,
+    espTracerOrigin = "Bottom", espArrowFOV = false, espTextSize = 11,
+    espShowHealthText = false, espTextOutline = false,
+    espTagSide = false, espTagBackdrop = false,
+    espPreview = false, espPreviewSpin = false, espPreviewSpeed = 25,
     espPreviewKind = "Player", espPreviewTarget = false,
-    nearestWindow = true,
+    nearestWindow = false,
     npcUseTypeColors = false,
     gmEnabled = false,
     gunNoSpread = false, gunShotProbe = false,
-    gunInspectDefs = true, gunInspectScripts = true,
-    gunInspectGunControl = false, gunInspectLiveGun = true,
-    gunNoRecoil = false, gunCameraKickFilter = true,
+    gunInspectDefs = false, gunInspectScripts = false,
+    gunInspectGunControl = false, gunInspectLiveGun = false,
+    gunNoRecoil = false, gunCameraKickFilter = false,
     gunFireRate = false, gunFireRateMultiplier = 1.5,
     gunInfiniteAmmo = false, gunMoveShoot = false,
     displayBrightnessEnabled = false, displayBrightness = 0.2,
     hitboxEnabled = false, hitboxTarget = "Both", hitboxMode = "fixed",
     hitboxScale = 8, hitboxCap = 8, hitboxMaxDist = 300,
-    hitboxTeamCheck = true, hitboxAliveOnly = true, hitboxVisible = false,
-    hitboxNpcs = true,
+    hitboxTeamCheck = false, hitboxAliveOnly = false, hitboxVisible = false,
+    hitboxNpcs = false,
     bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
     configProfile = "default", configName = "default", autoLoadConfig = false,
     keybindMode = "toggle",
     keybindSelected = "hn_menu_bind",
-    nearestTopN = 1, nearestShowHealth = true, nearestShowState = true,
+    nearestTopN = 1, nearestShowHealth = false, nearestShowState = false,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
-    showManipPopup = true, showPlayerWarning = true,
-    forceHead = true, triggerbot = false, autoFire = false,
-    triggerHeadOnly = true, triggerRandomPart = false,
-    triggerPart = "Head", triggerUseManip = false, fireWallCheck = true,
+    showManipPopup = false, showPlayerWarning = false,
+    forceHead = false, triggerbot = false, autoFire = false,
+    triggerHeadOnly = false, triggerRandomPart = false,
+    triggerPart = "Head", triggerUseManip = false, fireWallCheck = false,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
     espTeamMode = "All", espShowLiveCount = false,
     targetPriority = "Crosshair", fovPreset = "Custom", targetBoneMode = "Global",
@@ -482,6 +815,7 @@ for k, v in pairs({
     perfMode = false, perfEspRebuildMs = 100, perfMaxEntities = 40,
     espDataRefreshMs = 100, perfShowFps = false,
     gunOverrideString = "",
+    uiTheme = "Atlanta", uiFont = "Source Sans Pro",
 }) do if CFG[k] == nil then CFG[k] = v end end
 -- Older saved configs never had the snapshot either.
 if type(SA.CFG_DEFAULTS) ~= "table" then
@@ -489,16 +823,17 @@ if type(SA.CFG_DEFAULTS) ~= "table" then
     for k, v in pairs(CFG) do SA.CFG_DEFAULTS[k] = v end
 end
 
--- One-time migration for configs saved by older builds: those defaulted
--- showFov to FALSE and inverted the transparency slider, so the circle
--- stayed invisible even after the code was fixed. Force it visible ONCE.
-if _G.__saFovFix ~= 2 then
-    CFG.showFov = true
+-- One-time migration for configs saved by older builds. Those forced the
+-- FOV circle, GUI backend and tap hooks ON; the new startup defaults are
+-- OFF for every feature, so clear those legacy values only ONCE.
+if _G.__saFovFix ~= 3 then
+    CFG.showFov = false
     CFG.fovTransparency = 50
     CFG.fovThickness = math.max(CFG.fovThickness or 1, 1)
     CFG.fovCenterMode = "Mouse"
-    CFG.forceGuiDrawing = true
-    _G.__saFovFix = 2
+    CFG.forceGuiDrawing = false
+    CFG.saTapReorder = false
+    _G.__saFovFix = 3
 end
 
 -- One-time migration back to the CLASSIC manipulation slider set. v7.7
@@ -518,7 +853,7 @@ if _G.__saManipFix ~= 3 then
     if v77Budg[CFG.manipBudget]               then CFG.manipBudget = 64 end
     if v77Delta[CFG.manipMaxPeekDelta]        then CFG.manipMaxPeekDelta = 6 end
     CFG.manipMaxPeek = nil                    -- retire the adaptive cap
-    if CFG.saTapReorder == nil                then CFG.saTapReorder = true end
+    if CFG.saTapReorder == nil                then CFG.saTapReorder = false end
     if CFG.saTapWindow == nil                 then CFG.saTapWindow = 0.35 end
     -- Bows are no longer aimed; drop the retired flag from saved profiles.
     CFG.saBowHook = nil
@@ -546,7 +881,7 @@ CFG.manipMaxPeek      = nil
 CFG.espPreviewSpeed  = saClampNum(CFG.espPreviewSpeed, 0, 90, 25)
 CFG.espPreviewKind   = (CFG.espPreviewKind == "NPC") and "NPC" or "Player"
 CFG.espPreviewTarget = CFG.espPreviewTarget == true
-CFG.nearestWindow    = CFG.nearestWindow ~= false  -- HUD defaults ON
+CFG.nearestWindow    = CFG.nearestWindow == true  -- HUD defaults OFF
 
 -- Clamp every new BETTER input too: a stale / hand-edited saved profile
 -- must never put a dropdown outside its items or a slider outside range.
@@ -557,8 +892,8 @@ CFG.keybindMode        = ({ toggle=true, hold=true, always=true })[CFG.keybindMo
                          and CFG.keybindMode or "toggle"
 CFG.keybindSelected    = tostring(CFG.keybindSelected or "hn_menu_bind")
 CFG.nearestTopN        = saClampNum(CFG.nearestTopN, 1, 5, 1)
-CFG.nearestShowHealth  = CFG.nearestShowHealth ~= false
-CFG.nearestShowState   = CFG.nearestShowState ~= false
+CFG.nearestShowHealth  = CFG.nearestShowHealth == true
+CFG.nearestShowState   = CFG.nearestShowState == true
 CFG.nearestShowTeam    = CFG.nearestShowTeam == true
 CFG.nearestCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
                             ["Bottom Left"]=true, ["Bottom Right"]=true
@@ -566,18 +901,18 @@ CFG.nearestCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
 CFG.nearestScale       = saClampNum(CFG.nearestScale, 0.6, 1.8, 1)
 CFG.nearestTransparency= saClampNum(CFG.nearestTransparency, 0, 80, 12)
 CFG.showNoTargetReason = CFG.showNoTargetReason == true
-CFG.showManipPopup    = CFG.showManipPopup ~= false
-CFG.espCleanMode      = CFG.espCleanMode ~= false
-CFG.manipNpcs         = CFG.manipNpcs ~= false
-CFG.crateFovAware     = CFG.crateFovAware ~= false
-CFG.showPlayerWarning = CFG.showPlayerWarning ~= false
-CFG.forceHead         = CFG.forceHead ~= false
+CFG.showManipPopup    = CFG.showManipPopup == true
+CFG.espCleanMode      = CFG.espCleanMode == true
+CFG.manipNpcs         = CFG.manipNpcs == true
+CFG.crateFovAware     = CFG.crateFovAware == true
+CFG.showPlayerWarning = CFG.showPlayerWarning == true
+CFG.forceHead         = CFG.forceHead == true
 CFG.triggerbot        = CFG.triggerbot == true
 CFG.autoFire          = CFG.autoFire == true
-CFG.triggerHeadOnly   = CFG.triggerHeadOnly ~= false
+CFG.triggerHeadOnly   = CFG.triggerHeadOnly == true
 CFG.triggerRandomPart = CFG.triggerRandomPart == true
 CFG.triggerUseManip   = CFG.triggerUseManip == true
-CFG.fireWallCheck     = CFG.fireWallCheck ~= false
+CFG.fireWallCheck     = CFG.fireWallCheck == true
 CFG.triggerPart       = ({ Head=true, Hrp=true, UpperTorso=true,
                             LowerTorso=true, LeftArm=true, RightArm=true,
                             LeftLeg=true, RightLeg=true, Random=true })
@@ -608,6 +943,11 @@ CFG.perfMaxEntities    = saClampNum(CFG.perfMaxEntities, 5, 100, 40)
 CFG.espDataRefreshMs   = saClampNum(CFG.espDataRefreshMs, 16, 500, 100)
 CFG.perfShowFps        = CFG.perfShowFps == true
 CFG.gunOverrideString  = tostring(CFG.gunOverrideString or "")
+local validThemeNames, validFontNames = {}, {}
+for _, n in ipairs(SA.UI_THEME_NAMES) do validThemeNames[n] = true end
+for _, n in ipairs(SA.UI_FONT_NAMES) do validFontNames[n] = true end
+CFG.uiTheme            = validThemeNames[CFG.uiTheme] and CFG.uiTheme or "Atlanta"
+CFG.uiFont             = validFontNames[CFG.uiFont] and CFG.uiFont or "Source Sans Pro"
 CFG.hitboxEnabled      = CFG.hitboxEnabled == true
 CFG.hitboxTarget       = ({ Head=true, Torso=true, Both=true })
                          [CFG.hitboxTarget] and CFG.hitboxTarget or "Both"
@@ -616,16 +956,16 @@ CFG.hitboxMode         = ({ fixed=true, multiply=true })
 CFG.hitboxScale        = saClampNum(CFG.hitboxScale, 1, 30, 8)
 CFG.hitboxCap          = saClampNum(CFG.hitboxCap, 1, 30, 8)
 CFG.hitboxMaxDist      = saClampNum(CFG.hitboxMaxDist, 0, 2000, 300)
-CFG.hitboxTeamCheck    = CFG.hitboxTeamCheck ~= false
-CFG.hitboxAliveOnly    = CFG.hitboxAliveOnly ~= false
+CFG.hitboxTeamCheck    = CFG.hitboxTeamCheck == true
+CFG.hitboxAliveOnly    = CFG.hitboxAliveOnly == true
 CFG.hitboxVisible      = CFG.hitboxVisible == true
-CFG.hitboxNpcs         = CFG.hitboxNpcs ~= false
+CFG.hitboxNpcs         = CFG.hitboxNpcs == true
 CFG.fustBowEnabled      = CFG.fustBowEnabled == true
 CFG.fustBowFov          = saClampNum(CFG.fustBowFov, 50, 800, 400)
 CFG.fustBowTargetPart   = ({ Head=true, HumanoidRootPart=true,
                               UpperTorso=true })[CFG.fustBowTargetPart]
                           and CFG.fustBowTargetPart or "Head"
-CFG.fustBowManipulation = CFG.fustBowManipulation ~= false
+CFG.fustBowManipulation = CFG.fustBowManipulation == true
 CFG.fustBowManipPeek    = saClampNum(CFG.fustBowManipPeek, 0, 12, 4)
 CFG.fustBowManipMaxDist = saClampNum(CFG.fustBowManipMaxDist, 0, 200, 60)
 CFG.fustBowOriginRadius = saClampNum(CFG.fustBowOriginRadius, 1, 40, 12)
@@ -633,12 +973,12 @@ CFG.fustBowOriginRadius = saClampNum(CFG.fustBowOriginRadius, 1, 40, 12)
 CFG.gmEnabled                 = CFG.gmEnabled == true
 CFG.gunNoSpread               = CFG.gunNoSpread == true
 CFG.gunShotProbe              = CFG.gunShotProbe == true
-CFG.gunInspectDefs            = CFG.gunInspectDefs ~= false
-CFG.gunInspectScripts         = CFG.gunInspectScripts ~= false
+CFG.gunInspectDefs            = CFG.gunInspectDefs == true
+CFG.gunInspectScripts         = CFG.gunInspectScripts == true
 CFG.gunInspectGunControl      = CFG.gunInspectGunControl == true
-CFG.gunInspectLiveGun         = CFG.gunInspectLiveGun ~= false
+CFG.gunInspectLiveGun         = CFG.gunInspectLiveGun == true
 CFG.gunNoRecoil               = CFG.gunNoRecoil == true
-CFG.gunCameraKickFilter       = CFG.gunCameraKickFilter ~= false
+CFG.gunCameraKickFilter       = CFG.gunCameraKickFilter == true
 CFG.gunFireRate               = CFG.gunFireRate == true
 CFG.gunFireRateMultiplier     = saClampNum(CFG.gunFireRateMultiplier, 1, 3, 1.5)
 CFG.gunInfiniteAmmo           = CFG.gunInfiniteAmmo == true

@@ -415,7 +415,7 @@ end
 -- box geometry: name above, weapon BELOW, flags beside the corner.
 --
 -- Native Drawing.new("Text") is deliberately NOT used: its font enum only
--- exposes UI/System/Plex/Monospace and cannot render a Tahoma FontFace.
+-- exposes UI/System/Plex/Monospace and cannot render a custom FontFace.
 -- The GUI path also works on every executor the Line/Circle fallback does.
 -- ────────────────────────────────────────────────────────────────────
 local function textDraw()
@@ -431,8 +431,9 @@ local function textDraw()
         t.Text = ""
         t.TextColor3 = Color3.new(1, 1, 1)
         t.TextSize = 12
-        t.Font = SA.ESP_FONT or Enum.Font.ArialBold
-        if SA.ESP_FONT_FACE then t.FontFace = SA.ESP_FONT_FACE end
+        -- Register this label with the live font registry so a Visual ->
+        -- Font dropdown change refreshes existing ESP text, not just new.
+        SA.ApplyEspFont(t)
         t.TextStrokeColor3 = Color3.new(0, 0, 0)
         t.TextStrokeTransparency = 0
         t.TextXAlignment = Enum.TextXAlignment.Center
@@ -645,7 +646,7 @@ function SA.DrawDiag()
         "backend=" .. SA.DrawBackend(),
         "native: " .. table.concat(kinds, ", "),
         "font=" .. tostring(SA.ESP_FONT_NAME),
-        "Text=ScreenGui (Tahoma FontFace when available)",
+        "Text=ScreenGui (selected FontFace when available)",
         "overlay=" .. (drawGui and drawGui.Parent and drawGui:GetFullName() or "NONE"),
         "proxies=" .. tostring(proxyCount),
         "sync=" .. tostring(drawSyncWrites) .. "->" .. tostring(drawSyncFlushes)

@@ -116,6 +116,9 @@ const requiredDist = [
   'peek-origin', 'arrowLife',
   'pvFindSourceModel', 'pvCloneModel', 'pvBuildOverlays', 'pvApplyStyleTo',
   'SA.DrawDiag', 'SA.DrawBackend', 'SA.EspPreviewRefresh',
+  'SA.ApplyTheme', 'SA.ApplyFont', 'SA.ThemeState', 'SA.FontState',
+  'SA.INLINE_COLOR_BINDINGS', 'bindInlineColors',
+  'uiTheme', 'uiFont', 'SA.UI_THEME_NAMES', 'SA.UI_FONT_NAMES',
 ];
 for (const needle of requiredDist) {
   assert(dist.includes(needle), `dist/Hanami.lua is missing ${needle}`);
@@ -172,8 +175,9 @@ const newKeys = [
   'gunCameraKickFilter', 'gunFireRate', 'gunFireRateMultiplier',
   'gunInfiniteAmmo', 'gunMoveShoot',
   'displayBrightnessEnabled', 'displayBrightness',
+  'uiTheme', 'uiFont',
 ];
-assert(newKeys.length === 73, `expected 73 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 75, `expected 75 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -203,6 +207,77 @@ for (const key of newKeys) {
     || ui.includes(`CFG.${key}`), `no bound UI widget for ${key}`);
 }
 
+// Startup defaults: every shipped/backfilled boolean is a feature toggle
+// and must be OFF. No stale `~= false` default-ON escape hatch may remain.
+const boolAssignment = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*true\s*,/m;
+assert(!boolAssignment.test(shipped),
+  'src/01_config.lua still ships a boolean feature default ON');
+assert(!boolAssignment.test(backfill),
+  'src/01_config.lua still backfills a boolean feature default ON');
+const allSource = files.map((name) => read(`src/${name}`)).join('\n');
+assert(!/CFG\.[A-Za-z0-9_]+\s*~=\s*false/.test(allSource),
+  'src still treats a missing CFG boolean as ON');
+
+// Every custom colour ships white, has exactly one inline owner, and no
+// separate ESP colour mini-tab / section survives.
+const palette = config.slice(
+  config.indexOf('local ESP_DEFAULT_COLORS = {'),
+  config.indexOf('local ESP_COLORS = _G.__saEspColors')
+);
+const colorArgs = Array.from(palette.matchAll(/Color3\.fromRGB\(([^)]*)\)/g),
+  (m) => m[1].trim());
+assert(colorArgs.length === 48,
+  `expected 48 ESP palette colours, found ${colorArgs.length}`);
+assert(colorArgs.every((rgb) => rgb === '255, 255, 255'),
+  'every customizable colour must default white');
+const bindings = config.slice(
+  config.indexOf('SA.INLINE_COLOR_BINDINGS = {'),
+  config.indexOf('SA.INLINE_COLOR_OWNER = {}')
+);
+const boundColors = Array.from(
+  bindings.matchAll(/\{\s*"[^"]+"\s*,\s*"([A-Za-z0-9_]+)"\s*\}/g),
+  (m) => m[1]);
+assert(boundColors.length === 48 && new Set(boundColors).size === 48,
+  'expected 48 unique inline colourpicker bindings');
+const espUi = read('src/22_ui_esp.lua');
+const aimingUi = read('src/21_ui_aiming.lua');
+assert(!/COLOR_GROUPS|colorCol|groupNames|lbl:colorpicker/.test(espUi),
+  'src/22_ui_esp.lua still has a separate colour mini-tab');
+assert(/bindInlineColors/.test(aimingUi)
+  && /widget:colorpicker\(/.test(aimingUi),
+  'inline colourpicker helper is missing');
+for (const name of files) {
+  if (name === '21_ui_aiming.lua') continue;
+  assert(!read(`src/${name}`).includes(':colorpicker('),
+    `${name} puts a colourpicker outside the inline helper`);
+}
+
+// Theme/font presets, event-driven application and no extra render loop.
+const themeNames = config.match(/SA\.UI_THEME_NAMES\s*=\s*\{([\s\S]*?)\}/);
+assert(themeNames, 'src/01_config.lua: theme name list missing');
+const themeList = Array.from(themeNames[1].matchAll(/"([^"]+)"/g), (m) => m[1]);
+assert(themeList.length >= 9,
+  `expected at least 9 named themes, found ${themeList.length}`);
+for (const name of themeList) {
+  assert(config.includes(`["${name}"] = {`),
+    `src/01_config.lua: missing full theme preset ${name}`);
+}
+const fontEntries = config.match(/\{\s*name\s*=\s*"[^"]+"\s*,\s*enum\s*=\s*"/g) || [];
+assert(fontEntries.length >= 10,
+  `expected at least 10 font picks, found ${fontEntries.length}`);
+const themeKeys = config.match(/SA\.UI_THEME_KEYS\s*=\s*\{([\s\S]*?)\}/);
+assert(themeKeys, 'src/01_config.lua: Atlanta theme key list missing');
+assert((themeKeys[1].match(/"[^"]+"/g) || []).length === 9,
+  'a theme preset must apply all 9 Atlanta theme colours');
+const applyTheme = config.slice(config.indexOf('function SA.ApplyTheme'),
+  config.indexOf('function SA.ThemeState'));
+const applyFont = config.slice(config.indexOf('function SA.ApplyFont'),
+  config.indexOf('function SA.FontState'));
+assert(!/bindRender|RenderStepped|while\s+true/.test(applyTheme),
+  'SA.ApplyTheme() must stay event-driven');
+assert(!/bindRender|RenderStepped|while\s+true/.test(applyFont),
+  'SA.ApplyFont() must stay event-driven');
+
 // README must describe the current source tree, not an older build.
 const readme = read('README.md');
 const maxLines = Math.max(...lineCounts.values());
@@ -229,7 +304,8 @@ for (const name of files) {
     `README ${name} says ${row.lines} lines, actual ${lineCounts.get(name)}`);
 }
 const requiredDescriptions = {
-  'src/01_config.lua': ['profiles', 'self-check', 'perf', 'clean',
+  'src/01_config.lua': ['themes', 'fonts', 'white', 'startup off',
+    'inline colours', 'profiles', 'self-check', 'perf', 'clean',
     'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
     'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching',
@@ -264,16 +340,17 @@ const requiredDescriptions = {
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
     'trigger', 'auto fire', 'wall check', 'force head',
     'silent-aim independent', 'npc hitbox', 'hitbox', 'fust bow',
-    'atlanta source sanitizer', 'built-in font fallback',
+    'inline colourpicker', 'atlanta source sanitizer', 'built-in font fallback',
     'error-page markers'],
   'src/20_hitbox_expander.lua': ['hitbox', 'players + npcs', 'r6/r15',
     'npc', 'hrp fallback', 'self-healing', 'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
-  'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov'],
-  'src/24_ui_visual.lua': ['top-n', 'performance', 'keybind', 'popup',
+  'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov',
+    'inline', 'no colour mini-tabs'],
+  'src/24_ui_visual.lua': ['theme', 'font', 'top-n', 'performance', 'keybind', 'popup',
     'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
     'utilities'],
-  'src/25_ui_misc.lua': ['profile', 'self-check', 'full unload',
+  'src/25_ui_misc.lua': ['theme', 'font', 'profile', 'self-check', 'full unload',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
     'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget',
     'fust bow'],
@@ -339,8 +416,23 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '3,521 assertions',
-  'all 73 new CFG keys',
+  '4,844 assertions',
+  'all 75 new CFG keys',
+  '## Themes, fonts, inline colours and OFF defaults',
+  '9 additional themes',
+  '10 popular script-community font picks',
+  '60-50 FPS',
+  'Visual → Theme',
+  'all feature toggles OFF',
+  'default white',
+  'no second RenderStepped',
+  'event-driven',
+  'SA.ApplyTheme()',
+  'SA.ApplyFont()',
+  'SA.ThemeState()',
+  'SA.FontState()',
+  'uiTheme',
+  'uiFont',
   '44-part list',
   '### Fust bow ballistic silent aim',
   'Fust Bow Ballistic Aim',

@@ -14,8 +14,8 @@ bindToggle(fovSec, "Filled", "fovFilled")
 bindDropdown(fovSec, "FOV Centre", "fovCenterMode", { "Mouse", "Screen Center" })
 fovSec:label({ name = "Centre = crosshair / screen centre; invalid mouse -> centre" })
 bindToggle(fovSec, "Force ScreenGui Drawing", "forceGuiDrawing",
-    "ON (default) = reliable Roblox GUI frames. Turn OFF only if you want to try the executor's native Drawing API")
-fovSec:label({ name = "FOV / snapline / lead colours: ESP -> Colours -> Global" })
+    "OFF by default = try native Drawing first, then reliable Roblox GUI frames. Turn ON to force ScreenGui")
+fovSec:label({ name = "FOV / snapline / lead colour pickers are inline on their own toggles" })
 -- CFG.fov -> SA.FovRadius(): ONE radius for the circle, aim cone, tracers and arrows
 bindSlider(fovSec, "Aim / Circle Radius (px)", "fov", 30, 500, 1, "px")
 bindSlider(fovSec, "Transparency (%)", "fovTransparency", 0, 100, 1, "%")
@@ -32,6 +32,24 @@ bindToggle(fovSec, "Show Lead Marker", "snapShowLead",
 -- ── VISUAL : Utilities ────────────────────────────────────────────
 local utilCol = VisualTab:column()
 local utilSec = utilCol:section({ name = "Utilities" })
+
+-- One Visual -> Theme dropdown applies ALL Atlanta theme colours at once;
+-- one Visual -> Font dropdown restyles the menu and every live ESP label.
+-- Both are event-driven only: no per-frame work and no second render loop.
+local styleSec = utilCol:section({ name = "Theme / Font" })
+local themeDropdown = styleSec:dropdown({
+    name = "Theme", flag = "hn_uiTheme", items = SA.UI_THEME_NAMES,
+    default = CFG.uiTheme,
+    callback = function(v) CFG.uiTheme = v; SA.ApplyTheme(v) end,
+})
+local fontDropdown = styleSec:dropdown({
+    name = "Font", flag = "hn_uiFont", items = SA.UI_FONT_NAMES,
+    default = CFG.uiFont,
+    callback = function(v) CFG.uiFont = v; SA.ApplyFont(v) end,
+})
+styleSec:label({ name = "Theme + font apply once per change, never per frame" })
+pcall(SA.ApplyTheme, CFG.uiTheme)
+pcall(SA.ApplyFont, CFG.uiFont)
 
 -- V16.46 local post-processing brightness: one ColorCorrectionEffect under
 -- Lighting, clamped 0–0.5 and destroyed on disable / unload.
@@ -276,10 +294,10 @@ local function saNearestTick(_, force)
         local bits = { string.format("%d. %s  %.1f m", i,
             saNearestDisplay(r.plr),
             r.dist / (SA.STUDS_PER_METER or 3.571)) }
-        if CFG.nearestShowHealth ~= false then
+        if CFG.nearestShowHealth == true then
             bits[#bits + 1] = tostring(r.hp) .. "%"
         end
-        if CFG.nearestShowState ~= false then
+        if CFG.nearestShowState == true then
             bits[#bits + 1] = r.vis and "VIS" or "WALL"
         end
         if CFG.nearestShowTeam == true then

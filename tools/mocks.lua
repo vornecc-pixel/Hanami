@@ -111,7 +111,16 @@ Enum = setmetatable({}, {
 
 Font = {
     fromName = function() return nil end,
-    new = function() return { __kind = "Font" } end,
+    fromEnum = function(e)
+        return { __kind = "Font",
+            Family = "rbxasset://fonts/families/" .. tostring(e and e.Name or "ArialBold") .. ".json",
+            Enum = e }
+    end,
+    new = function(family, weight, style)
+        return { __kind = "Font",
+            Family = family or "rbxasset://fonts/families/SourceSansPro.json",
+            Weight = weight, Style = style }
+    end,
 }
 
 local function vec_meta(kind, ctor)
@@ -555,6 +564,7 @@ local ISA = {
     Tool = { Tool = true }, Accessory = { Accessory = true },
     TextLabel = { TextLabel = true },
     TextButton = { TextButton = true, TextLabel = true },
+    TextBox = { TextBox = true, TextLabel = true },
     Frame = { Frame = true }, ScreenGui = { ScreenGui = true },
     Camera = { Camera = true }, ViewportFrame = { ViewportFrame = true },
     BillboardGui = { BillboardGui = true }, Highlight = { Highlight = true },
@@ -1274,22 +1284,44 @@ RunService = RunService
 UserInputService = UserInputService
 
 local themePreset = setmetatable({
-    text = Color3.fromRGB(230, 230, 230),
-    outline = Color3.fromRGB(30, 30, 40),
+    outline = Color3.fromRGB(10, 10, 10),
+    inline = Color3.fromRGB(45, 45, 45),
+    accent = Color3.fromRGB(96, 120, 190),
+    contrast = Color3.fromRGB(20, 20, 20),
+    high_contrast = Color3.fromRGB(20, 20, 20),
+    low_contrast = Color3.fromRGB(30, 30, 30),
+    text = Color3.fromRGB(180, 180, 180),
+    text_outline = Color3.fromRGB(0, 0, 0),
+    glow = Color3.fromRGB(96, 120, 190),
 }, {
     -- Luau allows `for k, v in table do`; Lua 5.3 / Fengari needs an
     -- iterator. A callable table keeps both forms working.
     __call = function(t, _, key) return next(t, key) end,
 })
-themes = { preset = themePreset }
+themes = {
+    preset = themePreset,
+    utility = {
+        outline = { BackgroundColor3 = {}, Color = {} },
+        inline = { BackgroundColor3 = {}, ImageColor3 = {} },
+        accent = { BackgroundColor3 = {}, TextColor3 = {}, ImageColor3 = {},
+            ScrollBarImageColor3 = {} },
+        contrast = { Color = {} },
+        text = { TextColor3 = {} },
+        text_outline = { Color = {} },
+        glow = { ImageColor3 = {} },
+        high_contrast = { BackgroundColor3 = {} },
+        low_contrast = { BackgroundColor3 = {} },
+    },
+}
 config_holder = { refresh_options = function() end }
 
 -- ── Atlanta library mock ────────────────────────────────────────────
 library = {
     directory = "Atlanta",
     flags = {}, config_flags = {}, visible_flags = {},
-    connections = {}, guis = {}, buttons = {},
+    connections = {}, guis = {}, buttons = {}, instances = {},
     font = { __kind = "Font" },
+    __saThemeUpdates = {}, __saInlinePickers = {},
     current_element_open = nil,
     cache = { Enabled = false },
 }
@@ -1304,16 +1336,53 @@ library.right_holder.Name = "LibraryRightHolder"
 library.right_holder.Parent = CoreGui
 
 function library:create(class, props, ...)
+    props = props or {}
     local inst = Instance.new(class)
-    for k, v in pairs(props or {}) do inst[k] = v end
+    for k, v in pairs(props) do inst[k] = v end
+    self.instances[#self.instances + 1] = inst
     if class == "ScreenGui" then self.guis[#self.guis + 1] = inst end
+    local isText = class == "TextLabel" or class == "TextButton"
+        or class == "TextBox"
+    if isText then
+        if props.TextColor3 == nil then
+            inst.TextColor3 = themes.preset.text
+            self:apply_theme(inst, "text", "TextColor3")
+        end
+        inst.FontFace = self.font
+        local stroke = Instance.new("UIStroke")
+        stroke.Name = "TextStroke"
+        stroke.Parent = inst
+        stroke.Color = themes.preset.text_outline
+        self:apply_theme(stroke, "text_outline", "Color")
+        self.instances[#self.instances + 1] = stroke
+    elseif class == "Frame" and props.BackgroundColor3 == nil then
+        inst.BackgroundColor3 = themes.preset.low_contrast
+        self:apply_theme(inst, "low_contrast", "BackgroundColor3")
+    end
     return inst
 end
 function library:hoverify() end
-function library:apply_theme() end
 function library:tween() end
-function library:update_theme() end
 function library:panel() return { items = {} } end
+function library:apply_theme(instance, theme, property)
+    local byTheme = themes.utility[theme]
+    if not byTheme then byTheme = {}; themes.utility[theme] = byTheme end
+    local list = byTheme[property]
+    if not list then list = {}; byTheme[property] = list end
+    list[#list + 1] = instance
+end
+function library:update_theme(theme, color)
+    local old = themes.preset[theme]
+    for property, list in pairs(themes.utility[theme] or {}) do
+        for _, object in ipairs(list) do
+            if object[property] == old or object.ClassName == "UIGradient" then
+                object[property] = color
+            end
+        end
+    end
+    themes.preset[theme] = color
+    self.__saThemeUpdates[theme] = (self.__saThemeUpdates[theme] or 0) + 1
+end
 function library:connection(event, fn)
     local c = event:Connect(fn)
     self.connections[#self.connections + 1] = c
@@ -1376,6 +1445,31 @@ local function widget(extra)
     return setmetatable(extra or {}, { __index = library })
 end
 
+-- Mock Atlanta's chained colourpicker. Record the owning widget so the
+-- harness can prove every picker is INLINE on its own control row.
+function library:colorpicker(opts)
+    opts = opts or {}
+    local owner = self
+    local cfg = widget({
+        flag = opts.flag or "flag", default = opts.color,
+        callback = wrap_callback(opts.callback or function() end),
+        right_holder = owner.right_holder,
+    })
+    function cfg.set(c, t)
+        c = c or Color3.new(1, 1, 1)
+        t = t or 1
+        library.flags[cfg.flag] = { Color = c, Transparency = t }
+        cfg.callback(c)
+    end
+    library.config_flags[cfg.flag] = cfg.set
+    library.visible_flags[cfg.flag] = function() end
+    library.__saInlinePickers[cfg.flag] = owner
+    owner.__saInlineColorKeys = owner.__saInlineColorKeys or {}
+    owner.__saInlineColorKeys[#owner.__saInlineColorKeys + 1] = cfg.flag
+    if cfg.default ~= nil then cfg.set(cfg.default, 1) end
+    return cfg
+end
+
 local function make_section(name)
     local sec = widget({ name = name })
     sec.holder = Instance.new("Frame")
@@ -1397,7 +1491,7 @@ local function make_section(name)
         function cfg.set(text) lbl.Text = tostring(text) end
         -- ESP -> Colours attaches a picker directly to a label widget.
         function cfg.colorpicker(_, opts)
-            return sec.colorpicker(sec, opts)
+            return library.colorpicker(cfg, opts)
         end
         return cfg
     end
@@ -1445,20 +1539,7 @@ local function make_section(name)
     function sec:textbox(opts) return simple(opts, "textbox") end
 
     function sec:colorpicker(opts)
-        local cfg = widget({
-            flag = opts.flag or "flag", default = opts.color,
-            callback = wrap_callback(opts.callback or function() end),
-        })
-        function cfg.set(c, t)
-            c = c or Color3.new(1, 1, 1)
-            t = t or 1
-            library.flags[cfg.flag] = { Color = c, Transparency = t }
-            cfg.callback(c)
-        end
-        library.config_flags[cfg.flag] = cfg.set
-        library.visible_flags[cfg.flag] = function() end
-        if cfg.default ~= nil then cfg.set(cfg.default, 1) end
-        return cfg
+        return library.colorpicker(sec, opts)
     end
 
     function sec:button_holder(opts)

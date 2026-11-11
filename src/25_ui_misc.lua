@@ -14,7 +14,7 @@ infoSec:label({ name = "Menu key: RightShift (show/hide)" })
 infoSec:label({ name = "Aim key: Insert | UI: Atlanta library" })
 infoSec:label({ name = "Feature keys: P/N/G/B/M · right-click = None" })
 infoSec:label({ name = "ESP: green = visible, red = behind wall" })
-infoSec:label({ name = "ESP -> Colours: a picker for EVERY element" })
+infoSec:label({ name = "Colour pickers are inline beside their own controls" })
 infoSec:label({ name = "Crates: fuzzy detection + live registry" })
 infoSec:label({ name = "NPC names: Guard / Scavenger / Soldier" })
 infoSec:label({ name = "Ballistics: all 20 guns + every attribute" })
@@ -222,8 +222,9 @@ end
 
 function SA.ResetKeybindDefaults()
     local defaults = {
-        hn_menu_bind = { key = Enum.KeyCode.RightShift,
-                         active = SA.CFG_DEFAULTS.masterEnabled ~= false },
+        -- The RightShift menu bind is UI navigation, not a feature toggle:
+        -- keep it active even though every feature starts OFF.
+        hn_menu_bind = { key = Enum.KeyCode.RightShift, active = true },
         hn_master_bind = { key = Enum.KeyCode.Insert,
                            active = SA.CFG_DEFAULTS.masterEnabled == true },
         hn_bind_espEnabled = { key = Enum.KeyCode.P,
@@ -264,6 +265,8 @@ function SA.ResetToDefaults()
         if setter then pcall(setter, v, 1) end
     end
     pcall(SA.ResetKeybindDefaults)
+    pcall(SA.ApplyTheme, CFG.uiTheme)
+    pcall(SA.ApplyFont, CFG.uiFont)
     return n
 end
 
@@ -505,8 +508,10 @@ function SA.FullUnload()
     _G.__saEspObjects, _G.__saNpcObjects, _G.__saCrateObjects = nil, nil, nil
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
+    _G.__saWhiteColorFix = nil
     _G.__saFustBow = nil
     _G.__saGunMods = nil
+    pcall(function() if SA.EspFontRegistryReset then SA.EspFontRegistryReset() end end)
     return true
 end
 
@@ -574,6 +579,10 @@ pcall(function() library:config_list_update() end)
 for index, value in themes.preset do
     pcall(function() library:update_theme(index, value) end)
 end
+-- Re-assert the selected preset/font after the whole UI is built. These
+-- are one-time event-driven passes, never a second RenderStepped loop.
+pcall(SA.ApplyTheme, CFG.uiTheme)
+pcall(SA.ApplyFont, CFG.uiFont)
 
 task.wait()
 pcall(function() library.old_config = library:get_config() end)

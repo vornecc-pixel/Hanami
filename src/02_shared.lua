@@ -125,7 +125,7 @@ function SA.ResolveTargetBone()
     -- BETTER: default-ON Force Head. Older per-weapon modes could silently
     -- pick Hrp for a rifle / shotgun; silent aim now resolves Head first
     -- unless the user explicitly turns Force Head OFF.
-    if CFG.forceHead ~= false then return "Head" end
+    if CFG.forceHead == true then return "Head" end
     local base = CFG.targetBone or "Head"
     local mode = CFG.targetBoneMode or "Global"
     if mode == "Global" then return base end
@@ -320,7 +320,7 @@ function SA.TriggerBonePart(model)
         end
         if #parts > 0 then return parts[math.random(1, #parts)] end
     end
-    local wanted = CFG.triggerHeadOnly ~= false and "Head"
+    local wanted = CFG.triggerHeadOnly == true and "Head"
         or (CFG.triggerPart or "Head")
     return find(aliases[wanted] or aliases.Head)
         or find(aliases.Head) or find(aliases.Hrp)
@@ -361,7 +361,7 @@ end
 
 function SA.ForceHeadState()
     return {
-        enabled = CFG.forceHead ~= false,
+        enabled = CFG.forceHead == true,
         resolved = SA.ResolveTargetBone(),
         targetBone = CFG.targetBone,
         mode = CFG.targetBoneMode,
