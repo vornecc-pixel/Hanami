@@ -35,7 +35,8 @@ local renderErrCount = 0
 -- ── BETTER: Performance Mode + 60 FPS frame budget ──────────────────
 -- Adaptive build pacing (only new ESP objects are built every N ms),
 -- a hard cap on objects styled per frame, and a rolling FPS estimate.
--- Geometry styling still runs every frame; name / weapon / state text and
+-- Geometry styling runs every frame while the frame is within budget; slow
+-- frames slice only low-priority entities. Name / weapon / state text and
 -- the legacy BillboardGui lines are refreshed at the user's data interval.
 -- When a RenderStepped frame is already slower than 60 FPS, new builds and
 -- data refreshes are spread out so ESP does not add another spike on top.
@@ -61,6 +62,41 @@ function SA.PerfEffectiveEntityCap()
         * math.clamp(fps / 60, 0.5, 1)))
 end
 
+-- Adaptive geometry slicing: a healthy frame styles every entity; a slow
+-- frame styles a rotating bucket instead of adding a full ESP pass on top.
+-- The existing master RenderStepped callback owns this work; no second loop.
+function SA.EspGeometryBudget()
+    local dtMs = math.max((tonumber(espLastDt) or 1 / ESP_TARGET_FPS) * 1000, 0)
+    local fps = perfFps > 0 and perfFps or ESP_TARGET_FPS
+    -- dt is the authoritative signal for the current frame. The rolling
+    -- FPS estimate only biases stride when Performance Mode is explicitly
+    -- ON, so a stale / mock-clock FPS sample cannot slice a healthy frame.
+    local over = dtMs > ESP_TARGET_MS * 1.1
+        or (CFG.perfMode == true and fps > 0 and fps < 50)
+    local ratio = dtMs / ESP_TARGET_MS
+    if CFG.perfMode == true and fps > 0 then
+        ratio = math.max(ratio, ESP_TARGET_FPS / math.max(fps, 1))
+    end
+    local stride = 1
+    if CFG.perfMode == true then
+        stride = math.ceil(ratio)
+    elseif over then
+        stride = math.max(2, math.ceil(ratio / 1.35))
+    end
+    stride = math.clamp(stride, 1, 4)
+    local frame = SA.EspFxFrame or 0
+    return {
+        stride = stride,
+        bucket = frame % stride,
+        overBudget = over,
+        fps = fps,
+        lastDtMs = dtMs,
+        targetFps = ESP_TARGET_FPS,
+        entityCap = CFG.perfMode == true and SA.PerfEffectiveEntityCap()
+            or math.huge,
+    }
+end
+
 -- ESP text / legacy-line refresh is throttled in FRAMES, not tick(), so a
 -- 60 Hz client with the default 100 ms interval refreshes every 6 frames.
 -- A new build still forces an immediate refresh for that entity list.
@@ -84,6 +120,7 @@ function SA.EspFrameBudget()
         buildMs = math.min(math.max(ESP_TARGET_MS * 2, dtMs * 2), 100)
     end
     local p = SA.EspPerf or {}
+    local geom = SA.EspGeometryBudget()
     return {
         targetFps = ESP_TARGET_FPS,
         targetMs = ESP_TARGET_MS,
@@ -96,6 +133,11 @@ function SA.EspFrameBudget()
         buildAccumMs = espBuildAccum,
         budgetSkips = p.budgetSkips or 0,
         buildSkips = p.buildSkips or 0,
+        geometryStride = geom.stride,
+        geometryBucket = geom.bucket,
+        geometryFps = geom.fps,
+        geometryLastDtMs = geom.lastDtMs,
+        geometryBudget = geom,
     }
 end
 
@@ -104,6 +146,9 @@ function SA.EspFrameBudgetReset()
     espDataAccum, espBuildAccum = 0, 0
     local p = SA.EspPerf or {}
     p.budgetSkips, p.buildSkips = 0, 0
+    p.geometryUpdates, p.geometrySkips = 0, 0
+    p.geometryHiddenPasses = 0
+    if SA.EspGeomReset then SA.EspGeomReset() end
     return true
 end
 
@@ -118,9 +163,14 @@ function SA.EspPerfState()
         dataSkips = p.dataSkips or 0,
         budgetSkips = p.budgetSkips or 0,
         buildSkips = p.buildSkips or 0,
+        geometryUpdates = p.geometryUpdates or 0,
+        geometrySkips = p.geometrySkips or 0,
+        geometryHiddenPasses = p.geometryHiddenPasses or 0,
         dataIntervalFrames = SA.EspDataIntervalFrames(),
         refreshRatio = fx > 0 and data / fx or 0,
         frameBudget = SA.EspFrameBudget(),
+        geometryBudget = SA.EspGeometryBudget(),
+        geom = SA.EspGeomState and SA.EspGeomState() or nil,
         drawSync = SA.DrawSyncStats and SA.DrawSyncStats() or nil,
     }
 end
@@ -138,6 +188,8 @@ function SA.PerfState()
         dataRefreshMs = CFG.espDataRefreshMs,
         dataIntervalFrames = SA.EspDataIntervalFrames(),
         frameBudget = SA.EspFrameBudget(),
+        geometry = SA.EspGeometryBudget(),
+        geom = SA.EspGeomState and SA.EspGeomState() or nil,
         pool = SA.DrawPoolStats and SA.DrawPoolStats() or nil,
         visible = SA.EspPassStats and SA.EspPassStats() or nil,
         esp = SA.EspPerfState(),
@@ -183,10 +235,13 @@ bindRender(function(dt)
         perfFrames, perfWindow = 0, now
     end
     SA.EspPerf = SA.EspPerf or { fxPasses = 0, dataRefreshes = 0, dataSkips = 0 }
+    SA.EspPerf.geometryUpdates = SA.EspPerf.geometryUpdates or 0
+    SA.EspPerf.geometrySkips = SA.EspPerf.geometrySkips or 0
+    SA.EspPerf.geometryHiddenPasses = SA.EspPerf.geometryHiddenPasses or 0
 
     -- Time-based 60 FPS budget: a frame already over ~16.7 ms must not also
-    -- build new ESP objects or refresh every text label. Box geometry still
-    -- runs every frame, so the visible boxes never freeze.
+    -- build new ESP objects or refresh every text label. Priority box
+    -- geometry still runs every frame, so the active target never freezes.
     local dtSec = tonumber(dt) or 1 / ESP_TARGET_FPS
     if dtSec <= 0 then dtSec = 1 / ESP_TARGET_FPS end
     espLastDt = dtSec

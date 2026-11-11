@@ -10,6 +10,7 @@ event_errors = 0
 mock_clock = 0
 MOCK_W2V_CALLS = 0
 MOCK_RAYCAST_CALLS = 0
+MOCK_GETPLAYERS_CALLS = 0
 MOCK_FUST_SHOTS = 0
 MOCK_FUST_LAST_ARGS = nil
 MOCK_FUST_BLOCKED = false
@@ -56,6 +57,7 @@ end
 function mock_esp_reset()
     MOCK_W2V_CALLS = 0
     MOCK_RAYCAST_CALLS = 0
+    MOCK_GETPLAYERS_CALLS = 0
 end
 
 mock_spawned, mock_deferred = {}, {}
@@ -1227,7 +1229,10 @@ function mock_hitbox_reset()
 end
 
 Players.LocalPlayer = localPlayer
-function Players:GetPlayers() return { localPlayer, otherPlayer, farPlayer } end
+function Players:GetPlayers()
+    MOCK_GETPLAYERS_CALLS = (MOCK_GETPLAYERS_CALLS or 0) + 1
+    return { localPlayer, otherPlayer, farPlayer }
+end
 function Players:GetPlayerFromCharacter(char)
     if char == myChar then return localPlayer end
     if char == otherChar then return otherPlayer end

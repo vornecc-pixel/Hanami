@@ -113,28 +113,23 @@ local function refreshOnePlayer(plr, o, cam)
     o.infoLbl.TextColor3 = col
     o.infoLbl.Visible = #bits > 0
 
-    local hrpPos, onScreen = cam:WorldToViewportPoint(hrp.Position)
-    if onScreen and hrpPos.Z > 0 then
-        local headPos = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-        local legPos  = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-        local height = math.abs(headPos.Y - legPos.Y)
-        local width  = height / 2
-        local x = hrpPos.X - width / 2
-        local y = headPos.Y
-        o.lines.top.From = Vector2.new(x, y); o.lines.top.To = Vector2.new(x + width, y)
-        o.lines.bottom.From = Vector2.new(x, y + height); o.lines.bottom.To = Vector2.new(x + width, y + height)
-        o.lines.left.From = Vector2.new(x, y); o.lines.left.To = Vector2.new(x, y + height)
-        o.lines.right.From = Vector2.new(x + width, y); o.lines.right.To = Vector2.new(x + width, y + height)
+    local g = SA.EspGeom(o, cam, hrp.Position, head.Position, "player")
+    if g and g.onScreen then
+        local x, y, w, h = g.x, g.y, g.w, g.h
+        o.lines.top.From = Vector2.new(x, y); o.lines.top.To = Vector2.new(x + w, y)
+        o.lines.bottom.From = Vector2.new(x, y + h); o.lines.bottom.To = Vector2.new(x + w, y + h)
+        o.lines.left.From = Vector2.new(x, y); o.lines.left.To = Vector2.new(x, y + h)
+        o.lines.right.From = Vector2.new(x + w, y); o.lines.right.To = Vector2.new(x + w, y + h)
         for _, l in pairs({ o.lines.top, o.lines.bottom, o.lines.left, o.lines.right }) do
             l.Color = col; l.Visible = true
         end
         if CFG.espShowHealth then
             local hx = x - 4
             local ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-            o.lines.hpBg.From = Vector2.new(hx, y); o.lines.hpBg.To = Vector2.new(hx, y + height)
+            o.lines.hpBg.From = Vector2.new(hx, y); o.lines.hpBg.To = Vector2.new(hx, y + h)
             o.lines.hpBg.Color = Color3.fromRGB(20, 20, 20); o.lines.hpBg.Visible = true
-            o.lines.hpFill.From = Vector2.new(hx, y + (height - height * ratio))
-            o.lines.hpFill.To = Vector2.new(hx, y + height)
+            o.lines.hpFill.From = Vector2.new(hx, y + (h - h * ratio))
+            o.lines.hpFill.To = Vector2.new(hx, y + h)
             o.lines.hpFill.Color = ratio > 0.5 and Color3.fromRGB(60, 255, 100)
                 or Color3.fromRGB(255, 220, 60):Lerp(Color3.fromRGB(255, 60, 60), 1 - ratio * 2)
             o.lines.hpFill.Visible = true

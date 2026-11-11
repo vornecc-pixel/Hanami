@@ -1642,6 +1642,131 @@ ok(inst1.instanceSkips - inst0.instanceSkips > 0,
 eq(inst1.writes - inst0.writes, 0,
     "unchanged ESP frame writes zero draw properties")
 
+do
+-- ── Adaptive ESP geometry cache / slicing / disabled early-out ──────
+-- A static camera / rig must reuse ONE projection set between the FX pass
+-- and the throttled BillboardGui refresh. The camera signature is built
+-- once per camera change, not once per entity per frame.
+quiet(function() SA.ResetToDefaults() end)
+setFlags({
+    espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+    espVisibleCheck = false, espShowSkeleton = false, espShowHeadDot = false,
+    espShowTracer = false, espShowOffscreen = false, espFade = false,
+    espOnlyNearest = false, espOnlyAimTarget = false,
+    espTeamMode = "Exclude Teammates", perfMode = false,
+    espDataRefreshMs = 100, snapLineEnabled = false,
+    showManipPopup = false, masterEnabled = false, gunEnabled = false,
+})
+MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+SA.EspFrameBudgetReset()
+SA.EspGeomReset()
+SA.EspGeomInvalidate()
+frameTimes(35) -- settle the rolling FPS estimate at 60 before measuring
+SA.EspGeomReset()
+SA.EspGeomInvalidate()
+SA.EspFrameBudgetReset()
+frameTimes(1)
+local firstGeomObject = nil
+for _, o in pairs(espObjects) do
+    if o.geomCache then firstGeomObject = o; break end
+end
+ok(firstGeomObject ~= nil, "player ESP object has cached geometry")
+local geomBudget = SA.EspGeometryBudget()
+eq(geomBudget.stride, 1, "healthy 60 FPS frame uses no geometry slicing")
+eq(geomBudget.targetFps, 60, "geometry budget targets 60 FPS")
+eq(geomBudget.overBudget, false, "healthy frame is within geometry budget")
+eq(type(SA.EspGeomState()), "table", "geometry state API exposed")
+eq(type(SA.EspGeomState().cacheHits), "number", "geometry cache hits tracked")
+eq(type(SA.EspGeomState().cameraKeyBuilds), "number",
+    "camera signature builds tracked")
+local g1 = firstGeomObject.geomCache
+local st1 = SA.EspGeomState()
+ok(st1.cacheMisses > 0, "first geometry frame populates the cache")
+ok(st1.w2vCalls >= 3, "cache miss performs one 3-point projection set")
+ok(st1.cameraKeyBuilds >= 1, "camera signature built once")
+frameTimes(4)
+local st2 = SA.EspGeomState()
+eq(firstGeomObject.geomCache, g1,
+    "static camera / rig reuses the same geometry table")
+ok(st2.cacheHits > st1.cacheHits, "geometry cache hits accumulate")
+eq(st2.w2vCalls, st1.w2vCalls,
+    "static frame performs no extra WorldToViewportPoint calls")
+ok(st2.savedW2vCalls > 0, "saved WorldToViewportPoint calls reported")
+ok(st2.cameraKeyBuilds <= st1.cameraKeyBuilds + 1,
+    "camera signature is reused across entities and frames")
+local cachedG = SA.EspGeom(firstGeomObject, MOCK_CAMERA,
+    firstGeomObject.root.Position, firstGeomObject.head.Position, "player")
+eq(cachedG, g1, "shared projection API returns the cached geom")
+local st3 = SA.EspGeomState()
+ok(st3.cacheHits > st2.cacheHits, "shared API records another cache hit")
+local oldCam = MOCK_CAMERA.CFrame
+MOCK_CAMERA.CFrame = CFrame.new(9, 3, 0)
+local movedG = SA.EspGeom(firstGeomObject, MOCK_CAMERA,
+    firstGeomObject.root.Position, firstGeomObject.head.Position, "player")
+ok(movedG ~= g1, "camera change invalidates the cached projection")
+MOCK_CAMERA.CFrame = oldCam
+SA.EspGeomInvalidate()
+eq(firstGeomObject.geomCache, nil, "geometry invalidation drops cached geom")
+
+-- Teammate map is rebuilt at the DATA interval, not on every FX frame.
+SA.EspGeomReset()
+SA.EspGeomInvalidate()
+SA.EspFrameBudgetReset()
+MOCK_GETPLAYERS_CALLS = 0
+quiet(function()
+    for _ = 1, 8 do SA.ApplyEspFx(MOCK_CAMERA) end
+end)
+local gpCalls = MOCK_GETPLAYERS_CALLS
+ok(gpCalls >= 1, "non-All team filter still builds a teammate map")
+ok(gpCalls <= 2, "teammate map is throttled across 8 FX frames")
+local teamGeom = SA.EspGeomState()
+ok(teamGeom.cacheHits > 0, "FX frames reuse the geometry cache")
+ok(teamGeom.cameraKeyBuilds <= 2,
+    "one camera signature serves 8 static-camera FX frames")
+
+-- A slow frame raises geometryStride and rotates low-priority entities,
+-- while the aim target / nearest set stays on the full-rate path.
+SA.EspFrameBudgetReset()
+quiet(function() mock_frame(0.05) end)
+local slowBudget = SA.EspGeometryBudget()
+eq(slowBudget.overBudget, true, "50 ms frame is over geometry budget")
+ok(slowBudget.stride >= 2, "slow frame raises adaptive geometry stride")
+local perfBefore = SA.EspPerfState()
+quiet(function()
+    for _ = 1, 4 do SA.ApplyEspFx(MOCK_CAMERA) end
+end)
+local perfAfter = SA.EspPerfState()
+ok(perfAfter.geometrySkips > perfBefore.geometrySkips,
+    "slow frame skips low-priority geometry styles")
+ok(perfAfter.geometryUpdates > perfBefore.geometryUpdates,
+    "rotating buckets still style some entities")
+ok(perfAfter.geometryBudget.stride >= 2,
+    "ESP perf state exposes the adaptive geometry stride")
+ok(perfAfter.frameBudget.geometryStride >= 2,
+    "frame budget exposes the adaptive geometry stride")
+
+-- All ESP OFF must hide each object list ONCE, then early-out before the
+-- aim / FOV / nearest work. The master render callback still runs normally.
+setFlags({
+    espEnabled = false, npcEspEnabled = false, crateEnabled = false,
+})
+SA.EspFrameBudgetReset()
+frameTimes(1)
+eq(SA.EspHiddenPass.players, true, "player hidden pass recorded")
+eq(SA.EspHiddenPass.npcs, true, "NPC hidden pass recorded")
+eq(SA.EspHiddenPass.crates, true, "crate hidden pass recorded")
+local hide0 = SA.EspPerfState()
+frameTimes(4)
+local hide1 = SA.EspPerfState()
+eq(hide1.geometryHiddenPasses - hide0.geometryHiddenPasses, 0,
+    "disabled ESP performs no repeated hidden passes")
+eq(hide1.fxPasses - hide0.fxPasses, 4,
+    "disabled ESP keeps the single master FX entry alive")
+quiet(function() SA.ResetToDefaults() end)
+end
+
+quiet(function() SA.ResetToDefaults() end)
+
 quiet(function() SA.ResetToDefaults() end)
 
 -- ── UI buttons (every callback is pcall-wrapped by the mock) ─────────

@@ -19,9 +19,14 @@ local function espC(key)
     return ESP_COLORS[key] or Color3.new(1, 1, 1)
 end
 
+local rainbowFrame, rainbowClock = -1, 0
 local function rainbowColor(seed)
-    local t = tick() * math.max(CFG.espRainbowSpeed or 2, 0.1) * 0.12 + (seed or 0)
-    return Color3.fromHSV(t % 1, 0.85, 1)
+    local frame = SA.EspFxFrame or 0
+    if rainbowFrame ~= frame then
+        rainbowFrame = frame
+        rainbowClock = tick() * math.max(CFG.espRainbowSpeed or 2, 0.1) * 0.12
+    end
+    return Color3.fromHSV((rainbowClock + (seed or 0)) % 1, 0.85, 1)
 end
 
 -- base = dynamic visibility / crate-type colour (used by default)
@@ -168,6 +173,9 @@ function SA.DisposeEspFx(o)
     o.fxFrame = nil
     o.highlightFrame = nil
     o.instApplied = nil
+    o.geomKey = nil
+    o.geomCache = nil
+    o.geomAnchor = nil
 end
 
 local function findPart(model, names)

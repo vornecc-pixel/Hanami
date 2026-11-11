@@ -13,14 +13,163 @@
 -- players in pairs(espObjects) silently kept last frame's drawings.
 -- ────────────────────────────────────────────────────────────────────
 
+-- drawEntity (18_esp_fx_draw.lua) already guards drawEntityInner and the
+-- usage-mark finaliser. Calling it through another pcall added a third
+-- per-entity protected call; this keeps the sameisolation without the wrapper.
 local function safeDrawEntity(cam, o, opt)
-    if not pcall(drawEntity, cam, o, opt) then pcall(hideFx, o) end
+    if not opt or not opt.enabled then pcall(hideFx, o); return end
+    startFxFrame(o)
+    local ok = pcall(drawEntityInner, cam, o, opt)
+    pcall(hideUnusedFx, o)
+    if not ok then pcall(hideFx, o) end
 end
 
 -- FPS counters are shared with 19_render_loop.lua (throttled data refresh)
 -- and survive re-execution for the session-long ESP perf state.
 SA.EspPerf = SA.EspPerf or { fxPasses = 0, dataRefreshes = 0, dataSkips = 0 }
 SA.EspFxFrame = SA.EspFxFrame or 0
+SA.EspHiddenPass = { players = false, npcs = false, crates = false }
+SA.EspGeomStats = SA.EspGeomStats or { cacheHits = 0, cacheMisses = 0,
+    w2vCalls = 0, cameraKeyBuilds = 0 }
+
+local ESP_HEAD_OFFSET   = Vector3.new(0, 0.5, 0)
+local ESP_LOW_OFFSET    = Vector3.new(0, 3, 0)
+local ESP_CRATE_TOP     = Vector3.new(0, 2, 0)
+local ESP_CRATE_BOTTOM  = Vector3.new(0, 2, 0)
+
+local function espNum(v)
+    return tostring(math.floor((tonumber(v) or 0) * 100 + 0.5))
+end
+
+local function espVecKey(v)
+    if not v then v = Vector3.zero end
+    return espNum(v.X) .. "," .. espNum(v.Y) .. "," .. espNum(v.Z)
+end
+
+local espCamSig = { has = false, key = "" }
+
+-- The camera signature is identical for every entity in one frame. Build
+-- its string once instead of repeating a CFrame rotation pcall and ~11
+-- number-to-string conversions for every player / NPC / crate.
+local function espCameraKey(cam)
+    local cf = cam.CFrame
+    local cp = cf and cf.Position or Vector3.zero
+    local look = cf and cf.LookVector or Vector3.zero
+    local up = cf and cf.UpVector or Vector3.zero
+    local vp = cam.ViewportSize or Vector2.new(1280, 720)
+    local fov = tonumber(cam.FieldOfView) or 0
+    local sig = espCamSig
+    local cfChanged = sig.cf ~= cf
+    if sig.has and not cfChanged
+        and sig.cpX == cp.X and sig.cpY == cp.Y and sig.cpZ == cp.Z
+        and sig.lx == look.X and sig.ly == look.Y and sig.lz == look.Z
+        and sig.ux == up.X and sig.uy == up.Y and sig.uz == up.Z
+        and sig.vx == vp.X and sig.vy == vp.Y and sig.fov == fov then
+        return sig.key
+    end
+    -- LookVector / UpVector cover real Roblox CFrames; the Euler fallback
+    -- also catches a rotation-only change when those axes are mocked flat.
+    local rx, ry, rz = 0, 0, 0
+    if cf and cf.ToEulerAnglesXYZ then
+        pcall(function() rx, ry, rz = cf:ToEulerAnglesXYZ() end)
+    end
+    sig.has, sig.cf = true, cf
+    sig.cpX, sig.cpY, sig.cpZ = cp.X, cp.Y, cp.Z
+    sig.lx, sig.ly, sig.lz = look.X, look.Y, look.Z
+    sig.ux, sig.uy, sig.uz = up.X, up.Y, up.Z
+    sig.vx, sig.vy, sig.fov = vp.X, vp.Y, fov
+    sig.key = espVecKey(cp) .. "|" .. espVecKey(look) .. "|"
+        .. espVecKey(up) .. "|" .. espNum(rx) .. "," .. espNum(ry)
+        .. "," .. espNum(rz) .. "|" .. espNum(vp.X) .. "," .. espNum(vp.Y)
+        .. "|" .. espNum(fov)
+    local st = SA.EspGeomStats
+    st.cameraKeyBuilds = (st.cameraKeyBuilds or 0) + 1
+    return sig.key
+end
+
+-- Static crates keep the same anchor for their whole lifetime; moving rigs
+-- still invalidate as soon as root / head positions change by > 0.01 studs.
+local function espAnchorKey(o, rootPos, headPos, kindName)
+    local hp = headPos or rootPos
+    local a = o.geomAnchor
+    if a and a.kind == kindName and a.rx == rootPos.X and a.ry == rootPos.Y
+        and a.rz == rootPos.Z and a.hx == hp.X and a.hy == hp.Y
+        and a.hz == hp.Z then
+        return a.key
+    end
+    local key = kindName .. "|" .. espVecKey(rootPos) .. "|" .. espVecKey(hp)
+    o.geomAnchor = { kind = kindName, key = key,
+        rx = rootPos.X, ry = rootPos.Y, rz = rootPos.Z,
+        hx = hp.X, hy = hp.Y, hz = hp.Z }
+    return key
+end
+
+function SA.EspGeomReset()
+    SA.EspGeomStats = { cacheHits = 0, cacheMisses = 0,
+        w2vCalls = 0, cameraKeyBuilds = 0 }
+    return true
+end
+
+function SA.EspGeomState()
+    local s = SA.EspGeomStats
+    return { cacheHits = s.cacheHits, cacheMisses = s.cacheMisses,
+        w2vCalls = s.w2vCalls, savedW2vCalls = s.cacheHits * 3,
+        cameraKeyBuilds = s.cameraKeyBuilds or 0 }
+end
+
+function SA.EspGeomInvalidate()
+    for _, o in pairs(espObjects or {}) do
+        o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+    end
+    for _, o in pairs(npcObjects or {}) do
+        o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+    end
+    for _, o in pairs(crateObjects or {}) do
+        o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+    end
+    espCamSig.has = false
+    return true
+end
+
+-- One projection set per entity per camera / rig change. Both the throttled
+-- BillboardGui refresh and the unified FX pass reuse the same cached geom.
+function SA.EspGeom(o, cam, rootPos, headPos, kind)
+    if not o or not cam or not rootPos then return nil end
+    local kindName = tostring(kind or "player")
+    local key = espAnchorKey(o, rootPos, headPos, kindName) .. "|"
+        .. espCameraKey(cam)
+    local stats = SA.EspGeomStats
+    if o.geomKey == key and o.geomCache then
+        stats.cacheHits = stats.cacheHits + 1
+        return o.geomCache
+    end
+    stats.cacheMisses = stats.cacheMisses + 1
+    local headWorld, lowWorld = nil, nil
+    if kindName == "crate" then
+        headWorld = rootPos + ESP_CRATE_TOP
+        lowWorld = rootPos - ESP_CRATE_BOTTOM
+    else
+        headWorld = (headPos or rootPos) + ESP_HEAD_OFFSET
+        lowWorld = rootPos - ESP_LOW_OFFSET
+    end
+    local raw, ok = cam:WorldToViewportPoint(rootPos)
+    local hv = cam:WorldToViewportPoint(headWorld)
+    local lv = cam:WorldToViewportPoint(lowWorld)
+    stats.w2vCalls = stats.w2vCalls + 3
+    local h, w = 0, 0
+    if kindName == "crate" then
+        h = math.max(math.abs(hv.Y - lv.Y), 18)
+        w = math.max(h * 0.9, 24)
+    else
+        h = math.abs(hv.Y - lv.Y)
+        w = h / 2
+    end
+    local z = tonumber(raw.Z) or 0
+    local g = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
+        raw = raw, ok = ok, onScreen = ok == true and z > 0 }
+    o.geomKey, o.geomCache = key, g
+    return g
+end
 
 -- ── BETTER: ESP decluttering / FPS pass ──────────────────────────────
 SA.EspVisibleCount = { players = 0, npcs = 0, crates = 0 }
@@ -65,11 +214,7 @@ end
 local function addAimToNearest(aimModel)
     if not aimModel then return end
     espNearestSet[aimModel] = true
-    for plr in pairs(espObjects) do
-        if plr == aimModel or plr.Character == aimModel then
-            espNearestSet[plr.Character or plr] = true
-        end
-    end
+    if aimModel.Character then espNearestSet[aimModel.Character] = true end
 end
 
 local function refreshNearestSet(myPos, aimModel)
@@ -100,12 +245,14 @@ local function refreshNearestSet(myPos, aimModel)
     espNearestBuilt, espNearestCount, espNearestFrame = true, CFG.espNearestCount, frame
 end
 
--- Build ONE character -> teammate map per frame. The old code called
--- Players:GetPlayers() inside EspPassAllowed for every player (O(n^2)).
+-- Build ONE character -> teammate map per DATA INTERVAL. The old code
+-- called Players:GetPlayers() inside EspPassAllowed for every player
+-- (O(n^2)); rebuilding that map on every FX frame was redundant too.
 local function refreshTeamSet()
     local mode = CFG.espTeamMode or "All"
     local frame = SA.EspFxFrame or 0
-    if espTeamSetMode == mode and espTeamSetFrame == frame then return end
+    if espTeamSetMode == mode
+        and (frame - espTeamSetFrame) < espDataInterval() then return end
     espTeamSetMode, espTeamSetFrame = mode, frame
     espTeamMateByChar = {}
     if mode == "All" or type(SA.IsTeammate) ~= "function" then return end
@@ -180,11 +327,8 @@ local function drawPlayerFx(plr, o, cam, myPos, targetModel, origin, fovC, fovR,
     local dot = CFG.espVisibleCheck
         and (vis and espC("playerVisible") or espC("playerHidden"))
         or espC("playerVisDot")
-    local raw, ok = cam:WorldToViewportPoint(hrp.Position)
-    local hv = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-    local lv = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-    local h, w = math.abs(hv.Y - lv.Y), 0
-    w = h / 2
+    local g = SA.EspGeom(o, cam, hrp.Position, head.Position, "player")
+    if not g then hideFx(o); return end
     safeDrawEntity(cam, o, {
         enabled = dist <= CFG.espMaxDist, pal = "player",
         base = base, visColor = dot, seed = seed,
@@ -193,19 +337,66 @@ local function drawPlayerFx(plr, o, cam, myPos, targetModel, origin, fovC, fovR,
         target = (targetModel == char), origin = origin, opened = false,
         fovCenter = fovC, fovRadius = fovR,
         ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1),
-        geom = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
-                 raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
+        geom = g,
     })
+end
+
+local function hideAllOnce(kind, objects)
+    if SA.EspHiddenPass[kind] then return 0 end
+    local n = 0
+    if type(hideFx) == "function" then
+        for _, o in pairs(objects) do
+            pcall(hideFx, o)
+            n = n + 1
+        end
+    end
+    SA.EspHiddenPass[kind] = true
+    SA.EspPerf.geometryHiddenPasses = (SA.EspPerf.geometryHiddenPasses or 0) + n
+    return n
+end
+
+local function countCrateFovFromCache(cam, o, fovC, fovR)
+    if CFG.crateFovAware == false then return end
+    local g = o.geomCache
+    if not g or not g.raw then return end
+    local vp = cam.ViewportSize or Vector2.new(1280, 720)
+    local px, onScr = screenPoint(cam, g.raw, g.ok)
+    local center = fovC or Vector2.new(vp.X / 2, vp.Y / 2)
+    local radius = math.max(fovR or 150, 20)
+    local outside = (px - center).Magnitude > radius
+    local c = SA.CrateFovCount
+    if not onScr or outside then
+        c.outside = c.outside + 1
+        c.dots = c.dots + 1
+    else
+        c.inside = c.inside + 1
+        if o.highlight then c.highlights = c.highlights + 1 end
+    end
 end
 
 function SA.ApplyEspFx(cam)
     if not cam then return end
     SA.EspFxFrame = (SA.EspFxFrame or 0) + 1
     SA.EspPerf.fxPasses = (SA.EspPerf.fxPasses or 0) + 1
+    SA.EspPerf.geometryUpdates = SA.EspPerf.geometryUpdates or 0
+    SA.EspPerf.geometrySkips = SA.EspPerf.geometrySkips or 0
+    SA.EspPerf.geometryHiddenPasses = SA.EspPerf.geometryHiddenPasses or 0
     SA.EspVisibleCount.players, SA.EspVisibleCount.npcs,
         SA.EspVisibleCount.crates = 0, 0, 0
     SA.CrateFovCount.inside, SA.CrateFovCount.outside = 0, 0
     SA.CrateFovCount.dots, SA.CrateFovCount.highlights = 0, 0
+
+    local playerOn = CFG.espEnabled == true
+    local npcOn = CFG.npcEspEnabled == true
+    local crateOn = CFG.crateEnabled == true
+    if playerOn then SA.EspHiddenPass.players = false
+    else hideAllOnce("players", espObjects) end
+    if npcOn then SA.EspHiddenPass.npcs = false
+    else hideAllOnce("npcs", npcObjects) end
+    if crateOn then SA.EspHiddenPass.crates = false
+    else hideAllOnce("crates", crateObjects) end
+    if not (playerOn or npcOn or crateOn) then return end
+
     local origin = tracerOrigin(cam)
     local myRoot = SA.PlayerRig(lp.Character)
     local myPos = myRoot and myRoot.Position or cam.CFrame.Position
@@ -213,105 +404,137 @@ function SA.ApplyEspFx(cam)
     refreshTeamSet()
     refreshNearestSet(myPos, targetModel)
     local seed = 0
-    -- shared with the FOV circle (10_fov_circle.lua) so off-screen arrows
-    -- ride the exact same radius/centre the user sees
     local fovC = SA.AimPoint()
     local fovR = SA.FovRadius()
+    local geomBudget = SA.EspGeometryBudget and SA.EspGeometryBudget()
+        or { stride = 1, bucket = 0 }
+    local stride = math.clamp(tonumber(geomBudget.stride) or 1, 1, 4)
+    local bucket = tonumber(geomBudget.bucket) or 0
+    local geomIndex = 0
+    -- Aim target and nearest-N entities stay on the full-rate path even
+    -- when slicing is active. Only the remaining entities rotate buckets,
+    -- so the entity the user is actually aiming at never waits 4 frames.
+    local function dueGeometry(model, isTarget)
+        if stride <= 1 or isTarget then return true end
+        if model and espNearestSet[model] then return true end
+        geomIndex = geomIndex + 1
+        return (geomIndex % stride) == bucket
+    end
 
-    if CFG.espEnabled then
-        local drawn = 0
+    if playerOn then
+        local eligible = 0
         local cap = CFG.perfMode and (SA.PerfEffectiveEntityCap
             and SA.PerfEffectiveEntityCap() or math.max(math.floor(CFG.perfMaxEntities or 40), 1))
             or math.huge
         for plr, o in pairs(espObjects) do
             seed = seed + 0.137
-            if drawn >= cap or
-                not SA.EspPassAllowed("player", plr.Character, nil, targetModel) then
+            local allowed = eligible < cap
+                and SA.EspPassAllowed("player", plr.Character, nil, targetModel)
+            if not allowed then
                 pcall(hideFx, o)
             else
-                if not pcall(drawPlayerFx, plr, o, cam, myPos, targetModel,
-                             origin, fovC, fovR, seed) then
-                    pcall(hideFx, o)
+                eligible = eligible + 1
+                local char = plr.Character
+                if not dueGeometry(char, targetModel == char) then
+                    if not char or not o.root then pcall(hideFx, o)
+                    else SA.EspVisibleCount.players = SA.EspVisibleCount.players + 1 end
+                    SA.EspPerf.geometrySkips = SA.EspPerf.geometrySkips + 1
                 else
-                    drawn = drawn + 1
-                    SA.EspVisibleCount.players = SA.EspVisibleCount.players + 1
+                    if not pcall(drawPlayerFx, plr, o, cam, myPos, targetModel,
+                                 origin, fovC, fovR, seed) then
+                        pcall(hideFx, o)
+                    else
+                        SA.EspVisibleCount.players = SA.EspVisibleCount.players + 1
+                        SA.EspPerf.geometryUpdates = SA.EspPerf.geometryUpdates + 1
+                    end
                 end
             end
         end
-    else for _, o in pairs(espObjects) do hideFx(o) end end
+    end
 
-    if CFG.npcEspEnabled then
+    if npcOn then
         for model, o in pairs(npcObjects) do
             seed = seed + 0.137
             local hum, hrp, head = fxNpcRig(o, model)
-            if not (model.Parent and hum and hum.Health > 0 and hrp and head) then hideFx(o)
+            if not (model.Parent and hum and hum.Health > 0 and hrp and head) then
+                pcall(hideFx, o)
             else
                 local dist = (myPos - hrp.Position).Magnitude
-                local vis = false
-                if CFG.npcVisibleCheck then
-                    if type(o.vis) == "boolean" then vis = o.vis
-                    else vis = SA.IsVisible(model, hrp.Position); o.vis = vis end
-                end
-                local base = CFG.npcVisibleCheck
-                    and (vis and espC("npcVisible") or espC("npcHidden"))
-                    or espC("npcFlat")
-                local typeColor = nil
-                if CFG.npcUseTypeColors then
-                    local n = string.lower(model.Name)
-                    typeColor = n:find("guard") and espC("npcGuard")
-                        or (n:find("scav") and espC("npcScavenger")
-                        or (n:find("soldier") and espC("npcSoldier") or nil))
-                end
-                local dot = CFG.npcVisibleCheck
-                    and (vis and espC("npcVisible") or espC("npcHidden"))
-                    or espC("npcFlat")
-                local raw, ok = cam:WorldToViewportPoint(hrp.Position)
-                local hv = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
-                local lv = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3, 0))
-                local h = math.abs(hv.Y - lv.Y); local w = h / 2
-                safeDrawEntity(cam, o, {
-                    enabled = dist <= CFG.npcMaxDist, pal = "npc",
-                    base = base, visColor = dot, seed = seed,
-                    checkVisible = CFG.npcVisibleCheck, typeColor = typeColor,
-                    dist = dist, maxDist = CFG.npcMaxDist, model = model,
-                    target = (targetModel == model), origin = origin, opened = false,
-                    fovCenter = fovC, fovRadius = fovR,
-                    ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1),
-                    geom = { x = raw.X - w / 2, y = hv.Y, w = w, h = h,
-                             raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
-                })
-                if dist <= CFG.npcMaxDist then
+                if not dueGeometry(model, targetModel == model) then
                     SA.EspVisibleCount.npcs = SA.EspVisibleCount.npcs + 1
+                    SA.EspPerf.geometrySkips = SA.EspPerf.geometrySkips + 1
+                else
+                    local vis = false
+                    if CFG.npcVisibleCheck then
+                        if type(o.vis) == "boolean" then vis = o.vis
+                        else vis = SA.IsVisible(model, hrp.Position); o.vis = vis end
+                    end
+                    local base = CFG.npcVisibleCheck
+                        and (vis and espC("npcVisible") or espC("npcHidden"))
+                        or espC("npcFlat")
+                    local typeColor = nil
+                    if CFG.npcUseTypeColors then
+                        local n = string.lower(model.Name)
+                        typeColor = n:find("guard") and espC("npcGuard")
+                            or (n:find("scav") and espC("npcScavenger")
+                            or (n:find("soldier") and espC("npcSoldier") or nil))
+                    end
+                    local dot = CFG.npcVisibleCheck
+                        and (vis and espC("npcVisible") or espC("npcHidden"))
+                        or espC("npcFlat")
+                    local g = SA.EspGeom(o, cam, hrp.Position, head.Position, "npc")
+                    if not g then pcall(hideFx, o)
+                    else
+                        safeDrawEntity(cam, o, {
+                            enabled = dist <= CFG.npcMaxDist, pal = "npc",
+                            base = base, visColor = dot, seed = seed,
+                            checkVisible = CFG.npcVisibleCheck, typeColor = typeColor,
+                            dist = dist, maxDist = CFG.npcMaxDist, model = model,
+                            target = (targetModel == model), origin = origin, opened = false,
+                            fovCenter = fovC, fovRadius = fovR,
+                            ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1),
+                            geom = g,
+                        })
+                        if dist <= CFG.npcMaxDist then
+                            SA.EspVisibleCount.npcs = SA.EspVisibleCount.npcs + 1
+                        end
+                        SA.EspPerf.geometryUpdates = SA.EspPerf.geometryUpdates + 1
+                    end
                 end
             end
         end
-    else for _, o in pairs(npcObjects) do hideFx(o) end end
+    end
 
-    if CFG.crateEnabled then
+    if crateOn then
         for _, o in pairs(crateObjects) do
             seed = seed + 0.137
-            if not o.visible or not o.pos then hideFx(o)
+            if not o.visible or not o.pos then pcall(hideFx, o)
             else
-                local base = o.opened and espC("crateOpened")
-                    or (o.kind == "Military" and espC("crateMilitary")
-                    or (o.kind == "Elite" and espC("crateElite") or espC("crateLoot")))
-                local raw, ok = cam:WorldToViewportPoint(o.pos)
-                local tv = cam:WorldToViewportPoint(o.pos + Vector3.new(0, 2, 0))
-                local bv = cam:WorldToViewportPoint(o.pos - Vector3.new(0, 2, 0))
-                local h = math.max(math.abs(tv.Y - bv.Y), 18)
-                local w = math.max(h * 0.9, 24)
-                safeDrawEntity(cam, o, {
-                    enabled = true, pal = "crate", base = base, visColor = base,
-                    seed = seed, dist = o.dist or 0, maxDist = CFG.crateMaxDist,
-                    model = nil, target = false, origin = origin,
-                    opened = o.opened, ratio = 1, checkVisible = false,
-                    fovCenter = fovC, fovRadius = fovR,
-                    typeColor = base, keepNameColor = true,
-                    geom = { x = raw.X - w / 2, y = tv.Y, w = w, h = h,
-                             raw = raw, ok = ok, onScreen = ok and raw.Z > 0 },
-                })
-                SA.EspVisibleCount.crates = SA.EspVisibleCount.crates + 1
+                if not dueGeometry(nil, false) then
+                    countCrateFovFromCache(cam, o, fovC, fovR)
+                    SA.EspVisibleCount.crates = SA.EspVisibleCount.crates + 1
+                    SA.EspPerf.geometrySkips = SA.EspPerf.geometrySkips + 1
+                else
+                    local base = o.opened and espC("crateOpened")
+                        or (o.kind == "Military" and espC("crateMilitary")
+                        or (o.kind == "Elite" and espC("crateElite") or espC("crateLoot")))
+                    local g = SA.EspGeom(o, cam, o.pos, o.pos, "crate")
+                    if not g then pcall(hideFx, o)
+                    else
+                        safeDrawEntity(cam, o, {
+                            enabled = true, pal = "crate", base = base, visColor = base,
+                            seed = seed, dist = o.dist or 0, maxDist = CFG.crateMaxDist,
+                            model = nil, target = false, origin = origin,
+                            opened = o.opened, ratio = 1, checkVisible = false,
+                            fovCenter = fovC, fovRadius = fovR,
+                            typeColor = base, keepNameColor = true,
+                            geom = g,
+                        })
+                        SA.EspVisibleCount.crates = SA.EspVisibleCount.crates + 1
+                        SA.EspPerf.geometryUpdates = SA.EspPerf.geometryUpdates + 1
+                    end
+                end
             end
         end
-    else for _, o in pairs(crateObjects) do hideFx(o) end end
+    end
 end
