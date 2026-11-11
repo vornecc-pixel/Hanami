@@ -520,8 +520,6 @@ local SA_CFG_SHIPPED = {
     targetNpcs = false,
     targetBone = "Head",
     forceHead = false,           -- silent aim always resolves Head when present
-    saRandomHitPart = false,     -- silent aim picks a sticky random R6/R15 part
-    manipRandomHitPart = false,  -- manipulation picks a sticky random R6/R15 part
 
     -- gun silent aim
     gunEnabled     = false,
@@ -539,7 +537,7 @@ local SA_CFG_SHIPPED = {
     fustBowManipMaxDist = 60,
     fustBowOriginRadius = 12,
 
-    -- triggerbot / auto fire (guns only; both OFF in the baseline)
+    -- triggerbot / auto fire (guns only; both OFF by default)
     triggerbot       = false,
     autoFire         = false,
     triggerHeadOnly  = false,
@@ -636,7 +634,7 @@ local SA_CFG_SHIPPED = {
     crateMaxDist       = 3000,
 
     -- esp visual features (shared by players, NPCs and crates)
-    -- OFF baseline. CLEAN MODE is an explicit opt-in: no dark
+    -- Every feature starts OFF. CLEAN MODE is an explicit opt-in: no dark
     -- tag pills / chams fill, only thin outlines plus text stroke. Turn it
     -- ON for that look; effective values still live in 18_esp_fx_draw.lua.
     espCleanMode        = false,
@@ -722,8 +720,7 @@ local SA_CFG_SHIPPED = {
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
     showManipPopup = false, showPlayerWarning = false,
-    forceHead = false, saRandomHitPart = false, manipRandomHitPart = false,
-    triggerbot = false, autoFire = false,
+    forceHead = false, triggerbot = false, autoFire = false,
     triggerHeadOnly = false, triggerRandomPart = false,
     triggerPart = "Head", triggerUseManip = false, fireWallCheck = false,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
@@ -735,99 +732,48 @@ local SA_CFG_SHIPPED = {
     gunOverrideString = "",
     uiTheme = "Atlanta", uiFont = "Source Sans Pro",
 }
+local saFreshEspStartup = _G.__saCFG == nil
 local CFG = _G.__saCFG or SA_CFG_SHIPPED
 _G.__saCFG = CFG
--- Shipped literal = a clean, fully OFF baseline for tests / manual reset.
--- SA.CFG_DEFAULTS is the user-facing startup snapshot after BEST_STARTUP.
-SA.CFG_OFF_BASELINE = {}
-for k, v in pairs(SA_CFG_SHIPPED) do SA.CFG_OFF_BASELINE[k] = v end
+-- Snapshot the SHIPPED literal, not the live CFG (which may be a saved
+-- profile from an earlier run). "Reset to defaults" needs the originals.
 SA.CFG_DEFAULTS = {}
 for k, v in pairs(SA_CFG_SHIPPED) do SA.CFG_DEFAULTS[k] = v end
 
--- ── CURATED BEST STARTUP ─────────────────────────────────────────────
--- Applied once on a fresh chunk load, BEFORE Atlanta builds its widgets.
--- Best ESP uses corner boxes + outlines (not opaque chams), Blatant silent
--- aim, automatic gun inspections/scanner, FOV, snapline, preview and HUD.
--- Risky firing, bow, hitbox and brightness switches remain OFF.
-SA.BEST_STARTUP = {
-    -- Blatant silent aim / ballistics / target selection
-    masterEnabled = true, gunEnabled = true, fov = 220,
-    fovPreset = "Blatant", hitChance = 100, gunCooldown = 0,
-    distance = 0, wallCheck = false, teamCheck = true,
-    targetNpcs = true, targetBone = "Head", forceHead = true,
-    targetPriority = "Crosshair", targetBoneMode = "Global",
-    prediction = true, predictionGravity = true, predictionAmmo = true,
-    predictionIterations = 4, predictionAutoPing = true,
-    predictionPingScale = 1, predictionLatency = 0,
-    attachmentAutoTune = true, attachmentAimTune = true,
-    attachmentAds = false, attachmentAimScale = 1,
-    saTapReorder = true, saTapWindow = 0.35,
-    saRandomHitPart = true, manipRandomHitPart = true,
-    manipulation = true, manipNpcs = true, manipDist = 75,
-    manipPeek = 4, manipMaxParts = 3, manipBudget = 64,
-    manipHysteresis = 5, manipMaxPeekDelta = 6,
-    -- Risky / noisy work stays explicitly OFF until the user enables it.
-    triggerbot = false, autoFire = false, fireWallCheck = false,
-    triggerRandomPart = false, triggerPart = "Head",
-    bowModsEnabled = false, bowInstantCharge = false, bowNoCooldown = false,
-    hitboxEnabled = false, hitboxNpcs = false,
-    displayBrightnessEnabled = false,
-
-    -- Best readable ESP: corners + thin outlines, no chams blob or pills
+-- ESP-ONLY best preset. Every other family (silent aim, gun mods, Visual,
+-- Misc, FOV circle, snapline, HUD, brightness, hitbox, bows, auto fire)
+-- keeps the old fully OFF startup. Applied on a fresh session before the
+-- Atlanta widgets are built; a normal re-execute preserves user changes.
+SA.BEST_ESP_STARTUP = {
+    -- Player / NPC ESP
     espEnabled = true, espMaxDist = 2000, espVisibleCheck = true,
     espShowName = true, espShowDist = true, espShowHealth = true,
     espShowTool = true, espShowState = true,
-    npcEspEnabled = true, npcVisibleCheck = true, npcMaxDist = 2000,
+    npcEspEnabled = true, npcMaxDist = 2000, npcVisibleCheck = true,
     npcShowName = true, npcShowDist = true, npcShowHealth = true,
     npcShowTool = true, npcShowState = true, npcUseTypeColors = true,
+    -- Readable corners + thin outlines; no chams blob, pills or arrows
     espCleanMode = false, espPerElementColors = true,
-    espShowBox = true, espCornerBox = true,
-    espShowFill = false, espShowOutline = true,
-    espShowSkeleton = false, espShowHeadDot = true,
+    espShowBox = true, espCornerBox = true, espShowFill = false,
+    espShowOutline = true, espShowSkeleton = false, espShowHeadDot = true,
     espShowTracer = false, espShowOffscreen = false,
-    espHighlightTarget = true, espRainbow = false, espFade = false,
-    espArrowFOV = true, espShowHealthText = true, espTextOutline = true,
-    espTagSide = true, espTagBackdrop = false, espPreview = true,
-    espPreviewSpin = false, espPreviewTarget = false,
-    espOnlyNearest = false, espOnlyAimTarget = false,
-    espTeamMode = "All", espShowLiveCount = true,
-    crateFovAware = true, crateHighlight = false,
-
-    -- Automatic Gun Mods, hidden inspections and live-controller scanner
-    gmEnabled = true, gunNoSpread = true, gunNoRecoil = true,
-    gunFireRate = true, gunInfiniteAmmo = true, gunMoveShoot = true,
-    gunShotProbe = true, gunCameraKickFilter = false,
-    gunFireRateMultiplier = 1.5,
-    gunInspectDefs = true, gunInspectScripts = true,
-    gunInspectGunControl = true, gunInspectLiveGun = true,
-
-    -- FOV, snapline, preview, HUD and quiet settings already set up
-    showFov = true, fovFilled = false, fovTransparency = 50,
-    fovThickness = 1, fovCenterMode = "Mouse", forceGuiDrawing = true,
-    snapLineEnabled = true, snapShowLead = true,
-    snapLineOrigin = "Mouse", snapLineThickness = 1,
-    nearestWindow = true, nearestTopN = 3, nearestShowHealth = true,
-    nearestShowState = true, nearestShowTeam = false,
-    nearestScale = 1, nearestTransparency = 12,
-    showNoTargetReason = true, showManipPopup = true,
-    showPlayerWarning = true, espDataRefreshMs = 100,
-    perfMode = false, perfShowFps = false,
-    autoLoadConfig = false, configProfile = "default",
-    configName = "default", uiTheme = "Atlanta",
-    uiFont = "Source Sans Pro",
+    espArrowFOV = false, espHighlightTarget = true,
+    espRainbow = false, espFade = false, espFadeStart = 60,
+    espBoxThickness = 1, espTracerOrigin = "Bottom",
+    espShowHealthText = true, espTextSize = 11, espTextOutline = true,
+    espTagSide = true, espTagBackdrop = false,
+    -- Preview + decluttering
+    espPreview = true, espPreviewSpin = false, espPreviewSpeed = 25,
+    espPreviewKind = "Player", espPreviewSource = "Local Character",
+    espPreviewCompare = false, espPreviewTarget = false,
+    espOnlyNearest = false, espNearestCount = 5,
+    espOnlyAimTarget = false, espTeamMode = "All",
+    espShowLiveCount = true, espDataRefreshMs = 100,
 }
-for k, v in pairs(SA.BEST_STARTUP) do SA.CFG_DEFAULTS[k] = v end
-SA.BEST_ESP_KEYS = {
-    "espEnabled", "espVisibleCheck", "espShowName", "espShowDist",
-    "espShowHealth", "espShowTool", "espShowState", "npcEspEnabled",
-    "npcVisibleCheck", "npcShowName", "npcShowDist", "npcShowHealth",
-    "npcShowTool", "npcShowState", "npcUseTypeColors", "espCleanMode",
-    "espPerElementColors", "espShowBox", "espCornerBox", "espShowFill",
-    "espShowOutline", "espShowSkeleton", "espShowHeadDot", "espShowTracer",
-    "espShowOffscreen", "espHighlightTarget", "espRainbow", "espFade",
-    "espArrowFOV", "espShowHealthText", "espTextOutline", "espTagSide",
-    "espTagBackdrop", "espPreview",
-}
+for k, v in pairs(SA.BEST_ESP_STARTUP) do SA.CFG_DEFAULTS[k] = v end
+if saFreshEspStartup then
+    for k, v in pairs(SA.BEST_ESP_STARTUP) do CFG[k] = v end
+end
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
@@ -895,8 +841,7 @@ for k, v in pairs({
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
     showManipPopup = false, showPlayerWarning = false,
-    forceHead = false, saRandomHitPart = false, manipRandomHitPart = false,
-    triggerbot = false, autoFire = false,
+    forceHead = false, triggerbot = false, autoFire = false,
     triggerHeadOnly = false, triggerRandomPart = false,
     triggerPart = "Head", triggerUseManip = false, fireWallCheck = false,
     espOnlyNearest = false, espNearestCount = 5, espOnlyAimTarget = false,
@@ -914,16 +859,18 @@ if type(SA.CFG_DEFAULTS) ~= "table" then
     for k, v in pairs(CFG) do SA.CFG_DEFAULTS[k] = v end
 end
 
--- One-time migration for configs saved by older all-OFF builds. The best
--- startup now owns the FOV circle, reliable GUI backend and tap hooks.
-if _G.__saFovFix ~= 4 then
-    CFG.showFov = true
+-- One-time migration for configs saved by older builds. Those forced the
+-- FOV circle, GUI backend and tap hooks ON; all non-ESP features still
+-- start OFF, so clear those legacy values only ONCE. The ESP best preset
+-- above is the only startup exception.
+if _G.__saFovFix ~= 3 then
+    CFG.showFov = false
     CFG.fovTransparency = 50
     CFG.fovThickness = math.max(CFG.fovThickness or 1, 1)
     CFG.fovCenterMode = "Mouse"
-    CFG.forceGuiDrawing = true
-    CFG.saTapReorder = true
-    _G.__saFovFix = 4
+    CFG.forceGuiDrawing = false
+    CFG.saTapReorder = false
+    _G.__saFovFix = 3
 end
 
 -- One-time migration back to the CLASSIC manipulation slider set. v7.7
@@ -971,7 +918,7 @@ CFG.manipMaxPeek      = nil
 CFG.espPreviewSpeed  = saClampNum(CFG.espPreviewSpeed, 0, 90, 25)
 CFG.espPreviewKind   = (CFG.espPreviewKind == "NPC") and "NPC" or "Player"
 CFG.espPreviewTarget = CFG.espPreviewTarget == true
-CFG.nearestWindow    = CFG.nearestWindow == true  -- HUD clamped on every load
+CFG.nearestWindow    = CFG.nearestWindow == true  -- HUD defaults OFF
 
 -- Clamp every new BETTER input too: a stale / hand-edited saved profile
 -- must never put a dropdown outside its items or a slider outside range.
@@ -997,8 +944,6 @@ CFG.manipNpcs         = CFG.manipNpcs == true
 CFG.crateFovAware     = CFG.crateFovAware == true
 CFG.showPlayerWarning = CFG.showPlayerWarning == true
 CFG.forceHead         = CFG.forceHead == true
-CFG.saRandomHitPart   = CFG.saRandomHitPart == true
-CFG.manipRandomHitPart = CFG.manipRandomHitPart == true
 CFG.triggerbot        = CFG.triggerbot == true
 CFG.autoFire          = CFG.autoFire == true
 CFG.triggerHeadOnly   = CFG.triggerHeadOnly == true
@@ -1077,23 +1022,6 @@ CFG.gunInfiniteAmmo           = CFG.gunInfiniteAmmo == true
 CFG.gunMoveShoot              = CFG.gunMoveShoot == true
 CFG.displayBrightnessEnabled  = CFG.displayBrightnessEnabled == true
 CFG.displayBrightness         = saClampNum(CFG.displayBrightness, 0, 0.5, 0.2)
-
--- Apply the curated snapshot to a fresh session only. Re-execution keeps
--- user changes and native profile auto-load; a full unload clears the
--- marker so the next fresh execution starts from best settings again.
-function SA.ApplyBestStartup(setter)
-    local n = 0
-    for k, v in pairs(SA.CFG_DEFAULTS or {}) do
-        CFG[k] = v
-        if setter then pcall(setter, k, v) end
-        n = n + 1
-    end
-    return n
-end
-if _G.__saBestStartupFix ~= true then
-    SA.ApplyBestStartup()
-    _G.__saBestStartupFix = true
-end
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

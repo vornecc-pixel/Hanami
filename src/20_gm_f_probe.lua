@@ -494,7 +494,7 @@ function GMP.probeInspect(obj)
         GMP.probe.seen[obj] = true
         GMP.setStatus("shotProbeTracers",
             (GMP.status.shotProbeTracers or 0) + 1)
-        local pos = obj:IsA("BasePart") and obj.Position or Vector3.new(0, 0, 0)
+        local pos = obj:IsA("BasePart") and obj.Position or Vector3.zero
         GMP.probe.pending[#GMP.probe.pending + 1] = {
             object = obj, at = GMP.now(), startPos = pos, shot = shot }
     end

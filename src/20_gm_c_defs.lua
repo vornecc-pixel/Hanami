@@ -24,6 +24,10 @@ function GMP.requestItems(force)
         GMP.items.status = "Enable Gun Mods first"
         return nil
     end
+    if not (CFG.gunInspectDefs == true or GMP.on("gunNoSpread")) then
+        GMP.items.status = "Inspector paused"
+        return nil
+    end
     if GMP.items.data and not force then return GMP.items.data end
     local now = os.clock()
     if not force and now < GMP.items.nextAttempt then return GMP.items.data end
@@ -389,8 +393,8 @@ function GMP.definitionKeySummary(def)
 end
 
 function GMP.refreshDefinitionInspector(force)
-    if not GMP.master() then
-        GMP.setStatus("definitionScanState", "Enable Gun Mods first")
+    if not (CFG.gunInspectDefs == true or GMP.on("gunNoSpread")) then
+        GMP.setStatus("definitionScanState", "Paused (enable Inspect definitions)")
         return nil
     end
     local w = GMP.getWeapon()

@@ -197,95 +197,6 @@ local function bonePart(model, boneName)
     return model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
 end
 
--- ── BETTER: independent random hit parts ────────────────────────────
--- Silent aim, manipulation and triggerbot each own a sticky per-model
--- choice so a random part does not jitter every render frame and one
--- feature's switch never changes another feature's target. Triggerbot asks
--- for a fresh choice on every shot; the other two keep a short cache.
-SA.HIT_PART_ALIASES = {
-    Head = { "Head" },
-    Hrp = { "HumanoidRootPart" },
-    UpperTorso = { "UpperTorso", "Torso" },
-    LowerTorso = { "LowerTorso" },
-    LeftArm = { "LeftUpperArm", "Left Arm", "LeftArm" },
-    RightArm = { "RightUpperArm", "Right Arm", "RightArm" },
-    LeftLeg = { "LeftUpperLeg", "Left Leg", "LeftLeg" },
-    RightLeg = { "RightUpperLeg", "Right Leg", "RightLeg" },
-}
-SA.__saRandomHitParts = {
-    silent = setmetatable({}, { __mode = "k" }),
-    manip = setmetatable({}, { __mode = "k" }),
-    trigger = setmetatable({}, { __mode = "k" }),
-}
-local function findHitPart(model, names)
-    for _, n in ipairs(names or {}) do
-        local ok, part = pcall(function() return model:FindFirstChild(n) end)
-        if ok and part and type(part.IsA) == "function"
-            and part:IsA("BasePart") then return part end
-    end
-    return nil
-end
-function SA.RandomHitPart(model, scope, fresh)
-    if not model then return nil end
-    local name = tostring(scope or "silent")
-    local cache = SA.__saRandomHitParts[name]
-    if not cache then
-        cache = setmetatable({}, { __mode = "k" })
-        SA.__saRandomHitParts[name] = cache
-    end
-    local now = os.clock()
-    local held = cache[model]
-    if not fresh and held and held.part and held.part.Parent
-        and (now - (held.at or 0)) < 1 then
-        return held.part
-    end
-    local parts = {}
-    for _, names in pairs(SA.HIT_PART_ALIASES) do
-        local part = findHitPart(model, names)
-        if part then parts[#parts + 1] = part end
-    end
-    if #parts == 0 then return nil end
-    local part = parts[math.random(1, #parts)]
-    cache[model] = { part = part, at = now }
-    return part
-end
-function SA.RandomHitPartReset()
-    for _, cache in pairs(SA.__saRandomHitParts or {}) do
-        for model in pairs(cache) do cache[model] = nil end
-    end
-    return true
-end
-function SA.RandomHitPartState()
-    local counts = {}
-    for scope, cache in pairs(SA.__saRandomHitParts or {}) do
-        local n = 0
-        for _ in pairs(cache) do n = n + 1 end
-        counts[scope] = n
-    end
-    return {
-        silentAim = CFG.saRandomHitPart == true,
-        manipulation = CFG.manipRandomHitPart == true,
-        trigger = CFG.triggerRandomPart == true or CFG.triggerPart == "Random",
-        aliases = SA.HIT_PART_ALIASES, counts = counts,
-    }
-end
-function SA.SilentAimBonePart(model)
-    if CFG.saRandomHitPart == true then
-        local part = SA.RandomHitPart(model, "silent")
-        if part then return part end
-    end
-    return bonePart(model, SA.ResolveTargetBone and SA.ResolveTargetBone()
-        or (CFG.targetBone or "Head"))
-end
-function SA.ManipBonePart(model)
-    if CFG.manipRandomHitPart == true then
-        local part = SA.RandomHitPart(model, "manip")
-        if part then return part end
-    end
-    return bonePart(model, SA.ResolveTargetBone and SA.ResolveTargetBone()
-        or (CFG.targetBone or "Head"))
-end
-
 local function rollHit()
     if CFG.hitChance >= 100 then return true end
     if CFG.hitChance <= 0   then return false end
@@ -377,21 +288,42 @@ local function pickBestTarget(camera, aimPx, originPos, preview, boneFn)
 end
 
 -- ── BETTER: triggerbot / auto-fire hit-part selection ───────────────
--- R6 + R15 aliases now come from SA.HIT_PART_ALIASES. Random wins over
--- Head Only; a specific Hit Part is used when both toggles are OFF. The
--- trigger scope is independent of both random hit-part switches above.
+-- R6 + R15 aliases. Random Hit Part wins over Head Only; a specific Hit
+-- Part is used when both toggles are OFF. Silent aim still uses
+-- SA.ResolveTargetBone() (Force Head), so these modes never change the
+-- camera-snap target unless the fire-assist path is enabled.
 function SA.TriggerBonePart(model)
     if not model then return nil end
-    if CFG.triggerRandomPart == true or CFG.triggerPart == "Random" then
-        local part = SA.RandomHitPart(model, "trigger", true)
-        if part then return part end
+    local aliases = {
+        Head = { "Head" },
+        Hrp = { "HumanoidRootPart" },
+        UpperTorso = { "UpperTorso", "Torso" },
+        LowerTorso = { "LowerTorso" },
+        LeftArm = { "LeftUpperArm", "Left Arm", "LeftArm" },
+        RightArm = { "RightUpperArm", "Right Arm", "RightArm" },
+        LeftLeg = { "LeftUpperLeg", "Left Leg", "LeftLeg" },
+        RightLeg = { "RightUpperLeg", "Right Leg", "RightLeg" },
+    }
+    local function find(names)
+        for _, n in ipairs(names) do
+            local ok, part = pcall(function() return model:FindFirstChild(n) end)
+            if ok and part and type(part.IsA) == "function"
+                and part:IsA("BasePart") then return part end
+        end
+        return nil
     end
-    local aliases = SA.HIT_PART_ALIASES
+    if CFG.triggerRandomPart == true or CFG.triggerPart == "Random" then
+        local parts = {}
+        for _, names in pairs(aliases) do
+            local part = find(names)
+            if part then parts[#parts + 1] = part end
+        end
+        if #parts > 0 then return parts[math.random(1, #parts)] end
+    end
     local wanted = CFG.triggerHeadOnly == true and "Head"
         or (CFG.triggerPart or "Head")
-    return findHitPart(model, aliases[wanted] or aliases.Head)
-        or findHitPart(model, aliases.Head)
-        or findHitPart(model, aliases.Hrp)
+    return find(aliases[wanted] or aliases.Head)
+        or find(aliases.Head) or find(aliases.Hrp)
 end
 
 function SA.TriggerTarget()

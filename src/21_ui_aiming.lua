@@ -421,9 +421,7 @@ local targetSec, ballSec, manipSec = aimCol2:multi_section({
 })
 
 bindToggle(targetSec, "Force Head (Silent Aim)", "forceHead",
-    "Overrides Target Bone / Per-Weapon Bone so silent aim always resolves Head when the rig has one")
-bindToggle(targetSec, "Random Hit Part (Silent Aim)", "saRandomHitPart",
-    "Independent silent-aim switch: pick a sticky random available R6/R15 hit part per target; overrides Force Head while ON")
+    "OFF by default: overrides Target Bone / Per-Weapon Bone so silent aim always resolves Head when the rig has one")
 bindDropdown(targetSec, "Target Bone", "targetBone", { "Head", "Hrp" })
 bindDropdown(targetSec, "Per-Weapon Bone", "targetBoneMode", {
     "Global", "Head for snipers", "Hrp for shotguns",
@@ -477,9 +475,7 @@ local manipToggle = bindToggle(manipSec, "Enabled (FOV-aware)", "manipulation",
 SA.FeatureKeybind(manipToggle, "Enable Manipulation", "hn_bind_manipulation",
     Enum.KeyCode.M, "manipulation")
 bindToggle(manipSec, "Manipulate NPCs", "manipNpcs",
-    "Wall-peek / CanQuery manipulation also applies when the selected target is a Guard / Scavenger / Soldier NPC")
-bindToggle(manipSec, "Random Hit Part (Manip)", "manipRandomHitPart",
-    "Independent manipulation switch: pick a sticky random available R6/R15 hit part per target for peek / CanQuery rays")
+    "OFF by default: wall-peek / CanQuery manipulation also applies when the selected target is a Guard / Scavenger / Soldier NPC")
 bindSlider(manipSec, "Range (studs)", "manipDist", 0, 300, 1, "")
 bindSlider(manipSec, "Base Peek Offset", "manipPeek", 4, 6, 0.5, "")
 bindSlider(manipSec, "Max CanQuery Parts", "manipMaxParts", 0, 8, 1, "")

@@ -223,6 +223,11 @@ function GMP.syncLiveStatus()
 end
 
 function GMP.scanLive(force)
+    if CFG.gunInspectLiveGun ~= true then
+        GMP.setStatus("liveGunStatus",
+            "Enable live firing-state inspection first")
+        return false
+    end
     if not GMP.master() then
         GMP.setStatus("liveGunStatus", "Enable Gun Mods first")
         return false
@@ -322,7 +327,7 @@ function GMP.liveReport()
     local lines = {
         "Hanami V16.46-style live controller field report",
         "Weapon: " .. tostring(GMP.getWeapon().Name),
-        "Inspector: automatic (always ON)",
+        "Inspector: " .. tostring(CFG.gunInspectLiveGun == true),
         "Status: " .. tostring(GMP.status.liveGunStatus),
         "Available APIs: " .. tostring(GMP.live.apis),
         "GC mode: " .. tostring(GMP.live.gcMode),
@@ -368,7 +373,8 @@ if type(task) == "table" and type(task.spawn) == "function" then
     task.spawn(function()
         local gen = GMP.generation
         while GMP.alive and SA.Alive and SA.Generation == gen do
-            if GMP.master() and not GMP.live.scanned then
+            if GMP.master() and CFG.gunInspectLiveGun == true
+                and not GMP.live.scanned then
                 GMP.scanLive(false)
             end
             if type(task) == "table" and type(task.wait) == "function" then

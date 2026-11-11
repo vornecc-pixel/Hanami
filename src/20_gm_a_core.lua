@@ -11,8 +11,7 @@
 -- GunControl table and source-attributed live-controller upvalue tables.
 -- No firing remotes, RNG hooks, server writes or console output. Reports
 -- are returned by SA.Gun* state APIs; the UI shows status labels only.
--- Inspections, a one-time bounded discovery scan and combined reports are
--- automatic; the visible toggles reuse their cached fields.
+-- A one-time bounded discovery scan caches fields; toggles reuse them.
 -- Shot results are NEVER claimed as verified.
 -- ==================================================================
 
@@ -31,16 +30,13 @@ GMP.profileClock = 0
 GMP.sourceClock = 0
 GMP.spreadClock = 0
 GMP.labelClock = 0
-GMP.autoClock = 0
-GMP.auto = { scans = 0, reports = 0, baselines = 0,
-             comparisons = 0, lastAt = 0 }
 
 GMP.status = {
     noSpreadStatus = "OFF", noSpreadFound = 0, noSpreadZeroed = 0,
     noSpreadWeapon = "none", noSpreadProbePaths = {},
     noSpreadDefinitionStatus = "Not requested",
     noSpreadDefinitionFound = 0, noSpreadDefinitionZeroed = 0,
-    gunControlStatus = "Automatic startup scan pending", gunControlType = "unknown",
+    gunControlStatus = "Not inspected (opt-in)", gunControlType = "unknown",
     gunControlFields = 0, gunControlModified = 0, gunControlPaths = {},
     gunControlExportRows = {}, gunControlExportCount = 0, gunControlError = nil,
     fireScriptStatus = "Not inspected", fireScriptScanned = 0,

@@ -144,9 +144,11 @@ SA.RegisterFontStatusLabel(fontStatusLabel)
 -- One source of truth: the curated startup snapshot in 01_config.lua.
 -- Corner boxes + thin outlines stay readable; opaque chams fill, dark tag
 -- pills, skeleton clutter and stuck off-screen tracers/arrows stay OFF.
+-- One ESP-only source of truth: the best startup snapshot in 01_config.lua.
+-- The button and the fresh-session applier use the same values.
 local BEST_ESP = {}
-for _, key in ipairs(SA.BEST_ESP_KEYS) do
-    BEST_ESP[key] = SA.CFG_DEFAULTS[key]
+for k, v in pairs(SA.BEST_ESP_STARTUP or {}) do
+    BEST_ESP[k] = v
 end
 
 function SA.ApplyBestEsp()
@@ -180,6 +182,19 @@ function SA.ApplyCleanEsp()
         CFG[k] = v
     end
     if SA.EspPreviewSet then pcall(SA.EspPreviewSet, true) end
+end
+
+function SA.BestEspState()
+    local clean = CFG.espCleanMode == true
+    return {
+        enabled = CFG.espEnabled == true,
+        npcEnabled = CFG.npcEspEnabled == true,
+        cornerBox = (not clean) and CFG.espCornerBox == true,
+        box = clean or CFG.espShowBox == true
+            or ((not clean) and CFG.espCornerBox == true),
+        preset = BEST_ESP,
+        startup = SA.BEST_ESP_STARTUP,
+    }
 end
 
 function SA.CleanEspState()

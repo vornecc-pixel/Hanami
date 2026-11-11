@@ -1,7 +1,6 @@
 -- ==================================================================
 -- Hanami / 23_ui_gunmods.lua — V16.46-style Gun Mods tab controls,
--- Bow Mods and Live Gun Tuning. Inspections, live-controller scanner,
--- observation and reports are embedded, automatic and silent.
+-- Bow Mods, Live Gun Tuning, brightness status and silent report actions.
 -- ==================================================================
 
 -- ── V16.46 GUN MODS ───────────────────────────────────────────────
@@ -15,24 +14,14 @@ SA.GunBindToggle(gmSec, "No Spread", "gunNoSpread",
     "Named spread fields only; shot/hit direction remains UNVERIFIED")
 SA.GunBindToggle(gmSec, "Observe Visible Shot Effects", "gunShotProbe",
     "Visual tracer A/B observer; no hit verification")
--- No inspection toggle and no reports column: the four legacy CFG keys
--- stay as hidden always-ON flags for saved-profile / config coverage.
--- Every scan, observation and combined report runs inside the gun module.
-local autoInspectKeys = {
-    "gunInspectDefs", "gunInspectScripts",
-    "gunInspectGunControl", "gunInspectLiveGun",
-}
-for _, key in ipairs(autoInspectKeys) do
-    local flag = "hn_" .. key
-    CFG[key] = true
-    library.flags[flag] = true
-    library.config_flags[flag] = function()
-        CFG[key] = true
-        library.flags[flag] = true
-    end
-    library.visible_flags[flag] = nil
-end
-gmSec:label({ name = "Inspections + live scanner run automatically" })
+SA.GunBindToggle(gmSec, "Inspect Definitions", "gunInspectDefs",
+    "Read-only Fust.Items identity diagnostics")
+SA.GunBindToggle(gmSec, "Inspect Scripts", "gunInspectScripts",
+    "Read-only visible controller names and classes")
+SA.GunBindToggle(gmSec, "Inspect GunControl Exports", "gunInspectGunControl",
+    "Opt-in: require may run its own initializer")
+SA.GunBindToggle(gmSec, "Inspect Live Gun", "gunInspectLiveGun",
+    "One bounded source-attributed controller discovery scan")
 
 local gmCol2 = GunTab:column()
 local gmSec2 = gmCol2:section({ name = "Controller Field Holds" })
@@ -48,6 +37,65 @@ SA.GunBindToggle(gmSec2, "Infinite Ammo (local test)", "gunInfiniteAmmo",
     "Named live counters only; mag capacity ignored")
 SA.GunBindToggle(gmSec2, "Shoot + ADS While Sprint/Jump", "gunMoveShoot",
     "Explicit local permission fields; controller/server may gate")
+
+local gmCol3 = GunTab:column()
+local stateSec = gmCol3:section({ name = "Silent State / Reports" })
+SA.GunBindLabel("weapon", stateSec:label({ name = "Weapon: loading" }))
+SA.GunBindLabel("definitions", stateSec:label({ name = "Definitions: loading" }))
+SA.GunBindLabel("gunControl", stateSec:label({ name = "GunControl: loading" }))
+SA.GunBindLabel("scripts", stateSec:label({ name = "Script hints: loading" }))
+SA.GunBindLabel("live", stateSec:label({ name = "Live controller: loading" }))
+SA.GunBindLabel("spread", stateSec:label({ name = "No Spread: OFF" }))
+SA.GunBindLabel("recoil", stateSec:label({ name = "No Recoil: OFF" }))
+SA.GunBindLabel("rate", stateSec:label({ name = "Fire Rate: OFF" }))
+SA.GunBindLabel("ammo", stateSec:label({ name = "Infinite Ammo: OFF" }))
+SA.GunBindLabel("movement", stateSec:label({ name = "Move Shoot: OFF" }))
+SA.GunBindLabel("camera", stateSec:label({ name = "Camera kick: OFF" }))
+SA.GunBindLabel("probe", stateSec:label({ name = "Shot probe: OFF" }))
+SA.GunBindLabel("verdict", stateSec:label({ name = "Verdict: unverified" }))
+SA.GunBindLabel("display", stateSec:label({ name = "Brightness: OFF" }))
+SA.GunBindLabel("observation", stateSec:label({ name = "Observation: no baseline" }))
+SA.GunBindLabel("report", stateSec:label({ name = "Report: none" }))
+
+SA.GunBindButton(stateSec, "Refresh Gun Mods Sources", function()
+    SA.GunRefresh(true)
+end)
+SA.GunBindButton(stateSec, "Use Definition Candidate 1", function()
+    SA.GunUseDefinitionCandidate(1)
+end)
+SA.GunBindButton(stateSec, "Clear Manual Definition", function()
+    SA.GunClearManualDefinition()
+end)
+SA.GunBindButton(stateSec, "Capture Gun State Baseline", function()
+    SA.GunObservationBaseline()
+end)
+SA.GunBindButton(stateSec, "Compare Gun State", function()
+    SA.GunObservationCompare()
+end)
+SA.GunBindButton(stateSec, "Reset Shot Comparison", function()
+    SA.GunShotProbeReset()
+end)
+SA.GunBindButton(stateSec, "Restore All Gun Fields", function()
+    SA.GunRestore()
+end)
+SA.GunBindButton(stateSec, "Copy Definition Report", function()
+    SA.GunCopyReport("definitions")
+end)
+SA.GunBindButton(stateSec, "Copy GunControl Report", function()
+    SA.GunCopyReport("guncontrol")
+end)
+SA.GunBindButton(stateSec, "Copy Script Hints", function()
+    SA.GunCopyReport("scripts")
+end)
+SA.GunBindButton(stateSec, "Copy Live Controller Report", function()
+    SA.GunCopyReport("live")
+end)
+SA.GunBindButton(stateSec, "Copy Shot Probe Report", function()
+    SA.GunCopyReport("shot")
+end)
+SA.GunBindButton(stateSec, "Copy All Gun Reports", function()
+    SA.GunCopyReport("all")
+end)
 
 -- ── BOW MODS (ONLY instant charge + no cooldown) ────────────────────
 local bowCol = GunTab:column()

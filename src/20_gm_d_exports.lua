@@ -58,6 +58,11 @@ function GMP.requestGunControlExports(force)
         GMP.setStatus("gunControlStatus", "Enable Gun Mods first")
         return nil
     end
+    if CFG.gunInspectGunControl ~= true then
+        GMP.setStatus("gunControlStatus", "Enable Inspect GunControl exports first")
+        GMP.restoreLocalSpread()
+        return nil
+    end
     GMP.enableSource("GunControl exports")
     if GMP.gunControl.data and not force then
         GMP.applyMode("spread")
@@ -143,8 +148,8 @@ function GMP.gunControlReport()
 end
 
 function GMP.scanVisibleFireScripts()
-    if not GMP.master() then
-        GMP.setStatus("fireScriptStatus", "Enable Gun Mods first")
+    if not GMP.master() or CFG.gunInspectScripts ~= true then
+        GMP.setStatus("fireScriptStatus", "Enable Inspect scripts first")
         return 0
     end
     local RS = game:GetService("ReplicatedStorage")
