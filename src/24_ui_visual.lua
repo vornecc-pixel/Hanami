@@ -33,6 +33,14 @@ bindToggle(fovSec, "Show Lead Marker", "snapShowLead",
 local utilCol = VisualTab:column()
 local utilSec = utilCol:section({ name = "Utilities" })
 
+-- V16.46 local post-processing brightness: one ColorCorrectionEffect under
+-- Lighting, clamped 0–0.5 and destroyed on disable / unload.
+SA.GunBindToggle(utilSec, "Local Brightness", "displayBrightnessEnabled",
+    "Local ColorCorrectionEffect only; no Lighting globals, no character or weapon changes")
+SA.GunBindSlider(utilSec, "Brightness", "displayBrightness",
+    0, 0.5, 0.05, "")
+utilSec:label({ name = "Brightness is local post-processing, not world lighting" })
+
 addButton(utilSec, "Retry Tap Hooks", function()
     SA.InstallTapReorder()
 end)

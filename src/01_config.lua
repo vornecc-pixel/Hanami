@@ -345,15 +345,22 @@ local SA_CFG_SHIPPED = {
     nearestWindow    = true,
     showPlayerWarning = true,  -- crosshair warning when any player is within 100 m
 
-    -- gun mods
-    gmEnabled      = false,
-    gmInstantEquip = false,
-    gmInstantAds   = false,
-    gmNoSpread     = false,
-    gmForceAuto    = false,
-    gmNoRecoil     = false,
-    gmNoSway       = false,
-    gmNoKick       = false,
+    -- V16.46-style gun mods (client-local named fields + visual probes)
+    gmEnabled               = false,
+    gunNoSpread             = false,
+    gunShotProbe            = false,
+    gunInspectDefs          = true,
+    gunInspectScripts       = true,
+    gunInspectGunControl    = false,
+    gunInspectLiveGun       = true,
+    gunNoRecoil             = false,
+    gunCameraKickFilter     = true,
+    gunFireRate             = false,
+    gunFireRateMultiplier   = 1.5,
+    gunInfiniteAmmo         = false,
+    gunMoveShoot            = false,
+    displayBrightnessEnabled = false,
+    displayBrightness       = 0.2,
 
     -- Hitbox Expander v2 (silent, self-healing, R6/R15)
     hitboxEnabled   = false,
@@ -445,9 +452,14 @@ for k, v in pairs({
     espPreviewKind = "Player", espPreviewTarget = false,
     nearestWindow = true,
     npcUseTypeColors = false,
-    gmEnabled = false, gmInstantEquip = false, gmInstantAds = false,
-    gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
-    gmNoSway = false, gmNoKick = false,
+    gmEnabled = false,
+    gunNoSpread = false, gunShotProbe = false,
+    gunInspectDefs = true, gunInspectScripts = true,
+    gunInspectGunControl = false, gunInspectLiveGun = true,
+    gunNoRecoil = false, gunCameraKickFilter = true,
+    gunFireRate = false, gunFireRateMultiplier = 1.5,
+    gunInfiniteAmmo = false, gunMoveShoot = false,
+    displayBrightnessEnabled = false, displayBrightness = 0.2,
     hitboxEnabled = false, hitboxTarget = "Both", hitboxMode = "fixed",
     hitboxScale = 8, hitboxCap = 8, hitboxMaxDist = 300,
     hitboxTeamCheck = true, hitboxAliveOnly = true, hitboxVisible = false,
@@ -617,6 +629,22 @@ CFG.fustBowManipulation = CFG.fustBowManipulation ~= false
 CFG.fustBowManipPeek    = saClampNum(CFG.fustBowManipPeek, 0, 12, 4)
 CFG.fustBowManipMaxDist = saClampNum(CFG.fustBowManipMaxDist, 0, 200, 60)
 CFG.fustBowOriginRadius = saClampNum(CFG.fustBowOriginRadius, 1, 40, 12)
+
+CFG.gmEnabled                 = CFG.gmEnabled == true
+CFG.gunNoSpread               = CFG.gunNoSpread == true
+CFG.gunShotProbe              = CFG.gunShotProbe == true
+CFG.gunInspectDefs            = CFG.gunInspectDefs ~= false
+CFG.gunInspectScripts         = CFG.gunInspectScripts ~= false
+CFG.gunInspectGunControl      = CFG.gunInspectGunControl == true
+CFG.gunInspectLiveGun         = CFG.gunInspectLiveGun ~= false
+CFG.gunNoRecoil               = CFG.gunNoRecoil == true
+CFG.gunCameraKickFilter       = CFG.gunCameraKickFilter ~= false
+CFG.gunFireRate               = CFG.gunFireRate == true
+CFG.gunFireRateMultiplier     = saClampNum(CFG.gunFireRateMultiplier, 1, 3, 1.5)
+CFG.gunInfiniteAmmo           = CFG.gunInfiniteAmmo == true
+CFG.gunMoveShoot              = CFG.gunMoveShoot == true
+CFG.displayBrightnessEnabled  = CFG.displayBrightnessEnabled == true
+CFG.displayBrightness         = saClampNum(CFG.displayBrightness, 0, 0.5, 0.2)
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

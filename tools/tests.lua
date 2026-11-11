@@ -155,6 +155,11 @@ local newKeys = {
     "fustBowEnabled", "fustBowFov", "fustBowTargetPart",
     "fustBowManipulation", "fustBowManipPeek", "fustBowManipMaxDist",
     "fustBowOriginRadius",
+    "gunNoSpread", "gunShotProbe", "gunInspectDefs", "gunInspectScripts",
+    "gunInspectGunControl", "gunInspectLiveGun", "gunNoRecoil",
+    "gunCameraKickFilter", "gunFireRate", "gunFireRateMultiplier",
+    "gunInfiniteAmmo", "gunMoveShoot",
+    "displayBrightnessEnabled", "displayBrightness",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -1700,6 +1705,15 @@ local keptStateAPIs = {
     "ManipPopupState", "NearestWindowState", "EspPassStats", "DrawPoolStats",
     "PerfState", "GunDiff", "ApplyGunOverrides", "SyncGunDefs",
     "TestConfigRoundTrip", "EspPreviewRefresh",
+    "GunState", "GunDisplayState", "GunLiveState", "GunInspectDefinition",
+    "GunDefinitionReport", "GunControlReport", "GunFireScriptReport",
+    "GunLiveReport", "GunShotProbeState", "GunShotProbeReport",
+    "GunShotProbeFire", "GunShotProbeProcess", "GunShotProbeReset",
+    "GunObservationBaseline", "GunObservationCompare",
+    "GunUseDefinitionCandidate", "GunClearManualDefinition", "GunReport",
+    "GunCopyReport", "GunDispose", "GunSet", "GunFrame", "GunRefresh",
+    "GunScanLive", "GunRestore", "GunBindToggle", "GunBindSlider",
+    "GunBindLabel", "GunBindButton",
 }
 for _, name in ipairs(keptStateAPIs) do
     eq(type(SA[name]), "function", "kept state API: " .. name)
@@ -1744,6 +1758,226 @@ end)
 print, warn = saved.print, saved.warn
 ok(silentOk, "silent feature calls: " .. tostring(silentErr))
 eq(featureOutput, 0, "features emit no console output")
+
+-- ── V16.46-style gun mods, brightness, shot probe and camera filter ──
+mock_gun_reset()
+if run > 1 then
+    ok(SA.GunShotProbeState().trialRecovered == true,
+        "same-session shot probe checkpoint restored on re-execute")
+end
+setFlags({
+    gmEnabled = true, gunInspectGunControl = true,
+    gunInspectDefs = true, gunInspectScripts = true,
+    gunInspectLiveGun = true,
+})
+ok(SA.GunRefresh(true) == true, "forced V16.46 source refresh")
+ok(SA.GunScanLive(true) == true, "forced live controller scan")
+local gunState = SA.GunState()
+eq(gunState.master, true, "gun mods master ON")
+ok(gunState.live.scanned == true, "live controller scan cached")
+contains(gunState.live.apis, "getsenv=true", "getsenv capability surfaced")
+contains(gunState.live.apis, "getgc=true", "getgc capability surfaced")
+contains(gunState.live.apis, "debug.getupvalues=true",
+    "debug.getupvalues capability surfaced")
+ok(gunState.live.gcInspected > 0, "GC objects inspected")
+ok(gunState.live.closures > 0, "source-matched controller closures")
+ok(gunState.live.tables > 0, "controller tables inspected")
+ok(gunState.records.spread > 0, "named spread records cached")
+ok(gunState.records.recoil > 0, "named recoil records cached")
+ok(gunState.records.rate > 0, "named rate records cached")
+ok(gunState.records.ammo > 0, "named ammo records cached")
+ok(gunState.records.movement > 0, "named movement records cached")
+eq(SA.GunInspectDefinition().id, "assault_rifle",
+    "Fust.Items identity alias matched equipped rifle")
+contains(SA.GunInspectDefinition().keys, "spread",
+    "selected definition exposes spread fields")
+contains(SA.GunDefinitionReport(), "UNVERIFIED",
+    "definition report labels candidates UNVERIFIED")
+contains(SA.GunControlReport(), "UNVERIFIED",
+    "GunControl report labels fields UNVERIFIED")
+contains(SA.GunFireScriptReport(), "UNVERIFIED",
+    "fire-script hints report labels candidates UNVERIFIED")
+contains(SA.GunLiveReport(), "UNVERIFIED",
+    "live report labels shot results UNVERIFIED")
+eq(type(SA.GunUseDefinitionCandidate(1)), "boolean",
+    "manual definition candidate API")
+eq(SA.GunClearManualDefinition(), true, "clear manual definition API")
+eq(SA.GunObservationBaseline(), true, "gun-state baseline captured")
+eq(SA.GunObservationCompare(), true, "gun-state comparison completed")
+contains(SA.GunState().status.observationStatus, "Compared",
+    "observation status is a silent state string")
+
+-- Brightness: local ColorCorrectionEffect only, clamped and disposed.
+local lighting = game:GetService("Lighting")
+setFlags({ displayBrightnessEnabled = true, displayBrightness = 0.35 })
+local brightnessEffect = lighting:FindFirstChild("HanamiLocalBrightness")
+ok(brightnessEffect ~= nil, "local ColorCorrectionEffect created")
+near(brightnessEffect.Brightness, 0.35, 0.0001,
+    "brightness value applied")
+eq(brightnessEffect.Contrast, 0, "brightness contrast zeroed")
+eq(brightnessEffect.Saturation, 0, "brightness saturation zeroed")
+eq(SA.GunDisplayState().enabled, true, "brightness state enabled")
+contains(SA.GunDisplayState().kind, "ColorCorrectionEffect",
+    "brightness state names the effect kind")
+setFlags({ displayBrightness = 1.0 })
+near(brightnessEffect.Brightness, 0.5, 0.0001,
+    "brightness clamped to 0.5")
+setFlags({ displayBrightnessEnabled = false })
+eq(lighting:FindFirstChild("HanamiLocalBrightness"), nil,
+    "brightness effect destroyed on disable")
+eq(SA.GunDisplayState().effect, false, "brightness state disposed")
+contains(SA.GunReport("display"), "ColorCorrectionEffect",
+    "display report is a callable state string")
+
+-- All mutable holds write only named fields and restore originals.
+setFlags({ gunNoSpread = true })
+eq(MOCK_GUN_LIVE.Spread, 0, "No Spread holds live spread")
+eq(MOCK_GUN_CONTROL.Spread, 0, "No Spread holds GunControl spread")
+eq(MOCK_GUN_ITEMS.Defs.assault_rifle.spread, 0,
+    "No Spread holds selected definition spread")
+eq(SA.GunState().status.noSpreadStatus, "ON (named local fields only)",
+    "No Spread status is a silent state string")
+setFlags({ gunNoSpread = false })
+eq(MOCK_GUN_LIVE.Spread, 1.0, "No Spread restores live original")
+eq(MOCK_GUN_CONTROL.Spread, 0.7, "No Spread restores GunControl original")
+eq(MOCK_GUN_ITEMS.Defs.assault_rifle.spread, 1.0,
+    "No Spread restores definition original")
+
+setFlags({ gunNoRecoil = true })
+eq(MOCK_GUN_LIVE.RecoilPitch, 0, "No Recoil holds named recoil")
+eq(MOCK_GUN_LIVE.WeaponKick, 0, "No Recoil holds named weapon kick")
+setFlags({ gunNoRecoil = false })
+eq(MOCK_GUN_LIVE.RecoilPitch, 0.25, "No Recoil restores recoil original")
+eq(MOCK_GUN_LIVE.WeaponKick, 0.18, "No Recoil restores kick original")
+
+setFlags({ gunFireRateMultiplier = 2 })
+setFlags({ gunFireRate = true })
+near(MOCK_GUN_LIVE.FireRate, 4.0, 0.0001,
+    "Fire Rate multiplier raises named rate")
+near(MOCK_GUN_LIVE.FireDelay, 0.08, 0.0001,
+    "Fire Rate multiplier lowers named delay")
+near(MOCK_GUN_LIVE.activeProfile.rate, 0.075, 0.0001,
+    "Fire Rate multiplier lowers active profile interval")
+setFlags({ gunFireRate = false })
+setFlags({ gunFireRateMultiplier = 1.5 })
+eq(MOCK_GUN_LIVE.FireRate, 2.0, "Fire Rate restores original")
+eq(MOCK_GUN_LIVE.FireDelay, 0.16, "Fire Delay restores original")
+eq(MOCK_GUN_LIVE.activeProfile.rate, 0.15,
+    "active profile rate restores original")
+
+setFlags({ gunInfiniteAmmo = true })
+eq(MOCK_GUN_LIVE.CurrentAmmo, 9999, "Infinite Ammo holds named counter")
+eq(MOCK_GUN_LIVE.activeProfile.currentAmmo, 9999,
+    "Infinite Ammo holds nested counter")
+setFlags({ gunInfiniteAmmo = false })
+eq(MOCK_GUN_LIVE.CurrentAmmo, 12, "Infinite Ammo restores counter")
+eq(MOCK_GUN_LIVE.activeProfile.currentAmmo, 24,
+    "Infinite Ammo restores nested counter")
+
+setFlags({ gunMoveShoot = true })
+eq(MOCK_GUN_LIVE.CanFireWhileSprinting, true,
+    "Move Shoot holds named permission")
+eq(MOCK_GUN_LIVE.activeProfile.canFireWhileSprinting, true,
+    "Move Shoot holds nested permission")
+setFlags({ gunMoveShoot = false })
+eq(MOCK_GUN_LIVE.CanFireWhileSprinting, false,
+    "Move Shoot restores permission")
+eq(MOCK_GUN_LIVE.activeProfile.canFireWhileSprinting, false,
+    "Move Shoot restores nested permission")
+
+-- Experimental camera-kick filter uses the existing master render frame.
+setFlags({ gunNoRecoil = true, gunCameraKickFilter = true })
+MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+quiet(function() mock_frame(0.016) end)
+local correctionsBefore = SA.GunState().camera.suppressed
+MOCK_CAMERA.CFrame = CFrame.fromEulerAnglesXYZ(0.4, 0, 0)
+quiet(function() mock_frame(0.016) end)
+ok(SA.GunState().camera.suppressed > correctionsBefore,
+    "camera-kick filter corrected an upward pitch spike")
+ok(SA.GunState().camera.corrections >= 1,
+    "camera-kick correction counter exposed")
+eq(MOCK_CAMERA.CFrame._pitch, nil,
+    "camera kick restores the last good CFrame")
+setFlags({ gunNoRecoil = false })
+MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+
+-- Visual shot probe: aim snapshot, tracer FX, directional sample, reset.
+setFlags({ gunShotProbe = true })
+eq(SA.GunShotProbeState().observerPaused, false,
+    "shot probe observer started")
+window.set_menu_visibility(false)
+mock_advance_time(0.4)
+local aimBefore = SA.GunShotProbeState().aimSnapshots
+eq(SA.GunShotProbeFire(), true, "shot probe captured aim input")
+ok(SA.GunShotProbeState().aimSnapshots > aimBefore,
+    "shot probe aim snapshot counter")
+local tracer = Instance.new("Part")
+tracer.Name = "BulletTracer"
+tracer.Position = Vector3.new(0, 3, -1)
+tracer.Parent = Workspace
+Workspace.DescendantAdded:Fire(tracer)
+tracer.Position = Vector3.new(0, 3, -2)
+SA.GunShotProbeProcess()
+ok(SA.GunShotProbeState().tracerCandidates >= 1,
+    "shot probe matched a tracer candidate")
+ok(SA.GunShotProbeState().directionSamples >= 1,
+    "shot probe recorded a visual direction sample")
+contains(SA.GunShotProbeState().status, "Matched local visual tracer",
+    "shot probe status is a silent UI/state string")
+contains(SA.GunShotProbeReport(), "VISUAL effects only",
+    "shot probe report refuses hit verification")
+eq(SA.GunCopyReport("all"), true, "all gun reports copied to clipboard")
+contains(getclipboard(), "VISUAL effects only",
+    "clipboard report is silent and UNVERIFIED")
+contains(SA.GunState().status.reportStatus, "copied",
+    "copy status exposed without console output")
+eq(SA.GunShotProbeReset(), true, "shot probe reset API")
+eq(SA.GunShotProbeState().directionSamples, 0,
+    "shot probe reset clears observations")
+setFlags({ gunShotProbe = false })
+eq(SA.GunShotProbeState().observerPaused, true,
+    "shot probe observer paused")
+window.set_menu_visibility(true)
+local checkpoint = _G.HanamiGunShotProbeCheckpoint
+ok(type(checkpoint) == "table", "same-session shot probe checkpoint")
+eq(checkpoint.schema, "HanamiShotProbe/1", "shot probe checkpoint schema")
+ok(type(checkpoint.off) == "table" and type(checkpoint.on) == "table",
+    "shot probe checkpoint keeps both A/B groups")
+
+-- SA.GunRestore restores every active cached field without dropping cache.
+setFlags({
+    gunNoSpread = true, gunNoRecoil = true, gunFireRate = true,
+    gunInfiniteAmmo = true, gunMoveShoot = true,
+})
+eq(MOCK_GUN_LIVE.Spread, 0, "restore test: spread held")
+ok(MOCK_GUN_LIVE.FireRate ~= 2.0, "restore test: rate held")
+eq(MOCK_GUN_LIVE.CurrentAmmo, 9999, "restore test: ammo held")
+eq(MOCK_GUN_LIVE.CanFireWhileSprinting, true,
+    "restore test: movement held")
+eq(SA.GunRestore(), true, "SA.GunRestore API")
+eq(MOCK_GUN_LIVE.Spread, 1.0, "SA.GunRestore restores spread")
+eq(MOCK_GUN_CONTROL.Spread, 0.7, "SA.GunRestore restores GunControl")
+eq(MOCK_GUN_ITEMS.Defs.assault_rifle.spread, 1.0,
+    "SA.GunRestore restores definition")
+eq(MOCK_GUN_LIVE.RecoilPitch, 0.25, "SA.GunRestore restores recoil")
+eq(MOCK_GUN_LIVE.FireRate, 2.0, "SA.GunRestore restores rate")
+eq(MOCK_GUN_LIVE.CurrentAmmo, 12, "SA.GunRestore restores ammo")
+eq(MOCK_GUN_LIVE.CanFireWhileSprinting, false,
+    "SA.GunRestore restores movement")
+ok(SA.GunState().records.spread > 0,
+    "SA.GunRestore keeps cached records for re-enable")
+
+setFlags({
+    gmEnabled = false, gunShotProbe = false,
+    gunNoSpread = false, gunNoRecoil = false, gunFireRate = false,
+    gunInfiniteAmmo = false, gunMoveShoot = false,
+    gunInspectGunControl = false, gunFireRateMultiplier = 1.5,
+    displayBrightnessEnabled = false, displayBrightness = 0.2,
+    gunCameraKickFilter = true,
+})
+window.set_menu_visibility(true)
+MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+mock_gun_reset()
 
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then
@@ -1794,6 +2028,13 @@ else
     eq(MOCK_FUST_SHOOT.FireServer, fireServerOriginal,
         "full unload restores the original FireServer")
     eq(_G.__saFustBow, nil, "full unload clears Fust bow state")
+    eq(_G.__saGunMods, nil, "full unload clears V16.46 gun state")
+    eq(game:GetService("Lighting"):FindFirstChild("HanamiLocalBrightness"),
+        nil, "full unload destroys local brightness effect")
+    eq(MOCK_GUN_LIVE.Spread, 1.0,
+        "full unload restores live gun spread original")
+    eq(MOCK_GUN_CONTROL.Spread, 0.7,
+        "full unload restores GunControl spread original")
     ok(unloaded == true, "full unload: " .. tostring(why))
     eq(SA.Alive, false, "unload stops loops")
     eq(SA.Unloaded, true, "unload guard")

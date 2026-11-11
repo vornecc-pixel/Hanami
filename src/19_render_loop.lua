@@ -271,4 +271,8 @@ bindRender(function(dt)
     renderGuard("fx", function()
         if SA.ApplyEspFx then SA.ApplyEspFx(cam) end
     end)
+
+    -- V16.46-style gun mods, local brightness, camera-kick filter and the
+    -- visual tracer observer all share this ONE master render callback.
+    if SA.GunFrame then pcall(SA.GunFrame, dtSec, now) end
 end)

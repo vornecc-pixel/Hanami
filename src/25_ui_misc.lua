@@ -19,8 +19,9 @@ infoSec:label({ name = "Crates: fuzzy detection + live registry" })
 infoSec:label({ name = "NPC names: Guard / Scavenger / Soldier" })
 infoSec:label({ name = "Ballistics: all 20 guns + every attribute" })
 infoSec:label({ name = "Attachments: auto tune on 12 detected mods" })
-infoSec:label({ name = "Gun Mods: GC scan (getgc + rawset)" })
+infoSec:label({ name = "Gun Mods: V16.46 named-field holds + visual probes" })
 infoSec:label({ name = "Bow Mods: instant charge + no cooldown only" })
+infoSec:label({ name = "Brightness: local ColorCorrectionEffect, clamped 0-0.5" })
 infoSec:label({ name = "Silent aim + manip: GUNS ONLY (bows skipped)" })
 infoSec:label({ name = "BETTER: profiles · self-check · perf mode · preview compare" })
 
@@ -32,6 +33,7 @@ local actSec = actCol:section({ name = "Quick Actions" })
 addButton(actSec, "Disable All", function()
     setFlag("masterEnabled", false)
     setFlag("gmEnabled", false)
+    setFlag("displayBrightnessEnabled", false)
     setFlag("bowModsEnabled", false)
     setFlag("espEnabled", false)
     setFlag("npcEspEnabled", false)
@@ -381,6 +383,7 @@ function SA.SelfCheck()
         { "fire assist", "FireAssistState" },
         { "force head", "ForceHeadState" },
         { "fust bow", "FustBowState" },
+        { "gun mods", "GunState" },
         { "draw sync", "DrawSyncStats" },
         { "esp perf", "EspPerfState" },
         { "esp frame budget", "EspFrameBudget" },
@@ -465,6 +468,8 @@ function SA.FullUnload()
     pcall(function() if SA.DisposePlayerWarning then SA.DisposePlayerWarning() end end)
     pcall(function() if SA.DisposeFireAssist then SA.DisposeFireAssist() end end)
     pcall(function() if SA.FustBowDispose then SA.FustBowDispose() end end)
+    pcall(function() if SA.GunDispose then SA.GunDispose() end end)
+    pcall(function() setFlag("displayBrightnessEnabled", false) end)
     pcall(function() RunService:UnbindFromRenderStep(snapName) end)
     pcall(function() RunService:UnbindFromRenderStep(restoreName) end)
     pcall(function() SA.TapRestore(_G.__saTapCF, _G.__saTapCam) end)
@@ -501,6 +506,7 @@ function SA.FullUnload()
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saFustBow = nil
+    _G.__saGunMods = nil
     return true
 end
 

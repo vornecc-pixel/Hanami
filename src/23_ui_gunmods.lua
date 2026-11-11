@@ -1,31 +1,103 @@
 -- ==================================================================
--- Hanami / 23_ui_gunmods.lua — Gun Mods tab controls
--- Loaded in order by loader.lua. Parts are joined into ONE chunk;
--- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
+-- Hanami / 23_ui_gunmods.lua — V16.46-style Gun Mods tab controls,
+-- Bow Mods, Live Gun Tuning, brightness status and silent report actions.
 -- ==================================================================
 
--- ── GUN MODS ───────────────────────────────────────────────────────
+-- ── V16.46 GUN MODS ───────────────────────────────────────────────
 local gmCol1 = GunTab:column()
-local gmSec = gmCol1:section({ name = "Gun Mods (GC Scan)" })
-
-local gmToggle = bindToggle(gmSec, "Enable Gun Mods", "gmEnabled", "Needs getgc + setreadonly")
+local gmSec = gmCol1:section({ name = "Gun Mods (V16.46-style)" })
+local gmToggle = SA.GunBindToggle(gmSec, "Enable Gun Mods", "gmEnabled",
+    "Master switch: named local fields, visual probes and reversible holds")
 SA.FeatureKeybind(gmToggle, "Enable Gun Mods", "hn_bind_gmEnabled",
     Enum.KeyCode.G, "gmEnabled")
-bindToggle(gmSec, "Instant Equip", "gmInstantEquip")
-bindToggle(gmSec, "Instant ADS", "gmInstantAds")
-bindToggle(gmSec, "No Spread", "gmNoSpread")
+SA.GunBindToggle(gmSec, "No Spread", "gunNoSpread",
+    "Named spread fields only; shot/hit direction remains UNVERIFIED")
+SA.GunBindToggle(gmSec, "Observe Visible Shot Effects", "gunShotProbe",
+    "Visual tracer A/B observer; no hit verification")
+SA.GunBindToggle(gmSec, "Inspect Definitions", "gunInspectDefs",
+    "Read-only Fust.Items identity diagnostics")
+SA.GunBindToggle(gmSec, "Inspect Scripts", "gunInspectScripts",
+    "Read-only visible controller names and classes")
+SA.GunBindToggle(gmSec, "Inspect GunControl Exports", "gunInspectGunControl",
+    "Opt-in: require may run its own initializer")
+SA.GunBindToggle(gmSec, "Inspect Live Gun", "gunInspectLiveGun",
+    "One bounded source-attributed controller discovery scan")
 
 local gmCol2 = GunTab:column()
-local gmSec2 = gmCol2:section({ name = "State Overrides" })
+local gmSec2 = gmCol2:section({ name = "Controller Field Holds" })
+SA.GunBindToggle(gmSec2, "No Recoil (sway + camera test)", "gunNoRecoil",
+    "Named recoil fields plus optional camera-pitch correction")
+SA.GunBindToggle(gmSec2, "Enable Camera Kick Correction", "gunCameraKickFilter",
+    "Experimental; may restrict manual upward aim")
+SA.GunBindToggle(gmSec2, "Increase Fire Rate (local test)", "gunFireRate",
+    "Server may cap firing cadence")
+SA.GunBindSlider(gmSec2, "Fire Rate Multiplier", "gunFireRateMultiplier",
+    1, 3, 0.25, "x")
+SA.GunBindToggle(gmSec2, "Infinite Ammo (local test)", "gunInfiniteAmmo",
+    "Named live counters only; mag capacity ignored")
+SA.GunBindToggle(gmSec2, "Shoot + ADS While Sprint/Jump", "gunMoveShoot",
+    "Explicit local permission fields; controller/server may gate")
 
-bindToggle(gmSec2, "Force Auto", "gmForceAuto")
-bindToggle(gmSec2, "No Recoil", "gmNoRecoil")
-bindToggle(gmSec2, "No Sway", "gmNoSway")
-bindToggle(gmSec2, "No Kick", "gmNoKick")
+local gmCol3 = GunTab:column()
+local stateSec = gmCol3:section({ name = "Silent State / Reports" })
+SA.GunBindLabel("weapon", stateSec:label({ name = "Weapon: loading" }))
+SA.GunBindLabel("definitions", stateSec:label({ name = "Definitions: loading" }))
+SA.GunBindLabel("gunControl", stateSec:label({ name = "GunControl: loading" }))
+SA.GunBindLabel("scripts", stateSec:label({ name = "Script hints: loading" }))
+SA.GunBindLabel("live", stateSec:label({ name = "Live controller: loading" }))
+SA.GunBindLabel("spread", stateSec:label({ name = "No Spread: OFF" }))
+SA.GunBindLabel("recoil", stateSec:label({ name = "No Recoil: OFF" }))
+SA.GunBindLabel("rate", stateSec:label({ name = "Fire Rate: OFF" }))
+SA.GunBindLabel("ammo", stateSec:label({ name = "Infinite Ammo: OFF" }))
+SA.GunBindLabel("movement", stateSec:label({ name = "Move Shoot: OFF" }))
+SA.GunBindLabel("camera", stateSec:label({ name = "Camera kick: OFF" }))
+SA.GunBindLabel("probe", stateSec:label({ name = "Shot probe: OFF" }))
+SA.GunBindLabel("verdict", stateSec:label({ name = "Verdict: unverified" }))
+SA.GunBindLabel("display", stateSec:label({ name = "Brightness: OFF" }))
+SA.GunBindLabel("observation", stateSec:label({ name = "Observation: no baseline" }))
+SA.GunBindLabel("report", stateSec:label({ name = "Report: none" }))
+
+SA.GunBindButton(stateSec, "Refresh Gun Mods Sources", function()
+    SA.GunRefresh(true)
+end)
+SA.GunBindButton(stateSec, "Use Definition Candidate 1", function()
+    SA.GunUseDefinitionCandidate(1)
+end)
+SA.GunBindButton(stateSec, "Clear Manual Definition", function()
+    SA.GunClearManualDefinition()
+end)
+SA.GunBindButton(stateSec, "Capture Gun State Baseline", function()
+    SA.GunObservationBaseline()
+end)
+SA.GunBindButton(stateSec, "Compare Gun State", function()
+    SA.GunObservationCompare()
+end)
+SA.GunBindButton(stateSec, "Reset Shot Comparison", function()
+    SA.GunShotProbeReset()
+end)
+SA.GunBindButton(stateSec, "Restore All Gun Fields", function()
+    SA.GunRestore()
+end)
+SA.GunBindButton(stateSec, "Copy Definition Report", function()
+    SA.GunCopyReport("definitions")
+end)
+SA.GunBindButton(stateSec, "Copy GunControl Report", function()
+    SA.GunCopyReport("guncontrol")
+end)
+SA.GunBindButton(stateSec, "Copy Script Hints", function()
+    SA.GunCopyReport("scripts")
+end)
+SA.GunBindButton(stateSec, "Copy Live Controller Report", function()
+    SA.GunCopyReport("live")
+end)
+SA.GunBindButton(stateSec, "Copy Shot Probe Report", function()
+    SA.GunCopyReport("shot")
+end)
+SA.GunBindButton(stateSec, "Copy All Gun Reports", function()
+    SA.GunCopyReport("all")
+end)
 
 -- ── BOW MODS (ONLY instant charge + no cooldown) ────────────────────
--- Bows are excluded from silent aim / manipulation; these two toggles
--- only change the bow's own charge / cooldown timing.
 local bowCol = GunTab:column()
 local bowSec = bowCol:section({ name = "Bow Mods (GC Scan)" })
 bowSec:label({ name = "Bows are NOT aimed — silent aim is guns only" })
@@ -42,9 +114,6 @@ addButton(bowSec, "Restore Bow Timings", function()
 end)
 
 -- ── BETTER : live gun tuning ────────────────────────────────────────
--- No hit log / damage tracker. Just a new-gun diff against the shipped
--- 20-gun DB and a manual numeric override editor for the ballistics
--- solver. Overrides are re-applied after every GC sync.
 local tuneCol = GunTab:column()
 local tuneSec = tuneCol:section({ name = "Live Gun Tuning / Overrides" })
 tuneSec:textbox({
@@ -63,4 +132,7 @@ addButton(tuneSec, "Apply Overrides Now", function()
 end)
 addButton(tuneSec, "Sync Gun Defs + Diff", function()
     SA.SyncGunDefs()
+end)
+addButton(tuneSec, "Toggle Manip", function()
+    setFlag("manipulation", not CFG.manipulation)
 end)

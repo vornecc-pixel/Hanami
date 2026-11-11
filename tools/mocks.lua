@@ -251,7 +251,10 @@ CF_META.__index = function(t, k)
         end
     end
     if k == "ToEulerAnglesXYZ" then
-        return function() return 0, 0, 0 end
+        return function(self)
+            return rawget(self, "_pitch") or 0,
+                rawget(self, "_yaw") or 0, rawget(self, "_roll") or 0
+        end
     end
     return rawget(t, k)
 end
@@ -265,6 +268,14 @@ CFrame = {
         return setmetatable({ __kind = "CFrame", pos = origin or Vector3.zero }, CF_META)
     end,
 }
+CFrame.fromEulerAnglesXYZ = function(rx, ry, rz)
+    local cf = CFrame.new(0, 0, 0)
+    rawset(cf, "_pitch", rx or 0)
+    rawset(cf, "_yaw", ry or 0)
+    rawset(cf, "_roll", rz or 0)
+    return cf
+end
+CFrame.Angles = CFrame.fromEulerAnglesXYZ
 
 RaycastParams = {
     new = function()
@@ -458,7 +469,35 @@ function getgc()
                               adsSpread = 0.1, moveSpread = 1, reload = 3,
                               pellets = 1, damageMult = 1, s2Damage = 80 },
         } },
+        MOCK_GUN_LIVE,
+        MOCK_GUN_CONTROLLER_FN,
     }
+end
+
+-- Executor-style introspection used only by the V16.46-style live scanner.
+debug = debug or {}
+function getfenv(fn)
+    return MOCK_GUN_FN_ENV and MOCK_GUN_FN_ENV[fn] or {}
+end
+function getsenv(scriptObj)
+    return scriptObj and scriptObj.__mock_env or {}
+end
+function require(obj)
+    return obj and obj.__saRequireValue or nil
+end
+function debug.getupvalues(fn)
+    local meta = MOCK_GUN_FN_META and MOCK_GUN_FN_META[fn]
+    return meta and meta.upvalues or {}
+end
+function debug.getconstants(fn)
+    local meta = MOCK_GUN_FN_META and MOCK_GUN_FN_META[fn]
+    return meta and meta.constants or {}
+end
+function debug.info(fn, what)
+    local meta = MOCK_GUN_FN_META and MOCK_GUN_FN_META[fn]
+    if what == "s" then return meta and meta.source or "=mock" end
+    if what == "n" then return meta and meta.name or "mock" end
+    return nil
 end
 
 Drawing = {
@@ -528,6 +567,13 @@ local ISA = {
     Terrain = { Terrain = true },
     RunService = { RunService = true }, UserInputService = { UserInputService = true },
     Stats = { Stats = true }, HttpService = { HttpService = true },
+    BoolValue = { BoolValue = true }, ModuleScript = { ModuleScript = true },
+    LocalScript = { LocalScript = true, Script = true },
+    Script = { Script = true }, Beam = { Beam = true },
+    Trail = { Trail = true }, Attachment = { Attachment = true },
+    Decal = { Decal = true }, ParticleEmitter = { ParticleEmitter = true },
+    Sound = { Sound = true },
+    ColorCorrectionEffect = { ColorCorrectionEffect = true },
 }
 
 local INST_META = {}
@@ -656,6 +702,27 @@ INST_META.__index = function(t, k)
             local out = {}
             for kk, vv in pairs(self.attributes or {}) do out[kk] = vv end
             return out
+        end
+    end
+    if k == "GetTags" then
+        return function(self)
+            local tags = {}
+            for key, value in pairs(self.attributes or {}) do
+                if tostring(key):find("Tag", 1, true) then
+                    tags[#tags + 1] = tostring(value)
+                end
+            end
+            return tags
+        end
+    end
+    if k == "IsDescendantOf" then
+        return function(self, ancestor)
+            local node = self.Parent
+            while node do
+                if node == ancestor then return true end
+                node = node.Parent
+            end
+            return false
         end
     end
     if k == "PivotTo" then return function() end end
@@ -982,6 +1049,90 @@ local playerGui = Instance.new("PlayerGui")
 playerGui.Name = "PlayerGui"
 playerGui.Parent = localPlayer
 
+-- ── V16.46-style gun-mod mock surfaces ─────────────────────────────
+MOCK_GUN_LIVE = {
+    __saGunSource = "FustGuns",
+    Spread = 1.0, HipSpread = 0.8, Inaccuracy = 0.35,
+    RecoilPitch = 0.25, WeaponKick = 0.18,
+    FireRate = 2.0, FireDelay = 0.16,
+    CurrentAmmo = 12, CanFireWhileSprinting = false,
+    activeProfile = { rate = 0.15, mag = 30, reload = 2.2, spread = 1,
+        auto = true, cooldown = 0.15, currentAmmo = 24,
+        canFireWhileSprinting = false },
+}
+MOCK_GUN_LIVE_ORIGINAL = {
+    Spread = 1.0, HipSpread = 0.8, Inaccuracy = 0.35,
+    RecoilPitch = 0.25, WeaponKick = 0.18,
+    FireRate = 2.0, FireDelay = 0.16,
+    CurrentAmmo = 12, CanFireWhileSprinting = false,
+    activeProfile = { rate = 0.15, mag = 30, reload = 2.2, spread = 1,
+        auto = true, cooldown = 0.15, currentAmmo = 24,
+        canFireWhileSprinting = false },
+}
+MOCK_GUN_ITEMS = { Defs = {
+    assault_rifle = { name = "Assault Rifle", displayName = "Assault Rifle",
+        spread = 1.0, adsSpread = 0.25, moveSpread = 0.7, mag = 30,
+        rate = 0.12, reload = 2.2, auto = true },
+    pistol = { name = "Pistol", displayName = "Pistol",
+        spread = 0.7, adsSpread = 0.15, mag = 12, rate = 0.2,
+        reload = 1.8, auto = false },
+} }
+MOCK_GUN_CONTROL = { Spread = 0.7, BaseSpread = 0.9, MagSize = 30 }
+MOCK_GUN_CONTROL_ORIGINAL = { Spread = 0.7, BaseSpread = 0.9, MagSize = 30 }
+
+local playerScripts = Instance.new("Folder")
+playerScripts.Name = "PlayerScripts"
+playerScripts.Parent = localPlayer
+MOCK_GUN_SCRIPT = Instance.new("LocalScript")
+MOCK_GUN_SCRIPT.Name = "FustGuns"
+MOCK_GUN_SCRIPT.Parent = playerScripts
+MOCK_GUN_SCRIPT.__mock_env = { state = MOCK_GUN_LIVE, spread = 1 }
+MOCK_GUN_EXTRA_SCRIPT = Instance.new("LocalScript")
+MOCK_GUN_EXTRA_SCRIPT.Name = "FustCombatFire"
+MOCK_GUN_EXTRA_SCRIPT.Parent = playerScripts
+
+local fustItemsModule = Instance.new("ModuleScript")
+fustItemsModule.Name = "Items"
+fustItemsModule.__saRequireValue = MOCK_GUN_ITEMS
+fustItemsModule.Parent = fustFolder
+MOCK_GUN_ITEMS_MODULE = fustItemsModule
+local gunControlModule = Instance.new("ModuleScript")
+gunControlModule.Name = "GunControl"
+gunControlModule.__saRequireValue = MOCK_GUN_CONTROL
+gunControlModule.Parent = fustFolder
+MOCK_GUN_CONTROL_MODULE = gunControlModule
+
+MOCK_GUN_CONTROLLER_FN = function() return MOCK_GUN_LIVE end
+MOCK_GUN_FN_META = {}
+MOCK_GUN_FN_META[MOCK_GUN_CONTROLLER_FN] = {
+    source = "PlayerScripts.FustGuns", name = "fire",
+    constants = { "spread", "fire", "ammo", "recoil" },
+    upvalues = { state = MOCK_GUN_LIVE },
+}
+MOCK_GUN_FN_ENV = {}
+MOCK_GUN_FN_ENV[MOCK_GUN_CONTROLLER_FN] = { script = MOCK_GUN_SCRIPT }
+
+function mock_gun_reset()
+    for key, value in pairs(MOCK_GUN_LIVE_ORIGINAL) do
+        if type(value) == "table" then
+            MOCK_GUN_LIVE[key] = MOCK_GUN_LIVE[key] or {}
+            for subKey, subValue in pairs(value) do
+                MOCK_GUN_LIVE[key][subKey] = subValue
+            end
+        else
+            MOCK_GUN_LIVE[key] = value
+        end
+    end
+    for key, value in pairs(MOCK_GUN_CONTROL_ORIGINAL) do
+        MOCK_GUN_CONTROL[key] = value
+    end
+    for _, key in ipairs({ "Spread", "HipSpread", "RecoilPitch", "FireRate",
+        "CurrentAmmo", "CanFireWhileSprinting", "mag", "reload", "spread",
+        "auto", "rate" }) do
+        if MOCK_FUST_TOOL then MOCK_FUST_TOOL:SetAttribute(key, nil) end
+    end
+end
+
 local otherPlayer = Instance.new("Model")
 otherPlayer.Name = "NearestGuy"
 otherPlayer.DisplayName = "NearestGuyDisplay"
@@ -1028,6 +1179,7 @@ function mock_fust_reset()
     otherPlayer.Team = nil
     farPlayer.Team = nil
     MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    if type(mock_gun_reset) == "function" then mock_gun_reset() end
     SA.FustBowRefresh()
 end
 
