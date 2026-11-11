@@ -15,7 +15,7 @@
 
 -- drawEntity (18_esp_fx_draw.lua) already guards drawEntityInner and the
 -- usage-mark finaliser. Calling it through another pcall added a third
--- per-entity protected call; this keeps the sameisolation without the wrapper.
+-- per-entity protected call; this keeps the same isolation without the wrapper.
 local function safeDrawEntity(cam, o, opt)
     if not opt or not opt.enabled then pcall(hideFx, o); return end
     startFxFrame(o)

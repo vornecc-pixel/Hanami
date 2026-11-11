@@ -2176,6 +2176,39 @@ else
     eq(SA.ManipPopupState().built, false, "manip popup disposed by full unload")
 end
 
+-- Atlanta UI bootstrap: the upstream custom-font repo is gone. The
+-- runtime sanitizer must remove its getcustomasset / dead-URL block and
+-- substitute a built-in Roblox FontFace before the library is compiled.
+do
+    local fake = [==[
+        makefolder(library.directory .. path)
+        writefile("ffff.ttf", game:HttpGet("https://github.com/weasely111/beta/raw/refs/heads/main/fs-tahoma-8px.ttf"))
+        local tahoma = { assetId = getcustomasset("ffff.ttf") }
+        writefile("dddd.ttf", http_service:JSONEncode(tahoma))
+        library.font = Font.new(getcustomasset("dddd.ttf"), Enum.FontWeight.Regular)
+        return library, themes
+    ]==]
+    eq(type(SA.SanitizeAtlantaSource), "function",
+        "Atlanta source sanitizer exposed")
+    local clean = SA.SanitizeAtlantaSource(fake)
+    eq(clean:find("getcustomasset", 1, true), nil,
+        "sanitizer removes getcustomasset calls")
+    eq(clean:find("weasely111/beta", 1, true), nil,
+        "sanitizer removes dead external font URL")
+    ok(clean:find("rbxasset://fonts/families/SourceSansPro.json", 1, true) ~= nil,
+        "sanitizer installs built-in SourceSansPro FontFace")
+    ok(clean:find("library.font = builtInFont", 1, true) ~= nil,
+        "sanitizer assigns the fallback font")
+    ok(clean:find("pcall(makefolder,", 1, true) ~= nil,
+        "sanitizer guards makefolder bootstrap")
+    ok(clean:find("return library, themes", 1, true) ~= nil,
+        "sanitizer preserves the library return")
+    eq(SA.SanitizeAtlantaSource(clean), clean,
+        "Atlanta sanitizer is idempotent")
+    eq(SA.SanitizeAtlantaSource("return library, themes"),
+        "return library, themes", "plain library source is unchanged")
+end
+
 eq(callback_errors, 0, "mock callback errors")
 eq(event_errors, 0, "mock event errors")
 ok(mock_frame_count > 0, "render frames exercised")

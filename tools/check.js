@@ -41,7 +41,13 @@ const lineCounts = new Map(files.map((name) => [
 
 // Every part is syntactically valid Lua 5.3 (Fengari's dialect).
 for (const name of files) {
-  parseLua(`src/${name}`, read(`src/${name}`));
+  const text = read(`src/${name}`);
+  parseLua(`src/${name}`, text);
+  // loader.lua rejects a fetched part that contains an HTML / 404 marker,
+  // so those literals must never appear in a src part (split them instead).
+  assert(!text.includes('<!DOCTYPE') && !text.includes('<html')
+    && !text.includes('404: Not Found'),
+    `src/${name} contains a literal loader error-page marker`);
 }
 parseLua('tools/mocks.lua', read('tools/mocks.lua'));
 parseLua('tools/tests.lua', read('tools/tests.lua'));
@@ -92,6 +98,8 @@ const requiredDist = [
   'SA.NpcListRaw', 'SA.CrateListRaw',
   'SA.DrawSyncReset', 'SA.ApplyInstProp', 'SA.EspFrameBudget',
   'SA.EspFrameBudgetReset', 'instanceWrites',
+  'SA.SanitizeAtlantaSource', 'ATLANTA_ROOTS', 'hanamiFetchAtlanta',
+  'SourceSansPro', 'pcall(makefolder,',
   'SA.EspGeom', 'SA.EspGeometryBudget', 'SA.EspGeomState',
   'SA.EspGeomReset', 'SA.EspGeomInvalidate', 'SA.EspHiddenPass',
   'geometryStride', 'geometrySkips', 'geometryUpdates',
@@ -112,6 +120,8 @@ const requiredDist = [
 for (const needle of requiredDist) {
   assert(dist.includes(needle), `dist/Hanami.lua is missing ${needle}`);
 }
+assert(!dist.includes('weasely111/beta'),
+  'dist/Hanami.lua still references the dead external font repo');
 
 // The shipped bundle must be features-only: no console output, no debug
 // config/toggles, no print-only APIs and no self-check panel. The npm /
@@ -253,7 +263,9 @@ const requiredDescriptions = {
     'rolling fps', 'performance mode'],
   'src/21_ui_aiming.lua': ['preset', 'priority', 'bone', 'npc manipulation',
     'trigger', 'auto fire', 'wall check', 'force head',
-    'silent-aim independent', 'npc hitbox', 'hitbox', 'fust bow'],
+    'silent-aim independent', 'npc hitbox', 'hitbox', 'fust bow',
+    'atlanta source sanitizer', 'built-in font fallback',
+    'error-page markers'],
   'src/20_hitbox_expander.lua': ['hitbox', 'players + npcs', 'r6/r15',
     'npc', 'hrp fallback', 'self-healing', 'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
@@ -327,7 +339,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '3,494 assertions',
+  '3,521 assertions',
   'all 73 new CFG keys',
   '44-part list',
   '### Fust bow ballistic silent aim',
@@ -356,6 +368,14 @@ const requiredDocs = [
   'per-property instance writes',
   'usage marks',
   'frame budget',
+  '### Loader / Atlanta UI font bootstrap fix',
+  'dead external font asset',
+  'SA.SanitizeAtlantaSource()',
+  'ATLANTA_ROOTS',
+  'SourceSansPro',
+  'error-page markers',
+  'dist/Hanami.lua is gitignored',
+  'branch-specific loader URL',
   '### Adaptive ESP geometry slicing and cache',
   'adaptive geometry slicing',
   'SA.EspGeom()',
