@@ -95,8 +95,21 @@ end
 -- property so static Color / Text / ZIndex / Thickness writes are skipped.
 local function applyDrawProp(applied, inst, prop, value)
     if drawSame(applied[prop], value) then
-        drawSyncInstSkips = drawSyncInstSkips + 1
-        return false
+        -- ESP refresh code still writes some real Instances directly. On a
+        -- cached hide, verify the live visibility before trusting the cache;
+        -- otherwise a stale "already false" row leaves duplicate name tags,
+        -- full-box lines or chams stuck on screen after a fast camera turn.
+        local liveMatches = false
+        if prop == "Visible" or prop == "Enabled" then
+            local okLive, live = pcall(function() return inst[prop] end)
+            liveMatches = okLive and drawSame(live, value)
+        else
+            liveMatches = true
+        end
+        if liveMatches then
+            drawSyncInstSkips = drawSyncInstSkips + 1
+            return false
+        end
     end
     local ok, err = pcall(function() inst[prop] = value end)
     if not ok then

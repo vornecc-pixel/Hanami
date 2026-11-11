@@ -1,6 +1,7 @@
 -- ==================================================================
--- Hanami / 20_gm_z_api.lua — silent state APIs, toggle wiring and the
--- single master-render frame hook. No extra RenderStepped loop.
+-- Hanami / 20_gm_z_api.lua — silent state APIs, automatic inspections /
+-- scanner / reports, toggle wiring and the single master-render frame hook.
+-- No inspection tab toggles, report buttons or extra RenderStepped loop.
 -- ==================================================================
 
 function SA.GunRefreshSources(force)
@@ -12,31 +13,16 @@ function SA.GunRefreshSources(force)
         GMP.live.scanned, GMP.live.nextRun = false, 0
         GMP.items.nextAttempt, GMP.gunControl.nextAttempt = 0, 0
     end
-    if CFG.gunInspectDefs == true or GMP.on("gunNoSpread") then
-        GMP.enableSource("Fust.Items definition")
-        GMP.refreshDefinitionInspector(force == true)
-    else
-        GMP.restoreSource("Fust.Items definition")
-        GMP.setStatus("definitionScanState", "Paused (enable Inspect definitions)")
-    end
-    if CFG.gunInspectGunControl == true then
-        GMP.requestGunControlExports(force == true)
-    else
-        GMP.restoreLocalSpread()
-    end
-    if CFG.gunInspectScripts == true then GMP.scanVisibleFireScripts()
-    else GMP.setStatus("fireScriptStatus", "Paused (enable Inspect scripts)") end
-    if CFG.gunInspectLiveGun == true then
-        GMP.enableSource("live controller")
-        GMP.enableSource("equipped tool")
-        GMP.scanLive(force == true)
-        GMP.holdLive(true)
-    else
-        GMP.restoreSource("live controller")
-        GMP.restoreSource("equipped tool")
-        GMP.setStatus("liveGunStatus",
-            "Enable live firing-state inspection first")
-    end
+    -- Definitions, GunControl exports, visible fire scripts and the live
+    -- controller scan are ALWAYS ON while the gun-mod master is active.
+    GMP.enableSource("Fust.Items definition")
+    GMP.refreshDefinitionInspector(force == true)
+    GMP.requestGunControlExports(force == true)
+    GMP.scanVisibleFireScripts()
+    GMP.enableSource("live controller")
+    GMP.enableSource("equipped tool")
+    GMP.scanLive(force == true)
+    GMP.holdLive(true)
     GMP.refreshLabels()
     return true
 end
@@ -54,6 +40,44 @@ end
 
 function SA.GunRefresh(force)
     return SA.GunRefreshSources(force == true)
+end
+
+function SA.GunAutoRefresh(force)
+    if not GMP or not GMP.alive or not GMP.master() then return false end
+    if SA.GunRefreshSources(force == true) ~= true then return false end
+    local now = GMP.now()
+    local auto = GMP.auto
+    auto.scans = (auto.scans or 0) + 1
+    if not GMP.observationBaseline then
+        if SA.GunObservationBaseline() then
+            auto.baselines = (auto.baselines or 0) + 1
+        end
+    elseif force == true or (now - (auto.lastAt or 0)) >= 2 then
+        if SA.GunObservationCompare() then
+            auto.comparisons = (auto.comparisons or 0) + 1
+        end
+    end
+    -- Build the combined report into silent state, never the clipboard.
+    SA.GunReport("all")
+    auto.reports = (auto.reports or 0) + 1
+    auto.lastAt = now
+    GMP.autoClock = now
+    GMP.setStatus("reportStatus", "auto: all")
+    GMP.refreshLabels()
+    return true
+end
+
+function SA.GunAutoState()
+    local auto = GMP and GMP.auto or {}
+    return {
+        automatic = true, uiToggles = false,
+        enabled = CFG.gmEnabled == true,
+        scans = auto.scans or 0, reports = auto.reports or 0,
+        baselines = auto.baselines or 0,
+        comparisons = auto.comparisons or 0,
+        lastReport = GMP and GMP.lastReportName or "none",
+        status = GMP and GMP.status.reportStatus or "none",
+    }
 end
 
 function SA.GunModeStatus(mode, enabled)
@@ -94,7 +118,7 @@ function SA.GunSet(key, value)
     elseif key == "gmEnabled" then
         if value == true then
             GMP.masterPaused = false
-            SA.GunRefreshSources(false)
+            SA.GunAutoRefresh(true)
             GMP.probeSet(CFG.gunShotProbe == true)
             return true
         end
@@ -110,46 +134,12 @@ function SA.GunSet(key, value)
         GMP.applyMode("rate")
         GMP.refreshLabels()
         return true
-    elseif key == "gunInspectDefs" then
-        if value == true then
-            GMP.enableSource("Fust.Items definition")
-            GMP.refreshDefinitionInspector(true)
-        else
-            GMP.restoreSource("Fust.Items definition")
-            GMP.setStatus("definitionScanState",
-                "Paused (enable Inspect definitions)")
-        end
-        GMP.refreshLabels()
-        return true
-    elseif key == "gunInspectScripts" then
-        if value == true then GMP.scanVisibleFireScripts()
-        else
-            GMP.status.fireScriptCandidates = {}
-            GMP.setStatus("fireScriptMatches", 0)
-            GMP.setStatus("fireScriptStatus",
-                "Paused (enable Inspect scripts)")
-        end
-        GMP.refreshLabels()
-        return true
-    elseif key == "gunInspectGunControl" then
-        if value == true then GMP.requestGunControlExports(true)
-        else GMP.restoreLocalSpread() end
-        GMP.refreshLabels()
-        return true
-    elseif key == "gunInspectLiveGun" then
-        if value == true then
-            GMP.enableSource("live controller")
-            GMP.enableSource("equipped tool")
-            GMP.scanLive(false)
-            GMP.holdLive(true)
-        else
-            GMP.restoreSource("live controller")
-            GMP.restoreSource("equipped tool")
-            GMP.live.scanned, GMP.live.nextRun = false, 0
-            GMP.setStatus("liveGunStatus",
-                "Enable live firing-state inspection first")
-        end
-        GMP.refreshLabels()
+    elseif key == "gunInspectDefs" or key == "gunInspectScripts"
+        or key == "gunInspectGunControl" or key == "gunInspectLiveGun" then
+        -- No UI toggle: these hidden flags are always ON. A profile write
+        -- can only request another automatic refresh.
+        CFG[key] = true
+        SA.GunAutoRefresh(true)
         return true
     elseif key == "gunShotProbe" then
         GMP.probeSet(value == true)
@@ -166,12 +156,6 @@ function SA.GunSet(key, value)
     local mode = modes[key]
     if not mode then return false end
     if value == true then
-        if CFG.gunInspectLiveGun ~= true then
-            GMP.setStatus("liveGunStatus",
-                "Enable live firing-state inspection first")
-            GMP.refreshLabels()
-            return false
-        end
         SA.GunRefreshSources(false)
         if key == "gunNoSpread" then GMP.probeSwitchTrial() end
         GMP.applyMode(mode)
@@ -214,15 +198,13 @@ function SA.GunFrame(dt, now)
     GMP.holdLive(false)
     if now - GMP.sourceClock >= 0.75 then
         GMP.sourceClock = now
-        if CFG.gunInspectDefs == true or GMP.on("gunNoSpread") then
-            GMP.refreshDefinitionInspector(false)
-        end
-        if CFG.gunInspectScripts == true then
-            GMP.scanVisibleFireScripts()
-        end
-        if CFG.gunInspectGunControl == true then
-            GMP.testGunControlSpreadFields()
-        end
+        GMP.refreshDefinitionInspector(false)
+        GMP.scanVisibleFireScripts()
+        GMP.testGunControlSpreadFields()
+    end
+    if now - GMP.autoClock >= 2 then
+        GMP.autoClock = now
+        SA.GunAutoRefresh(false)
     end
     if now - GMP.spreadClock >= 0.25 then
         GMP.spreadClock = now
@@ -252,6 +234,7 @@ function SA.GunState()
             movement = GMP.recordCount("movement") },
         weapon = GMP.weaponSnapshot(),
         probe = GMP.shotProbeSnapshot(),
+        auto = GMP.copy(GMP.auto),
         lastReport = GMP.lastReportName,
         caveat = "Static + Fengari mock validation only; no real executor or in-game confirmation." }
 end

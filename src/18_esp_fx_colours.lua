@@ -102,6 +102,40 @@ local function instCache(o)
     return o.instApplied
 end
 
+-- The world-anchored BillboardGui is a legacy text source. The screen-space
+-- FX pass writes its own name/distance/tags, so every legacy label and the
+-- BillboardGui itself must be hidden. This also fixes stuck duplicate name
+-- tags when a target leaves the viewport or its ESP is disabled.
+local function hideEspBillboard(o)
+    if not o then return end
+    local cache = instCache(o)
+    local labels = { o.nameLbl, o.distLbl, o.infoLbl, o.stateLbl }
+    for _, lbl in ipairs(labels) do
+        if lbl then
+            if SA.ApplyInstProp then
+                pcall(SA.ApplyInstProp, cache, lbl, "Visible", false)
+            else
+                pcall(function() lbl.Visible = false end)
+            end
+        end
+    end
+    if o.bb then
+        if SA.ApplyInstProp then
+            pcall(SA.ApplyInstProp, cache, o.bb, "Enabled", false)
+            pcall(SA.ApplyInstProp, cache, o.bb, "Size", UDim2.fromOffset(220, 1))
+            pcall(SA.ApplyInstProp, cache, o.bb, "StudsOffset",
+                Vector3.new(0, 0, 0))
+        else
+            pcall(function()
+                o.bb.Enabled = false
+                o.bb.Size = UDim2.fromOffset(220, 1)
+                o.bb.StudsOffset = Vector3.new(0, 0, 0)
+            end)
+        end
+    end
+end
+SA.HideEspBillboard = hideEspBillboard
+
 local function hideLegacyFx(o)
     if not o then return end
     local cache = instCache(o)
@@ -121,6 +155,7 @@ local function hideLegacyFx(o)
             pcall(function() o.highlight.Enabled = false end)
         end
     end
+    hideEspBillboard(o)
 end
 
 local function hideFx(o)
@@ -209,13 +244,19 @@ end
 -- view. Off-screen targets are clamped to a border margin so arrows and
 -- tracers still point at them.
 local function screenPoint(cam, v3, ok)
-    if ok and v3.Z > 0 then return Vector2.new(v3.X, v3.Y), true end
-    local vp = cam.ViewportSize
+    local vp = cam.ViewportSize or Vector2.new(1280, 720)
+    local m = 34
+    -- WorldToViewportPoint's boolean does not always encode viewport bounds.
+    -- Explicit bounds stop in-front-but-off-screen targets from being styled
+    -- as on-screen, which was the "ESP freezes when I turn too far" bug.
+    local inView = ok == true and v3.Z > 0
+        and v3.X >= -m and v3.X <= vp.X + m
+        and v3.Y >= -m and v3.Y <= vp.Y + m
+    if inView then return Vector2.new(v3.X, v3.Y), true end
     local cx, cy = vp.X / 2, vp.Y / 2
     local dx, dy = v3.X - cx, v3.Y - cy
     if v3.Z < 0 then dx, dy = -dx, -dy end
     if math.abs(dx) < 0.0001 and math.abs(dy) < 0.0001 then dy = 1 end
-    local m = 34
     local sx = math.abs(dx) / math.max(vp.X / 2 - m, 1)
     local sy = math.abs(dy) / math.max(vp.Y / 2 - m, 1)
     local k = 1 / math.max(sx, sy, 0.0001)
@@ -230,7 +271,7 @@ local function boxSegments(g, corner)
             { x, y, x, y + h }, { x + w, y, x + w, y + h },
         }
     end
-    local s = math.min(w, h) * 0.3
+    local s = math.max(math.min(w, h) * 0.3, 8)
     return {
         { x, y, x + s, y }, { x, y, x, y + s },
         { x + w, y, x + w - s, y }, { x + w, y, x + w, y + s },

@@ -119,6 +119,12 @@ const requiredDist = [
   'SA.ApplyTheme', 'SA.ApplyFont', 'SA.ThemeState', 'SA.FontState',
   'SA.INLINE_COLOR_BINDINGS', 'bindInlineColors',
   'uiTheme', 'uiFont', 'SA.UI_THEME_NAMES', 'SA.UI_FONT_NAMES',
+  'SA.CFG_OFF_BASELINE', 'SA.BEST_STARTUP', 'SA.BEST_ESP_KEYS',
+  'SA.ApplyBestStartup', 'SA.ApplyBestSetup', 'SA.ResetToOffBaseline',
+  'SA.GunAutoRefresh', 'SA.GunAutoState', 'GMP.autoClock',
+  'SA.RandomHitPart', 'SA.SilentAimBonePart', 'SA.ManipBonePart',
+  'SA.HideEspBillboard', 'hideEspBillboard', 'cameraTurned',
+  'saRandomHitPart', 'manipRandomHitPart',
 ];
 for (const needle of requiredDist) {
   assert(dist.includes(needle), `dist/Hanami.lua is missing ${needle}`);
@@ -175,9 +181,10 @@ const newKeys = [
   'gunCameraKickFilter', 'gunFireRate', 'gunFireRateMultiplier',
   'gunInfiniteAmmo', 'gunMoveShoot',
   'displayBrightnessEnabled', 'displayBrightness',
+  'saRandomHitPart', 'manipRandomHitPart',
   'uiTheme', 'uiFont',
 ];
-assert(newKeys.length === 75, `expected 75 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 77, `expected 77 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -207,16 +214,107 @@ for (const key of newKeys) {
     || ui.includes(`CFG.${key}`), `no bound UI widget for ${key}`);
 }
 
-// Startup defaults: every shipped/backfilled boolean is a feature toggle
-// and must be OFF. No stale `~= false` default-ON escape hatch may remain.
+// Startup defaults: the shipped literal is a diagnostic OFF baseline,
+// while the user-facing default snapshot is that baseline merged with the
+// curated best setup. No stale `~= false` default-ON escape hatch remains.
 const boolAssignment = /^\s*[A-Za-z_][A-Za-z0-9_]*\s*=\s*true\s*,/m;
 assert(!boolAssignment.test(shipped),
-  'src/01_config.lua still ships a boolean feature default ON');
+  'src/01_config.lua: OFF baseline must not ship a boolean feature ON');
 assert(!boolAssignment.test(backfill),
-  'src/01_config.lua still backfills a boolean feature default ON');
+  'src/01_config.lua: backfill must not add a boolean feature ON');
+const offBaseline = config.slice(
+  config.indexOf('SA.CFG_OFF_BASELINE = {}'),
+  config.indexOf('SA.BEST_STARTUP = {')
+);
+const bestStartup = config.slice(
+  config.indexOf('SA.BEST_STARTUP = {'),
+  config.indexOf('for k, v in pairs(SA.BEST_STARTUP)')
+);
+assert(offBaseline.includes('SA.CFG_OFF_BASELINE[k] = v'),
+  'OFF baseline must copy the fully OFF shipped literal');
+for (const key of [
+  'masterEnabled', 'espEnabled', 'espCornerBox', 'gmEnabled', 'showFov',
+  'snapLineEnabled', 'espPreview', 'nearestWindow', 'saRandomHitPart',
+  'manipRandomHitPart', 'gunInspectDefs', 'gunInspectLiveGun',
+]) {
+  assert(bestStartup.includes(`${key} = true`),
+    `curated best startup is missing ON key ${key}`);
+}
+for (const key of [
+  'triggerbot', 'autoFire', 'bowModsEnabled', 'hitboxEnabled',
+  'displayBrightnessEnabled',
+]) {
+  assert(bestStartup.includes(`${key} = false`),
+    `curated best startup is missing OFF key ${key}`);
+}
+assert(config.includes(
+  'for k, v in pairs(SA.BEST_STARTUP) do SA.CFG_DEFAULTS[k] = v end'),
+  'curated best startup must be merged into SA.CFG_DEFAULTS');
+assert(config.includes('function SA.ApplyBestStartup'),
+  'one-time fresh-startup applier is missing');
 const allSource = files.map((name) => read(`src/${name}`)).join('\n');
 assert(!/CFG\.[A-Za-z0-9_]+\s*~=\s*false/.test(allSource),
   'src still treats a missing CFG boolean as ON');
+assert(!allSource.includes('Vector3.zero'),
+  'src still uses unsupported Vector3.zero fallbacks');
+for (const label of [
+  'Enable Inspect', 'Paused (enable', 'Enable live firing',
+  'Silent State / Reports', 'Copy All Gun Reports',
+  'Capture Gun State Baseline',
+]) {
+  assert(!allSource.includes(label),
+    `src still exposes removed gun inspection/report UI: ${label}`);
+}
+
+// Automatic gun work: hidden always-ON flags, no inspect/report UI and a
+// silent auto refresh / state API sharing the existing frame hook.
+const gunUi = read('src/23_ui_gunmods.lua');
+const gunApi = read('src/20_gm_z_api.lua');
+for (const label of [
+  'Inspect Definitions', 'Inspect Scripts', 'Inspect GunControl Exports',
+  'Inspect Live Gun', 'Silent State / Reports', 'Copy All Gun Reports',
+  'Capture Gun State Baseline',
+]) {
+  assert(!gunUi.includes(label),
+    `Gun Mods UI still exposes removed control / column: ${label}`);
+}
+assert(gunUi.includes('Inspections + live scanner run automatically'),
+  'automatic inspection UI label is missing');
+assert(gunUi.includes('library.visible_flags[flag] = nil'),
+  'hidden inspection flags must have no visible widget');
+assert(gunUi.includes('library.config_flags[flag] = function()'),
+  'hidden inspection flags must force themselves ON');
+assert(gunApi.includes('function SA.GunAutoRefresh')
+  && gunApi.includes('function SA.GunAutoState')
+  && gunApi.includes('auto = GMP.copy(GMP.auto)')
+  && gunApi.includes('SA.GunReport("all")'),
+  'automatic silent gun refresh / state API is incomplete');
+
+// ESP stuck-overlay / duplicate-tag / corner-box regressions.
+const fxColours = read('src/18_esp_fx_colours.lua');
+const fxDraw = read('src/18_esp_fx_draw.lua');
+const fxFrame = read('src/18_esp_fx_frame.lua');
+const drawing = read('src/02_drawing.lua');
+assert(drawing.includes('liveMatches'),
+  'per-property write cache must verify live Visible / Enabled');
+assert(fxColours.includes('SA.HideEspBillboard = hideEspBillboard')
+  && fxColours.includes('"Enabled", false')
+  && fxColours.includes('local inView = ok == true and v3.Z > 0')
+  && fxColours.includes('math.max(math.min(w, h) * 0.3, 8)'),
+  'ESP billboard hide / viewport bounds / corner sizing are incomplete');
+assert(fxDraw.includes(
+  'local showBox    = cleanEsp or CFG.espShowBox == true or cornerBox')
+  && fxDraw.includes('SA.HideEspBillboard(o)'),
+  'corner boxes must force box segments and legacy labels must hide');
+assert(fxFrame.includes('local cameraTurned = espCamSig.fxKey ~= camKey')
+  && fxFrame.includes('local stride = cameraTurned and 1')
+  && fxFrame.includes('skip and o.geomCache or nil')
+  && fxFrame.includes('local inView = ok == true and z > 0'),
+  'camera turns must force fresh geometry and cached skip frames must finalise FX');
+const preview = read('src/22_esp_preview.lua');
+assert(preview.includes(
+  'local showBox   = cleanEsp or CFG.espShowBox == true or cornerBox'),
+  'ESP preview corner boxes must force their own box style');
 
 // Every custom colour ships white, has exactly one inline owner, and no
 // separate ESP colour mini-tab / section survives.
@@ -304,20 +402,24 @@ for (const name of files) {
     `README ${name} says ${row.lines} lines, actual ${lineCounts.get(name)}`);
 }
 const requiredDescriptions = {
-  'src/01_config.lua': ['themes', 'fonts', 'white', 'startup off',
-    'inline colours', 'profiles', 'self-check', 'perf', 'clean',
-    'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
-    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow'],
+  'src/01_config.lua': ['themes', 'fonts', 'white',
+    'curated best startup', 'off baseline', 'random hit parts',
+    'automatic gun inspections', 'inline colours', 'profiles', 'self-check',
+    'perf', 'clean', 'npc manipulation', 'trigger', 'wall check', 'warning',
+    'force head', 'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh',
+    'fust bow'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching',
-    'per-property'],
+    'per-property', 'live visibility check'],
   'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list'],
   'src/02_shared.lua': ['fov', 'pinned', 'npc classifier', 'force head',
-    'trigger bone', 'vis', 'wall check'],
-  'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist'],
+    'trigger bone', 'vis', 'wall check', 'independent random hit parts',
+    'silent-aim / manip / trigger scopes'],
+  'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist',
+    'manip random hit part'],
   'src/08_prediction.lua': ['gun diff', 'override'],
   'src/09_silent_aim.lua': ['silent aim', 'guns only', 'trigger', 'auto fire',
     'vis', 'wall check', 'tool-first', 'mouse1click',
-    'dedicated fust bow part'],
+    'dedicated fust bow part', 'silent random hit part'],
   'src/09_z_fust_bow.lua': ['fust bow', 'ballistic', 'hookfunction',
     'shoot.fireserver', 'peek-origin', 'fov', 'bow specs', 'state'],
   'src/13_esp_players_refresh.lua': ['per-player', 'cached player rig', 'vis',
@@ -327,13 +429,16 @@ const requiredDescriptions = {
     'shared projection cache', 'geometry cache'],
   'src/16_esp_crates_registry.lua': ['crate registry', 'raw list'],
   'src/18_esp_fx_colours.lua': ['palette', 'legacy line', 'usage marks',
-    'geometry cache', 'rainbow clock'],
+    'geometry cache', 'rainbow clock', 'billboard', 'viewport bounds',
+    'minimum corner segments'],
   'src/18_esp_fx_draw.lua': ['clean', 'outline', 'crate fov', 'off-screen',
-    'legacy line', 'hoisted helpers', 'usage marks', 'direct segments'],
+    'legacy line', 'hoisted helpers', 'usage marks', 'direct segments',
+    'corner boxes force box', 'one name tag'],
   'src/18_esp_fx_frame.lua': ['per-frame', 'crate fov', 'team map',
     'cached rig', 'fps', 'geometry cache', 'geometry slicing',
     'camera signature', 'priority slicing', 'hidden pass',
-    'one fewer pcall'],
+    'one fewer pcall', 'camera-turn fresh geometry',
+    'no stale geometry skips'],
   'src/19_render_loop.lua': ['adaptive', 'fps', 'data refresh', 'raw list',
     'frame budget', 'geometry budget', 'geometry slicing',
     'rolling fps', 'performance mode'],
@@ -341,19 +446,21 @@ const requiredDescriptions = {
     'trigger', 'auto fire', 'wall check', 'force head',
     'silent-aim independent', 'npc hitbox', 'hitbox', 'fust bow',
     'inline colourpicker', 'atlanta source sanitizer', 'built-in font fallback',
-    'error-page markers'],
+    'error-page markers', 'two independent random hit-part toggles'],
   'src/20_hitbox_expander.lua': ['hitbox', 'players + npcs', 'r6/r15',
     'npc', 'hrp fallback', 'self-healing', 'restore'],
-  'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
+  'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean',
+    'corner boxes force box'],
   'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov',
-    'inline', 'no colour mini-tabs'],
+    'inline', 'no colour mini-tabs', 'curated best esp preset',
+    'corner boxes force box'],
   'src/24_ui_visual.lua': ['theme', 'font', 'top-n', 'performance', 'keybind', 'popup',
     'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
     'utilities'],
   'src/25_ui_misc.lua': ['theme', 'font', 'profile', 'self-check', 'full unload',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
     'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget',
-    'fust bow'],
+    'fust bow', 'apply best setup', 'off baseline', 'automatic gun refresh'],
 };
 for (const [name, needles] of Object.entries(requiredDescriptions)) {
   const description = rowByName.get(name).description.toLowerCase();
@@ -416,14 +523,27 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '4,844 assertions',
-  'all 75 new CFG keys',
-  '## Themes, fonts, inline colours and OFF defaults',
+  '5,084 assertions',
+  'all 77 new CFG keys',
+  '## Themes, fonts, inline colours and curated startup',
+  'Curated best startup',
+  'Automatic gun inspections / reports',
+  'Independent random hit parts',
+  'ESP stuck-overlay / duplicate-tag / corners fix',
+  'SA.ApplyBestSetup()',
+  'SA.ResetToOffBaseline()',
+  'SA.GunAutoState()',
+  'saRandomHitPart',
+  'manipRandomHitPart',
+  'camera turns force fresh geometry',
+  'corner boxes force their own box segments',
+  'inspections / scanner / reports run automatically with no tab toggle or column',
+  'OFF baseline plus curated best startup',
   '9 additional themes',
   '10 popular script-community font picks',
   '60-50 FPS',
   'Visual → Theme',
-  'all feature toggles OFF',
+  'curated best setup',
   'default white',
   'no second RenderStepped',
   'event-driven',

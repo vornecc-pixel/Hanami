@@ -444,8 +444,8 @@ local function pvApplyStyleTo(ui, isNpc)
     -- Mirror drawEntity()'s clean-mode effective values so the floating
     -- preview never shows dark pills the real ESP no longer draws.
     local cleanEsp  = CFG.espCleanMode == true
-    local showBox   = cleanEsp or CFG.espShowBox == true
     local cornerBox = (not cleanEsp) and CFG.espCornerBox == true
+    local showBox   = cleanEsp or CFG.espShowBox == true or cornerBox
     local showFill  = (not cleanEsp) and CFG.espShowFill == true
     local showOutline = cleanEsp or CFG.espShowOutline == true
     local textOutline = cleanEsp or CFG.espTextOutline == true

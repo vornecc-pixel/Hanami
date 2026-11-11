@@ -15,19 +15,19 @@ local velTrack = _G.__saVelTrack or setmetatable({}, { __mode = "k" })
 _G.__saVelTrack = velTrack
 
 function SA.TargetVelocity(model)
-    if not model then return Vector3.zero end
+    if not model then return Vector3.new(0, 0, 0) end
     local hrp = model:FindFirstChild("HumanoidRootPart")
-    if not hrp then return Vector3.zero end
+    if not hrp then return Vector3.new(0, 0, 0) end
     local now, pos = tick(), hrp.Position
     local e = velTrack[model]
     if not e then
-        velTrack[model] = { p = pos, t = now, v = Vector3.zero }
-        return Vector3.zero
+        velTrack[model] = { p = pos, t = now, v = Vector3.new(0, 0, 0) }
+        return Vector3.new(0, 0, 0)
     end
     local dt = now - e.t
     if dt < 0.016 then return e.v end
     local raw = (pos - e.p) / dt
-    if raw.Magnitude > 120 then raw = Vector3.zero end  -- teleport guard
+    if raw.Magnitude > 120 then raw = Vector3.new(0, 0, 0) end  -- teleport guard
     local alpha = math.clamp(dt * 12, 0.15, 0.6)
     e.v = e.v:Lerp(raw, alpha)
     e.p, e.t = pos, now

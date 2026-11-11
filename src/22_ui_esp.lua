@@ -141,29 +141,13 @@ local fontStatusLabel = featSec:label({ name = "Font: " .. tostring(SA.ESP_FONT_
 SA.RegisterFontStatusLabel(fontStatusLabel)
 
 -- ── BEST ESP PRESET (Players + NPCs) ────────────────────────────────
--- The curated "best" set: every feature that makes an ESP readable and
--- informative, without the two that deliberately wash colours out
--- (Rainbow) or hide distant boxes (Distance Fade). Applied through the
--- Atlanta flags so all widgets stay in sync, and mirrored into CFG as a
--- safety net for any flag a library build never registered.
-local BEST_ESP = {
-    -- Player ESP
-    espEnabled = true, espVisibleCheck = true, espShowName = true,
-    espShowDist = true, espShowHealth = true, espShowTool = true,
-    espShowState = true,
-    -- NPC ESP
-    npcEspEnabled = true, npcVisibleCheck = true, npcShowName = true,
-    npcShowDist = true, npcShowHealth = true, npcShowTool = true,
-    npcShowState = true, npcUseTypeColors = true,
-    -- Shared visual features
-    espCleanMode = false,
-    espPerElementColors = true, espShowBox = true, espCornerBox = true,
-    espShowFill = true, espShowOutline = false, espShowSkeleton = true,
-    espShowHeadDot = true, espShowTracer = true, espShowOffscreen = true,
-    espHighlightTarget = true, espRainbow = false, espFade = false,
-    espArrowFOV = true, espShowHealthText = true, espTextOutline = true,
-    espTagSide = true, espTagBackdrop = true, espPreview = true,
-}
+-- One source of truth: the curated startup snapshot in 01_config.lua.
+-- Corner boxes + thin outlines stay readable; opaque chams fill, dark tag
+-- pills, skeleton clutter and stuck off-screen tracers/arrows stay OFF.
+local BEST_ESP = {}
+for _, key in ipairs(SA.BEST_ESP_KEYS) do
+    BEST_ESP[key] = SA.CFG_DEFAULTS[key]
+end
 
 function SA.ApplyBestEsp()
     for k, v in pairs(BEST_ESP) do
@@ -203,7 +187,8 @@ function SA.CleanEspState()
     return {
         enabled = clean,
         backdrop = (not clean) and CFG.espTagBackdrop == true,
-        box = clean or CFG.espShowBox == true,
+        box = clean or CFG.espShowBox == true
+            or ((not clean) and CFG.espCornerBox == true),
         cornerBox = (not clean) and CFG.espCornerBox == true,
         fill = (not clean) and CFG.espShowFill == true,
         outline = clean or CFG.espShowOutline == true,

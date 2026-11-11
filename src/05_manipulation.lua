@@ -237,6 +237,7 @@ function SA.ManipState()
         hysteresis = saManipNum("manipHysteresis", 0, 12, 3),
         deltaCap = saManipNum("manipMaxPeekDelta", 2, 12, 6),
         directions = 8,
+        randomHitPart = CFG.manipRandomHitPart == true,
         npcsEnabled = CFG.manipNpcs == true,
         npcTargets = #(SA.GetNpcs and SA.GetNpcs() or {}),
         lastNpc = saManipLastNpc,
@@ -374,16 +375,15 @@ do
         if modelOverride then
             -- State checks / tests can probe one specific NPC without
             -- fighting the crosshair picker for the closest target.
-            local boneName = SA.ResolveTargetBone and SA.ResolveTargetBone()
-                or (CFG.targetBone or "Head")
-            local bone = bonePart(modelOverride, boneName)
+            local bone = SA.ManipBonePart(modelOverride)
             if not bone then
                 return false, "override target has no aim bone", info
             end
             best = { model = modelOverride, bone = bone, pos = bone.Position }
         else
             local okPick, picked = pcall(function()
-                return pickBestTarget(cam, SA.AimPoint(), origin, true)
+                return pickBestTarget(cam, SA.AimPoint(), origin, true,
+                    SA.ManipBonePart)
             end)
             best = picked
             if not okPick or not best or not best.model or not best.pos then

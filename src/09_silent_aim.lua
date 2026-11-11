@@ -114,7 +114,8 @@ end
 -- ────────────────────────────────────────────────────────────────────
 local function findSilentTarget(camera, origin)
     -- ONE reference point: the centre of the drawn FOV circle.
-    local best = pickBestTarget(camera, SA.AimPoint(), origin)
+    local best = pickBestTarget(camera, SA.AimPoint(), origin, false,
+        SA.SilentAimBonePart)
     if not best then return nil, nil, nil end
     local aim = best.pos
     if CFG.prediction then
@@ -358,6 +359,7 @@ function SA.SilentAimState()
         bowEquipped = SA.IsEquippedBow() == true,
         tapWindow = CFG.saTapWindow or 0.35,
         forceHead = CFG.forceHead == true,
+        randomHitPart = CFG.saRandomHitPart == true,
         resolvedBone = SA.ResolveTargetBone and SA.ResolveTargetBone()
             or CFG.targetBone,
         snapped = snapped, snappedThisFrame = saSnappedThisFrame,

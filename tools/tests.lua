@@ -108,6 +108,13 @@ if run > 1 then
     local after = #RunService.RenderStepped._connections
     ok(after <= before, "re-execute must not grow RenderStepped listeners")
     ok(after < 40, "render listener count is bounded")
+    -- Curated startup intentionally turns the HUD popup ON; explicitly
+    -- turn it OFF and dispose it to retain the stale-render-listener
+    -- regression without inheriting the old all-OFF startup assumption.
+    quiet(function()
+        SA.ManipPopupSet(false)
+        if SA.DisposeManipPopup then SA.DisposeManipPopup() end
+    end)
     ok(SA.ManipPopupState and SA.ManipPopupState().built == false,
         "manip popup stays unbuilt while OFF after re-execute")
     eq(SA.FustBowState().hooked, true, "re-execute reinstalls the Fust bow hook")
@@ -119,7 +126,34 @@ if run > 1 then
         "single re-execution-safe keybind wrapper")
 end
 
-quiet(function() SA.ResetToDefaults() end)
+-- Fresh load must already be set up for best ESP / silent aim / gun mods.
+if run == 1 then
+    eq(CFG.masterEnabled, true, "best startup: silent aim master ON")
+    eq(CFG.gunEnabled, true, "best startup: gun silent aim ON")
+    eq(CFG.hitChance, 100, "best startup: Blatant hit chance")
+    eq(CFG.prediction, true, "best startup: prediction ON")
+    eq(CFG.espEnabled, true, "best startup: player ESP ON")
+    eq(CFG.npcEspEnabled, true, "best startup: NPC ESP ON")
+    eq(CFG.espCornerBox, true, "best startup: corner boxes ON")
+    eq(CFG.espShowFill, false, "best startup: no opaque chams blob")
+    eq(CFG.gmEnabled, true, "best startup: gun mods ON")
+    eq(CFG.showFov, true, "best startup: FOV circle ON")
+    eq(CFG.snapLineEnabled, true, "best startup: snapline ON")
+    eq(CFG.espPreview, true, "best startup: ESP preview ON")
+    eq(CFG.nearestWindow, true, "best startup: HUD ON")
+    eq(CFG.saRandomHitPart, true, "best startup: silent random hit part ON")
+    eq(CFG.manipRandomHitPart, true, "best startup: manip random hit part ON")
+    eq(CFG.triggerbot, false, "best startup: risky auto fire OFF")
+    eq(CFG.hitboxEnabled, false, "best startup: hitbox expander OFF")
+    eq(CFG.bowModsEnabled, false, "best startup: bow mods OFF")
+    eq(CFG.displayBrightnessEnabled, false, "best startup: brightness OFF")
+    eq(SA.GunAutoState().automatic, true, "best startup: automatic gun reports")
+    ok(SA.GunAutoState().reports >= 1, "best startup: report generated silently")
+end
+quiet(function() SA.ResetToOffBaseline() end)
+eq(type(SA.ResetToDefaults), "function", "Reset to Defaults API")
+eq(type(SA.ApplyBestSetup), "function", "Apply Best Setup API")
+eq(type(SA.CFG_OFF_BASELINE), "table", "OFF baseline snapshot exposed")
 
 -- ── startup, defaults, config coverage ──────────────────────────────
 ok(type(SA) == "table", "SA shared state")
@@ -160,6 +194,7 @@ local newKeys = {
     "gunCameraKickFilter", "gunFireRate", "gunFireRateMultiplier",
     "gunInfiniteAmmo", "gunMoveShoot",
     "displayBrightnessEnabled", "displayBrightness",
+    "saRandomHitPart", "manipRandomHitPart",
     "uiTheme", "uiFont",
 }
 for _, key in ipairs(newKeys) do
@@ -171,7 +206,7 @@ for _, key in ipairs(newKeys) do
 end
 eq(#SA.ConfigCoverage(), 0, "hn_* config coverage")
 
--- ── OFF defaults, white inline pickers, themes, fonts, 60-50 FPS ────
+-- ── OFF baseline / curated startup, white inline pickers, themes, fonts ──
 do
     local function rgbEq(c, r, g, b)
         return type(c) == "table"
@@ -181,17 +216,36 @@ do
     end
     local function white(c) return rgbEq(c, 255, 255, 255) end
 
-    -- Every shipped boolean is a feature toggle and must start OFF, both
-    -- in the immutable snapshot and in the live CFG after reset.
+    -- The OFF baseline is fully OFF; the user-facing startup snapshot is
+    -- the curated best setup (Reset to Defaults restores that snapshot).
     local booleanDefaults = 0
-    for k, v in pairs(SA.CFG_DEFAULTS) do
+    local hiddenAuto = {
+        gunInspectDefs = true, gunInspectScripts = true,
+        gunInspectGunControl = true, gunInspectLiveGun = true,
+    }
+    for k, v in pairs(SA.CFG_OFF_BASELINE) do
         if type(v) == "boolean" then
             booleanDefaults = booleanDefaults + 1
-            ok(v == false, "shipped default OFF: " .. k)
-            ok(CFG[k] == false, "live default OFF: " .. k)
+            ok(v == false, "OFF baseline: " .. k)
+            ok(CFG[k] == false or hiddenAuto[k] == true,
+                "live OFF baseline: " .. k)
         end
     end
-    ok(booleanDefaults >= 100, "all boolean feature defaults covered")
+    ok(booleanDefaults >= 100, "all boolean OFF-baseline defaults covered")
+    eq(SA.CFG_DEFAULTS.masterEnabled, true, "best default: silent aim")
+    eq(SA.CFG_DEFAULTS.espEnabled, true, "best default: player ESP")
+    eq(SA.CFG_DEFAULTS.espCornerBox, true, "best default: corner boxes")
+    eq(SA.CFG_DEFAULTS.espShowFill, false, "best default: no chams blob")
+    eq(SA.CFG_DEFAULTS.gmEnabled, true, "best default: gun mods")
+    eq(SA.CFG_DEFAULTS.showFov, true, "best default: FOV circle")
+    eq(SA.CFG_DEFAULTS.snapLineEnabled, true, "best default: snapline")
+    eq(SA.CFG_DEFAULTS.saRandomHitPart, true, "best default: silent random part")
+    eq(SA.CFG_DEFAULTS.manipRandomHitPart, true, "best default: manip random part")
+    eq(SA.CFG_DEFAULTS.triggerbot, false, "best default: auto fire OFF")
+    eq(SA.CFG_DEFAULTS.hitboxEnabled, false, "best default: hitbox OFF")
+    eq(SA.CFG_DEFAULTS.autoLoadConfig, false, "best default: no stale profile")
+    ok(type(SA.BEST_STARTUP) == "table", "curated best startup map exposed")
+    ok(#SA.BEST_ESP_KEYS >= 30, "best ESP preset keys exposed")
 
     -- Every customizable colour is white and chained INLINE onto the
     -- toggle / slider / dropdown that owns it, never a separate section.
@@ -737,6 +791,47 @@ CFG.targetBoneMode = "Global"
 CFG.targetBone = "Hrp"
 eq(SA.ResolveTargetBone(), "Hrp", "Force Head OFF restores Target Bone")
 CFG.forceHead = true
+
+-- ── independent random hit parts for silent aim / manipulation ───────
+do
+    local randomModel = Players:GetPlayers()[2].Character
+    ok(randomModel ~= nil, "random hit-part test rig exists")
+    local function validHitPart(part)
+        if not part then return false end
+        for _, names in pairs(SA.HIT_PART_ALIASES) do
+            for _, name in ipairs(names) do
+                if part.Name == name then return true end
+            end
+        end
+        return false
+    end
+    quiet(function() SA.RandomHitPartReset() end)
+    setFlags({
+        forceHead = true, saRandomHitPart = true,
+        manipRandomHitPart = false,
+    })
+    local saPart = SA.SilentAimBonePart(randomModel)
+    ok(validHitPart(saPart), "silent aim random R6/R15 hit part")
+    eq(SA.SilentAimState().randomHitPart, true,
+        "silent aim state reports random hit part")
+    eq(SA.RandomHitPart(randomModel, "silent"), saPart,
+        "silent aim random part stays sticky")
+    eq(SA.ManipBonePart(randomModel).Name, "Head",
+        "manipulation remains independent while its switch is OFF")
+    setFlags({ saRandomHitPart = false, manipRandomHitPart = true })
+    eq(SA.SilentAimBonePart(randomModel).Name, "Head",
+        "Force Head returns when silent random is OFF")
+    local manipPart = SA.ManipBonePart(randomModel)
+    ok(validHitPart(manipPart), "manipulation random R6/R15 hit part")
+    eq(SA.ManipState().randomHitPart, true,
+        "manipulation state reports random hit part")
+    eq(SA.RandomHitPartState().silentAim, false,
+        "random state: silent switch OFF")
+    eq(SA.RandomHitPartState().manipulation, true,
+        "random state: manip switch ON")
+    setFlags({ saRandomHitPart = false, manipRandomHitPart = false })
+    quiet(function() SA.RandomHitPartReset() end)
+end
 
 -- ── Fust bow: hookfunction, ballistic rewrite, peek-origin wallbang ──
 local savedFust = {
@@ -1522,6 +1617,16 @@ ok(perf.effectiveEntityCap >= 1
 eq(SA.DrawPoolStats().enabled, true, "draw pool enabled")
 local writes = SA.DrawWriteFailures()
 ok(type(writes.count) == "number", "draw write counter")
+-- A hidden BillboardGui label can be re-shown by the throttled refresh
+-- without updating the write cache. The next hide must force a real write.
+local coherenceProbe = { Visible = true }
+local coherenceCache = {}
+eq(SA.ApplyInstProp(coherenceCache, coherenceProbe, "Visible", false), true,
+    "first instance hide writes")
+coherenceProbe.Visible = true -- direct legacy refresh-style write
+eq(SA.ApplyInstProp(coherenceCache, coherenceProbe, "Visible", false), true,
+    "live property check defeats stale hide cache")
+eq(coherenceProbe.Visible, false, "stale legacy label actually hidden")
 contains(SA.DrawDiag(), "backend=", "draw diagnostics")
 quiet(function()
     window.set_menu_visibility(true)
@@ -1784,7 +1889,7 @@ do
 -- A static camera / rig must reuse ONE projection set between the FX pass
 -- and the throttled BillboardGui refresh. The camera signature is built
 -- once per camera change, not once per entity per frame.
-quiet(function() SA.ResetToDefaults() end)
+quiet(function() SA.ResetToOffBaseline() end)
 setFlags({
     espEnabled = true, npcEspEnabled = false, crateEnabled = false,
     espVisibleCheck = false, espShowSkeleton = false, espShowHeadDot = false,
@@ -1882,6 +1987,41 @@ ok(perfAfter.geometryBudget.stride >= 2,
 ok(perfAfter.frameBudget.geometryStride >= 2,
     "frame budget exposes the adaptive geometry stride")
 
+-- A fast turn must NOT leave sliced entities at their old screen position.
+-- With adaptive stride active, force fresh geometry on the camera-change
+-- frame and hide every legacy BillboardGui label in the same FX pass.
+function saCameraTurnRegression()
+    setFlags({
+        espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+        espOnlyNearest = false, espOnlyAimTarget = false,
+        espTeamMode = "All", espMaxDist = 5000,
+        espVisibleCheck = false, perfMode = false,
+    })
+    local beforeTurn = SA.EspPerfState()
+    for _, obj in pairs(espObjects) do
+        obj.bb.Enabled = true
+        obj.nameLbl.Visible = true
+        obj.distLbl.Visible = true
+        obj.lines.top.Visible = true
+    end
+    local savedTurnCam = MOCK_CAMERA.CFrame
+    MOCK_CAMERA.CFrame = CFrame.new(9, 3, 0)
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    local afterTurn = SA.EspPerfState()
+    eq(afterTurn.geometrySkips - beforeTurn.geometrySkips, 0,
+        "camera turn disables stale geometry skips")
+    ok(afterTurn.geometryUpdates > beforeTurn.geometryUpdates,
+        "camera turn styles entities from fresh geometry")
+    for _, obj in pairs(espObjects) do
+        eq(obj.bb.Enabled, false, "camera turn hides legacy BillboardGui")
+        eq(obj.nameLbl.Visible, false, "camera turn hides duplicate name tag")
+        eq(obj.distLbl.Visible, false, "camera turn hides duplicate distance")
+    end
+    MOCK_CAMERA.CFrame = savedTurnCam
+    SA.EspGeomInvalidate()
+end
+saCameraTurnRegression()
+
 -- All ESP OFF must hide each object list ONCE, then early-out before the
 -- aim / FOV / nearest work. The master render callback still runs normally.
 setFlags({
@@ -1899,16 +2039,76 @@ eq(hide1.geometryHiddenPasses - hide0.geometryHiddenPasses, 0,
     "disabled ESP performs no repeated hidden passes")
 eq(hide1.fxPasses - hide0.fxPasses, 4,
     "disabled ESP keeps the single master FX entry alive")
-quiet(function() SA.ResetToDefaults() end)
+quiet(function() SA.ResetToOffBaseline() end)
 end
 
-quiet(function() SA.ResetToDefaults() end)
+quiet(function() SA.ResetToOffBaseline() end)
 
-quiet(function() SA.ResetToDefaults() end)
+quiet(function() SA.ResetToOffBaseline() end)
+
+-- ── ESP stale-overlay + corner-box regressions ──────────────────────
+-- Reproduces a fast turn: a refresh directly re-shows legacy BillboardGui
+-- labels / full-box lines, then the FX pass must hide them and draw only
+-- the corner segments. A target outside the viewport must not remain on
+-- screen with its last known name tag or box.
+do
+    quiet(function() SA.ResetToOffBaseline() end)
+    setFlags({
+        espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+        espShowBox = false, espCornerBox = true, espCleanMode = false,
+        espShowFill = false, espShowOutline = true, espShowName = true,
+        espVisibleCheck = false, espShowTracer = false,
+        espShowOffscreen = false, perfMode = false,
+        espDataRefreshMs = 16,
+    })
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    SA.EspFrameBudgetReset()
+    SA.EspGeomInvalidate()
+    frameTimes(8)
+    local stale = nil
+    for _, obj in pairs(espObjects) do stale = obj; break end
+    ok(stale ~= nil, "ESP object built for stale-overlay regression")
+    stale.bb.Enabled = true
+    stale.nameLbl.Visible = true
+    stale.distLbl.Visible = true
+    stale.infoLbl.Visible = true
+    stale.lines.top.Visible = true
+    stale.lines.right.Visible = true
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(stale.bb.Enabled, false, "legacy BillboardGui disabled by FX pass")
+    eq(stale.nameLbl.Visible, false, "duplicate legacy name tag hidden")
+    eq(stale.distLbl.Visible, false, "duplicate legacy distance hidden")
+    eq(stale.lines.top.Visible, false, "stale full-box line hidden")
+    ok(stale.fx and stale.fx.box1 and stale.fx.box1.Visible == true,
+        "corner segments appear without the full-box toggle")
+    ok(stale.fx.box8 and stale.fx.box8.Visible == true,
+        "all eight corner segments are drawn")
+
+    local savedPos = stale.root.Position
+    stale.root.Position = Vector3.new(9000, 0, 0)
+    stale.geomKey, stale.geomCache = nil, nil
+    local offGeom = SA.EspGeom(stale, MOCK_CAMERA, stale.root.Position,
+        stale.head.Position, "player")
+    eq(offGeom.onScreen, false, "in-front target outside viewport is off-screen")
+    stale.bb.Enabled = true
+    stale.nameLbl.Visible = true
+    stale.lines.top.Visible = true
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(stale.bb.Enabled, false, "off-screen BillboardGui hidden")
+    eq(stale.nameLbl.Visible, false, "no stuck name tag after fast turn")
+    eq(stale.lines.top.Visible, false, "no stuck box line after fast turn")
+    if stale.fx.box1 then
+        eq(stale.fx.box1.Visible, false, "off-screen corner segment hidden")
+    end
+    stale.root.Position = savedPos
+    stale.geomKey, stale.geomCache = nil, nil
+    SA.EspGeomInvalidate()
+    quiet(function() SA.ResetToOffBaseline() end)
+end
 
 -- ── UI buttons (every callback is pcall-wrapped by the mock) ─────────
 local buttonNames = {
-    "Apply Best ESP", "Apply Blatant", "Apply Clean ESP",
+    "Apply Best ESP", "Apply Best Setup", "Apply Blatant", "Apply Clean ESP",
     "Apply Overrides Now", "Apply Recommended Wall Pen", "Cancel Rebind",
     "Clear Pinned Target", "Clear Selected", "Delete Profile", "Disable All",
     "Export Config to Clipboard", "Import Config from Clipboard",
@@ -1931,7 +2131,7 @@ SA.CancelRebind()
 SA.ClearPinnedTarget()
 quiet(function()
     SA.SetAllKeybindModes("toggle")
-    SA.ResetToDefaults()
+    SA.ResetToOffBaseline()
     window.set_menu_visibility(true)
 end)
 eq(#SA.KeybindConflicts(), 0, "no conflicts after button sweep")
@@ -1975,7 +2175,10 @@ local keptStateAPIs = {
     "GunUseDefinitionCandidate", "GunClearManualDefinition", "GunReport",
     "GunCopyReport", "GunDispose", "GunSet", "GunFrame", "GunRefresh",
     "GunScanLive", "GunRestore", "GunBindToggle", "GunBindSlider",
-    "GunBindLabel", "GunBindButton",
+    "GunBindLabel", "GunBindButton", "GunAutoRefresh", "GunAutoState",
+    "ApplyBestStartup", "ResetToOffBaseline", "ApplyBestSetup",
+    "RandomHitPart", "RandomHitPartReset", "RandomHitPartState",
+    "SilentAimBonePart", "ManipBonePart", "HideEspBillboard",
 }
 for _, name in ipairs(keptStateAPIs) do
     eq(type(SA[name]), "function", "kept state API: " .. name)
@@ -2023,15 +2226,25 @@ eq(featureOutput, 0, "features emit no console output")
 
 -- ── V16.46-style gun mods, brightness, shot probe and camera filter ──
 mock_gun_reset()
+eq(SA.GunAutoState().automatic, true, "gun inspections/scanner are automatic")
+eq(SA.GunAutoState().uiToggles, false, "no inspection/report tab toggles")
+eq(library.buttons["Copy All Gun Reports"], nil, "gun report button removed")
+eq(library.buttons["Capture Gun State Baseline"], nil,
+    "gun baseline button removed")
+eq(library.visible_flags["hn_gunInspectDefs"], nil,
+    "no visible Inspect Definitions toggle")
+eq(library.visible_flags["hn_gunInspectLiveGun"], nil,
+    "no visible Inspect Live Gun toggle")
+eq(CFG.gunInspectDefs, true, "hidden definition inspector always ON")
+eq(CFG.gunInspectLiveGun, true, "hidden live scanner always ON")
 if run > 1 then
     ok(SA.GunShotProbeState().trialRecovered == true,
         "same-session shot probe checkpoint restored on re-execute")
 end
-setFlags({
-    gmEnabled = true, gunInspectGunControl = true,
-    gunInspectDefs = true, gunInspectScripts = true,
-    gunInspectLiveGun = true,
-})
+setFlags({ gmEnabled = true })
+eq(SA.GunAutoRefresh(true), true, "automatic embedded inspection + report")
+ok(SA.GunAutoState().reports >= 1, "automatic report state counter")
+ok(SA.GunAutoState().scans >= 1, "automatic source scan counter")
 ok(SA.GunRefresh(true) == true, "forced V16.46 source refresh")
 ok(SA.GunScanLive(true) == true, "forced live controller scan")
 local gunState = SA.GunState()
@@ -2233,7 +2446,7 @@ setFlags({
     gmEnabled = false, gunShotProbe = false,
     gunNoSpread = false, gunNoRecoil = false, gunFireRate = false,
     gunInfiniteAmmo = false, gunMoveShoot = false,
-    gunInspectGunControl = false, gunFireRateMultiplier = 1.5,
+    gunFireRateMultiplier = 1.5,
     displayBrightnessEnabled = false, displayBrightness = 0.2,
     gunCameraKickFilter = true,
 })

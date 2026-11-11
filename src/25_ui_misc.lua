@@ -220,54 +220,86 @@ function SA.TestConfigRoundTrip()
     return true, SA.FlagCount() .. " flags round-tripped"
 end
 
-function SA.ResetKeybindDefaults()
+function SA.ResetKeybindDefaults(snapshot)
+    -- Keybind active state follows the snapshot being restored. A boolean
+    -- keybind setter fires its feature callback in Atlanta; avoid that here
+    -- so an OFF-baseline reset cannot be silently turned back ON.
+    local state = snapshot or CFG
+    local function active(key) return state[key] == true end
     local defaults = {
-        -- The RightShift menu bind is UI navigation, not a feature toggle:
-        -- keep it active even though every feature starts OFF.
+        -- The RightShift menu bind is UI navigation, not a feature toggle.
         hn_menu_bind = { key = Enum.KeyCode.RightShift, active = true },
         hn_master_bind = { key = Enum.KeyCode.Insert,
-                           active = SA.CFG_DEFAULTS.masterEnabled == true },
+                           active = active("masterEnabled") },
         hn_bind_espEnabled = { key = Enum.KeyCode.P,
-                               active = SA.CFG_DEFAULTS.espEnabled == true },
+                               active = active("espEnabled") },
         hn_bind_npcEspEnabled = { key = Enum.KeyCode.N,
-                                  active = SA.CFG_DEFAULTS.npcEspEnabled == true },
+                                  active = active("npcEspEnabled") },
         hn_bind_gmEnabled = { key = Enum.KeyCode.G,
-                              active = SA.CFG_DEFAULTS.gmEnabled == true },
+                              active = active("gmEnabled") },
         hn_bind_bowModsEnabled = { key = Enum.KeyCode.B,
-                                   active = SA.CFG_DEFAULTS.bowModsEnabled == true },
+                                   active = active("bowModsEnabled") },
         hn_bind_manipulation = { key = Enum.KeyCode.M,
-                                 active = SA.CFG_DEFAULTS.manipulation == true },
+                                 active = active("manipulation") },
         hn_bind_hitboxEnabled = { key = Enum.KeyCode.H,
-                                  active = SA.CFG_DEFAULTS.hitboxEnabled == true },
+                                  active = active("hitboxEnabled") },
     }
     for flag, d in pairs(defaults) do
         local cfg = SA.AllKeybinds and SA.AllKeybinds[flag] or nil
         if cfg then
-            pcall(function()
-                cfg.set({ mode = "toggle", key = d.key, active = d.active })
-                cfg.set(cfg.active)  -- refresh list row without changing key
-            end)
+            -- The table form updates keys / active / list rows without
+            -- invoking the toggle callback that would overwrite CFG.
+            pcall(cfg.set, { mode = "toggle", key = d.key, active = d.active })
         end
     end
 end
 
-function SA.ResetToDefaults()
+-- One shared snapshot applier. "Reset to Defaults" now restores the
+-- curated best startup; tests / manual troubleshooting can request the
+-- fully OFF baseline without shipping a second set of feature defaults.
+local function saApplyConfigSnapshot(snapshot)
     local n = 0
-    for k, v in pairs(SA.CFG_DEFAULTS or {}) do
+    for k, v in pairs(snapshot or {}) do
         CFG[k] = v
+        n = n + 1
+    end
+    -- Set the widget flags only AFTER the whole snapshot is live. Hidden
+    -- always-ON inspection flags are deliberately not in the OFF baseline;
+    -- letting their setters run here would leave stale ON widget values.
+    for k, v in pairs(snapshot or {}) do
         local setter = library.config_flags["hn_" .. k]
         if setter then pcall(setter, v) end
-        n = n + 1
     end
     for k, v in pairs(ESP_DEFAULT_COLORS or {}) do
         ESP_COLORS[k] = v
         local setter = library.config_flags["hn_col_" .. k]
         if setter then pcall(setter, v, 1) end
     end
-    pcall(SA.ResetKeybindDefaults)
+    pcall(SA.ResetKeybindDefaults, snapshot)
     pcall(SA.ApplyTheme, CFG.uiTheme)
     pcall(SA.ApplyFont, CFG.uiFont)
     return n
+end
+
+function SA.ResetToDefaults()
+    return saApplyConfigSnapshot(SA.CFG_DEFAULTS)
+end
+
+function SA.ResetToOffBaseline()
+    -- Hidden automatic inspections are not user features; keep them ON
+    -- even when a caller asks for the diagnostic OFF baseline.
+    local n = saApplyConfigSnapshot(SA.CFG_OFF_BASELINE)
+    for _, k in ipairs({
+        "gunInspectDefs", "gunInspectScripts",
+        "gunInspectGunControl", "gunInspectLiveGun",
+    }) do
+        CFG[k] = true
+    end
+    return n
+end
+
+function SA.ApplyBestSetup()
+    return SA.ResetToDefaults()
 end
 
 -- ────────────────────────────────────────────────────────────────────
@@ -509,6 +541,7 @@ function SA.FullUnload()
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saWhiteColorFix = nil
+    _G.__saBestStartupFix = nil
     _G.__saFustBow = nil
     _G.__saGunMods = nil
     pcall(function() if SA.EspFontRegistryReset then SA.EspFontRegistryReset() end end)
@@ -560,6 +593,7 @@ addButton(profileSec, "Delete Profile", function()
     local ok, err = SA.DeleteProfile(CFG.configProfile)
 end)
 addButton(profileSec, "Reset to Defaults", function() SA.ResetToDefaults() end)
+addButton(profileSec, "Apply Best Setup", function() SA.ApplyBestSetup() end)
 addButton(profileSec, "Export Config to Clipboard", function() SA.ExportConfig() end)
 addButton(profileSec, "Import Config from Clipboard", function()
     local data = nil
@@ -583,6 +617,9 @@ end
 -- are one-time event-driven passes, never a second RenderStepped loop.
 pcall(SA.ApplyTheme, CFG.uiTheme)
 pcall(SA.ApplyFont, CFG.uiFont)
+-- Inspections, live-controller scan, source refresh, observation baseline
+-- and the combined report are embedded: no tab controls and no console.
+if CFG.gmEnabled == true then pcall(SA.GunAutoRefresh, true) end
 
 task.wait()
 pcall(function() library.old_config = library:get_config() end)

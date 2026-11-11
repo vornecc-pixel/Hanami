@@ -67,16 +67,9 @@ local function setFxLine(o, key, x1, y1, x2, y2, color, t, thick, legacy)
 end
 
 local function hideLegacyLabels(o)
-    if not o.instApplied then o.instApplied = {} end
-    local cache = o.instApplied
-    if o.nameLbl then SA.ApplyInstProp(cache, o.nameLbl, "Visible", false) end
-    if o.distLbl then SA.ApplyInstProp(cache, o.distLbl, "Visible", false) end
-    if o.infoLbl then SA.ApplyInstProp(cache, o.infoLbl, "Visible", false) end
-    if o.stateLbl then SA.ApplyInstProp(cache, o.stateLbl, "Visible", false) end
-    if o.bb then
-        SA.ApplyInstProp(cache, o.bb, "Size", UDim2.fromOffset(220, 1))
-        SA.ApplyInstProp(cache, o.bb, "StudsOffset", Vector3.new(0, 0, 0))
-    end
+    -- Shared helper also disables the BillboardGui. The legacy labels are
+    -- only read above for tx fallback; screen-space text is the one source.
+    SA.HideEspBillboard(o)
 end
 
 local function drawEntityInner(cam, o, opt)
@@ -93,8 +86,10 @@ local function drawEntityInner(cam, o, opt)
     -- thin outlines + text stroke and ignore the busy saved values.
     local cleanEsp   = CFG.espCleanMode == true
     local backdrop   = (not cleanEsp) and CFG.espTagBackdrop == true
-    local showBox    = cleanEsp or CFG.espShowBox == true
     local cornerBox  = (not cleanEsp) and CFG.espCornerBox == true
+    -- Corner boxes are a box style in their own right: do not require the
+    -- separate full-box switch, which used to hide every corner segment.
+    local showBox    = cleanEsp or CFG.espShowBox == true or cornerBox
     local showFill   = (not cleanEsp) and CFG.espShowFill == true
     local showOutline= cleanEsp or CFG.espShowOutline == true
     local textOutline= cleanEsp or CFG.espTextOutline == true
@@ -270,7 +265,7 @@ local function drawEntityInner(cam, o, opt)
                 end
             end
             if cornerBox then
-                local s = math.min(w, h) * 0.3
+                local s = math.max(math.min(w, h) * 0.3, 8)
                 setFxLine(o, "box1", x, y, x + s, y, boxCol, t, thick, false)
                 setFxLine(o, "box2", x, y, x, y + s, boxCol, t, thick, false)
                 setFxLine(o, "box3", x + w, y, x + w - s, y, boxCol, t, thick, false)
