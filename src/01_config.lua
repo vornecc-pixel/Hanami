@@ -38,14 +38,6 @@ SA.Atan2 = math.atan2 or math.atan
 -- The ESP labels and the nearest-player HUD both convert Roblox studs to
 -- metres with the same factor (1 m ≈ 3.571 studs).
 SA.STUDS_PER_METER = 3.571
--- Weak-key registry of Hanami's own LOS / manipulation RaycastParams.
--- The camera-alignment damage-ray detector skips these so ESP / manipulation
--- / Fust peek probes can never be mistaken for a real gun shot.
-SA.InternalRayParams = SA.InternalRayParams or setmetatable({}, { __mode = "k" })
-function SA.MarkInternalRayParams(params)
-    if params ~= nil then SA.InternalRayParams[params] = true end
-    return params
-end
 -- Re-executing the loader bumps the generation: old scanner loops exit and
 -- the new chunk starts exactly one replacement loop.
 SA.Generation = (SA.Generation or 0) + 1
@@ -185,9 +177,6 @@ _G.__saEspColors = ESP_COLORS
 
 local SA_CFG_SHIPPED = {
     masterEnabled = true,
-    -- No Camera Snap: keep target resolution + shot rewriting, but never
-    -- assign camera.CFrame. ON by default; turn OFF for the v7.7 sandwich.
-    noCameraSnap = true,
 
     -- targeting
     fov        = 220,
@@ -214,20 +203,6 @@ local SA_CFG_SHIPPED = {
     fustBowManipPeek    = 4,
     fustBowManipMaxDist = 60,
     fustBowOriginRadius = 12,
-
-    -- SECOND silent-aim version: workspace.Raycast / Spherecast hook.
-    -- Default OFF; aggressive mode adds the two-pass wallbang.
-    raycastAimEnabled      = false,
-    raycastAimAggressive   = false,
-    raycastAimFov          = 180,
-    raycastAimTargetPart   = "Head",
-    raycastAimMinRayMag      = 30,
-    -- Damage-ray camera alignment: long enough to be a shot, near the
-    -- camera, pointing where the player looks, and NOT the tracer's
-    -- exclude-all-characters filter (0-1 character Models, not >= 2).
-    raycastAimMaxOriginDist  = 6,
-    raycastAimAlignDot       = 0.9,
-    raycastAimMaxFilterChars = 1,
 
     -- triggerbot / auto fire (guns only; both OFF by default)
     triggerbot       = false,
@@ -426,7 +401,6 @@ for k, v in pairs(SA_CFG_SHIPPED) do SA.CFG_DEFAULTS[k] = v end
 
 -- backfill (keeps settings from older versions usable)
 for k, v in pairs({
-    noCameraSnap = true,
     manipulation = false, manipNpcs = true,
     manipDist = 30, manipPeek = 4,
     manipMaxParts = 3, manipBudget = 40, manipHysteresis = 3, manipMaxPeekDelta = 6,
@@ -435,10 +409,6 @@ for k, v in pairs({
     fustBowTargetPart = "Head", fustBowManipulation = true,
     fustBowManipPeek = 4, fustBowManipMaxDist = 60,
     fustBowOriginRadius = 12,
-    raycastAimEnabled = false, raycastAimAggressive = false,
-    raycastAimFov = 180, raycastAimTargetPart = "Head",
-    raycastAimMinRayMag = 30, raycastAimMaxOriginDist = 6,
-    raycastAimAlignDot = 0.9, raycastAimMaxFilterChars = 1,
     espEnabled = false, espShowName = true, espShowDist = true,
     espShowHealth = true, espMaxDist = 2000,
     espVisibleCheck = true, espShowTool = true, espShowState = true,
@@ -647,18 +617,6 @@ CFG.fustBowManipulation = CFG.fustBowManipulation ~= false
 CFG.fustBowManipPeek    = saClampNum(CFG.fustBowManipPeek, 0, 12, 4)
 CFG.fustBowManipMaxDist = saClampNum(CFG.fustBowManipMaxDist, 0, 200, 60)
 CFG.fustBowOriginRadius = saClampNum(CFG.fustBowOriginRadius, 1, 40, 12)
-CFG.raycastAimEnabled      = CFG.raycastAimEnabled == true
-CFG.raycastAimAggressive   = CFG.raycastAimAggressive == true
-CFG.raycastAimFov          = saClampNum(CFG.raycastAimFov, 10, 360, 180)
-CFG.raycastAimTargetPart   = ({ Head=true, HumanoidRootPart=true,
-                                UpperTorso=true, Torso=true })[CFG.raycastAimTargetPart]
-                            and CFG.raycastAimTargetPart or "Head"
-CFG.raycastAimMinRayMag      = saClampNum(CFG.raycastAimMinRayMag, 1, 500, 30)
-CFG.raycastAimMaxOriginDist  = saClampNum(CFG.raycastAimMaxOriginDist, 0, 30, 6)
-CFG.raycastAimAlignDot       = saClampNum(CFG.raycastAimAlignDot, 0, 1, 0.9)
-CFG.raycastAimMaxFilterChars = saClampNum(CFG.raycastAimMaxFilterChars, 0, 8, 1)
-CFG.raycastAimCharCount      = nil  -- retired: >= 2 was the tracer signature
-CFG.noCameraSnap           = CFG.noCameraSnap ~= false
 
 -- The old hardcoded GUN_SPEEDS / GUN_DEFAULT_SPEED table is gone.
 -- Exact per-gun projectile speeds, ammo damage, gravity, life and range

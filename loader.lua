@@ -39,7 +39,6 @@ local PARTS = {
     "08_prediction.lua",
     "09_silent_aim.lua",
     "09_z_fust_bow.lua",
-    "09_z_raycast_aim.lua",
     "10_fov_circle.lua",
     "11_snapline.lua",
     "12_esp_players.lua",

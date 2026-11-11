@@ -90,8 +90,6 @@ end
 if run == 3 then
     eq(SA.Unloaded, false, "unload guard must reset on re-execute")
     ok(_G.__saFustBow ~= nil, "Fust bow state rebuilt after full unload")
-    ok(_G.__saRaycastAim ~= nil, "raycast aim state rebuilt after full unload")
-    ok(_G.__saGunMods ~= nil, "gun mods state rebuilt after full unload")
     eq(SA.Alive, true, "alive must reset on re-execute")
     ok(_G.__saShared ~= nil, "shared state rebuilt after full unload")
     ok(_G.__saCFG ~= nil, "CFG rebuilt after full unload")
@@ -113,7 +111,6 @@ if run > 1 then
     ok(SA.ManipPopupState and SA.ManipPopupState().built == true,
         "manip popup rebuilt after re-execute")
     eq(SA.FustBowState().hooked, true, "re-execute reinstalls the Fust bow hook")
-    eq(SA.RaycastAimState().hooked, true, "re-execute reinstalls raycast hooks")
     -- The wrapper is installed once on the library, with the stock methods
     -- preserved, so repeated loads cannot stack wrapper call chains.
     ok(library.__saKeybindWrapperInstalled == true
@@ -158,10 +155,6 @@ local newKeys = {
     "fustBowEnabled", "fustBowFov", "fustBowTargetPart",
     "fustBowManipulation", "fustBowManipPeek", "fustBowManipMaxDist",
     "fustBowOriginRadius",
-    "raycastAimEnabled", "raycastAimAggressive", "raycastAimFov",
-    "raycastAimTargetPart", "raycastAimMinRayMag",
-    "raycastAimMaxOriginDist", "raycastAimAlignDot",
-    "raycastAimMaxFilterChars", "noCameraSnap",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -175,14 +168,6 @@ eq(CFG.fustBowEnabled, false, "Fust bow ballistic aim default OFF")
 eq(SA.FustBowState().hooked, true, "hookfunction installed at startup")
 eq(SA.FustBowState().remotesReady, true, "Fust Shoot remote resolved")
 eq(SA.FustBowState().rewrites >= 0, true, "Fust bow state exposes counters")
-eq(CFG.raycastAimEnabled, false, "raycast silent aim default OFF")
-eq(CFG.noCameraSnap, true, "No Camera Snap default ON")
-eq(SA.SilentAimState().noCameraSnap, true, "No Camera Snap active at startup")
-eq(SA.SilentAimState().cameraSnapBlocked, true, "camera CFrame writes blocked at startup")
-eq(SA.SilentAimState().shotResolverLive, true, "shot resolver stays live at startup")
-eq(CFG.raycastAimAggressive, false, "aggressive wallbang default OFF")
-eq(SA.RaycastAimState().hooked, true, "workspace raycast hooks installed at startup")
-eq(SA.RaycastAimState().mode, "true", "default true redirect mode")
 ok(SA.FlagCount() > 40, "Atlanta flag count")
 contains(SA.FlagSnapshot(), "hn_menu_bind", "flag snapshot")
 ok(count(SA.AllKeybinds) >= 7, "all keybinds registered")
@@ -744,206 +729,6 @@ setFlags({
 MOCK_FUST_TOOL:SetAttribute("ItemId", savedFust.toolId)
 mock_fust_reset()
 
--- ── Second silent-aim version: workspace.Raycast / Spherecast hook ───
-local savedRay = {
-    enabled = CFG.raycastAimEnabled,
-    aggressive = CFG.raycastAimAggressive,
-    fov = CFG.raycastAimFov,
-    targetPart = CFG.raycastAimTargetPart,
-    minRayMag = CFG.raycastAimMinRayMag,
-    maxOriginDist = CFG.raycastAimMaxOriginDist,
-    alignDot = CFG.raycastAimAlignDot,
-    maxFilterChars = CFG.raycastAimMaxFilterChars,
-    aimRays0 = SA.RaycastAimState().aimRays,
-}
-mock_ray_aim_reset()
-eq(SA.RaycastAimState().enabled, false, "raycast aim default OFF")
-eq(SA.RaycastAimState().method,
-    "hookfunction on workspace.Raycast + Spherecast", "hook method")
-eq(SA.RaycastAimState().errors, 0, "no hook errors")
-eq(SA.RaycastAimState().maxOriginDist, 6, "max origin distance default")
-eq(SA.RaycastAimState().alignDot, 0.9, "aim alignment default")
-eq(SA.RaycastAimState().maxFilterChars, 1, "max filter chars default")
-ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST,
-    "Raycast replaced by the silent-aim wrapper")
-ok(workspace.Spherecast ~= MOCK_WORKSPACE_SPHERECAST,
-    "Spherecast replaced by the silent-aim wrapper")
-eq(SA.RaycastAim.Enabled, false, "control surface reads Enabled")
-eq(SA.RaycastAim.FOV, 180, "control surface reads FOV")
-eq(SA.RaycastAim.MAX_ORIGIN_DIST, 6, "control surface reads MAX_ORIGIN_DIST")
-eq(SA.RaycastAim.ALIGN_DOT, 0.9, "control surface reads ALIGN_DOT")
-eq(SA.RaycastAim.MAX_FILTER_CHARS, 1, "control surface reads MAX_FILTER_CHARS")
-SA.RaycastAim.Enabled = true
-eq(CFG.raycastAimEnabled, true, "control surface writes Enabled")
-SA.RaycastAim.Enabled = false
-eq(CFG.raycastAimEnabled, false, "control surface restores Enabled")
-SA.RaycastAim.MAX_ORIGIN_DIST = 12
-eq(CFG.raycastAimMaxOriginDist, 12, "control surface writes MAX_ORIGIN_DIST")
-SA.RaycastAim.MAX_ORIGIN_DIST = 6
-
--- Damage-ray signature: camera position, camera-look direction (-Z in the
--- mock), and only self in the Exclude filter. The old CHAR_COUNT >= 2 test
--- matched the cosmetic tracer instead.
-local rayOrigin = Vector3.new(0, 3, 0)
-local bulletDir = Vector3.new(0, 0, -100)
-local damageParams = RaycastParams.new()
-damageParams.FilterType = Enum.RaycastFilterType.Exclude
-damageParams.FilterDescendantsInstances = { Players:GetPlayers()[1].Character }
-local tracerParams = RaycastParams.new()
-tracerParams.FilterType = Enum.RaycastFilterType.Exclude
-tracerParams.FilterDescendantsInstances = {
-    Players:GetPlayers()[1].Character,
-    Players:GetPlayers()[2].Character,
-    Players:GetPlayers()[3].Character,
-}
-local internalParams = SA.MarkInternalRayParams(RaycastParams.new())
-internalParams.FilterType = Enum.RaycastFilterType.Exclude
-internalParams.FilterDescendantsInstances = { Players:GetPlayers()[1].Character }
-local function rayAimReset()
-    MOCK_RAY_AIM_BLOCKED = false
-    MOCK_RAY_AIM_CALLS = 0
-    MOCK_RAY_AIM_DIRS = {}
-    MOCK_RAY_AIM_LAST_PARAMS = nil
-end
-local redirects0 = SA.RaycastAimState().redirects
-local wallbangs0 = SA.RaycastAimState().wallbangs
-
--- OFF: every ray is forwarded untouched.
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(MOCK_RAY_AIM_CALLS, 1, "original raycast called while OFF")
-eq(MOCK_RAY_AIM_DIRS[1], bulletDir, "direction untouched while OFF")
-eq(SA.RaycastAimState().redirects, redirects0, "no redirect while OFF")
-
--- true mode: single-pass redirect toward the FOV target.
-setFlags({ raycastAimEnabled = true, raycastAimAggressive = false })
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(MOCK_RAY_AIM_CALLS, 1, "true redirect calls original once")
-eq(#MOCK_RAY_AIM_DIRS, 1, "one redirected ray")
-ok(MOCK_RAY_AIM_DIRS[1].X > 0, "redirect aims toward target X")
-ok(MOCK_RAY_AIM_DIRS[1].Z < 100, "redirect replaces the original direction")
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "redirect counted")
-eq(SA.RaycastAimState().aimRays, savedRay.aimRays0 + 1, "aim ray counted")
-eq(SA.RaycastAimState().lastMode, "true", "true mode recorded")
-
--- Camera-alignment gates: short ray, bad params, far origin, misaligned
--- direction, tracer filter, and Hanami's own marked internal params.
-rayAimReset()
-workspace:Raycast(rayOrigin, Vector3.new(0, 0, -10), damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "MIN_RAY_MAG gate")
-eq(MOCK_RAY_AIM_DIRS[1].Z, -10, "short ray untouched")
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, {})
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "non-RaycastParams gate")
-eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "bad-params ray untouched")
-rayAimReset()
-workspace:Raycast(Vector3.new(0, 3, 20), bulletDir, damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "max origin distance gate")
-eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "far-origin ray untouched")
-rayAimReset()
-workspace:Raycast(rayOrigin, Vector3.new(100, 0, 0), damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "camera alignment dot gate")
-eq(MOCK_RAY_AIM_DIRS[1].X, 100, "misaligned ray untouched")
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, tracerParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "tracer filter gate")
-eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "cosmetic tracer untouched")
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, internalParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "internal probe params gate")
-eq(MOCK_RAY_AIM_DIRS[1].Z, -100, "internal probe untouched")
-
--- Config knobs: FOV, magnitude, origin distance, alignment, filter cap,
--- target part.
-setFlags({ raycastAimFov = 10 })
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "FOV gate")
-setFlags({ raycastAimFov = 180 })
-setFlags({ raycastAimMinRayMag = 200 })
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "MIN_RAY_MAG knob gate")
-setFlags({ raycastAimMinRayMag = 30 })
-setFlags({ raycastAimMaxOriginDist = 0.1 })
-rayAimReset()
-workspace:Raycast(Vector3.new(0, 3, 2), bulletDir, damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "MAX_ORIGIN_DIST knob gate")
-setFlags({ raycastAimMaxOriginDist = 6 })
-setFlags({ raycastAimAlignDot = 1.1 })
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1, "ALIGN_DOT knob gate")
-setFlags({ raycastAimAlignDot = 0.9 })
-setFlags({ raycastAimMaxFilterChars = 0 })
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 1,
-    "MAX_FILTER_CHARS knob gate")
-setFlags({ raycastAimMaxFilterChars = 1 })
-setFlags({ raycastAimTargetPart = "HumanoidRootPart" })
-rayAimReset()
-workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(SA.RaycastAimState().lastTargetPart, "HumanoidRootPart",
-    "target part knob")
-setFlags({ raycastAimTargetPart = "Head" })
-
--- aggressive mode: two-pass Include-only-players wallbang.
-setFlags({ raycastAimAggressive = true })
-rayAimReset()
-MOCK_RAY_AIM_BLOCKED = true
-local hit = workspace:Raycast(rayOrigin, bulletDir, damageParams)
-eq(MOCK_RAY_AIM_CALLS, 2, "aggressive calls original twice")
-eq(#MOCK_RAY_AIM_DIRS, 2, "both passes redirected")
-ok(MOCK_RAY_AIM_DIRS[1].X > 0 and MOCK_RAY_AIM_DIRS[2].X > 0,
-    "both passes aim at the target")
-ok(hit ~= nil, "aggressive returns the target-only hit")
-eq(hit.Instance, Players:GetPlayers()[2].Character,
-    "target-only hit belongs to the FOV target")
-eq(SA.RaycastAimState().wallbangs, wallbangs0 + 1, "wallbang counted")
-eq(SA.RaycastAimState().lastMode, "aggressive", "aggressive mode recorded")
-
--- Spherecast uses the same detection / two-pass logic.
-setFlags({ raycastAimAggressive = false })
-MOCK_RAY_AIM_BLOCKED = false
-rayAimReset()
-workspace:Spherecast(rayOrigin, 2, bulletDir, damageParams)
-eq(MOCK_RAY_AIM_CALLS, 1, "sphere true redirect single pass")
-ok(MOCK_RAY_AIM_DIRS[1].X > 0, "sphere redirect aims at target")
-setFlags({ raycastAimAggressive = true })
-rayAimReset()
-MOCK_RAY_AIM_BLOCKED = true
-local sphereHit = workspace:Spherecast(rayOrigin, 2, bulletDir, damageParams)
-eq(MOCK_RAY_AIM_CALLS, 2, "aggressive sphere two-pass")
-ok(sphereHit ~= nil, "aggressive sphere returns target hit")
-
--- Dot-call argument shift stays supported alongside the method form.
-setFlags({ raycastAimAggressive = false })
-MOCK_RAY_AIM_BLOCKED = false
-rayAimReset()
-workspace.Raycast(rayOrigin, bulletDir, damageParams)
-eq(SA.RaycastAimState().redirects, redirects0 + 6, "dot-call redirect")
-
--- Dispose / restore / re-hook.
-eq(SA.RaycastAimDispose().hooked, false, "dispose marks hooks inactive")
-eq(workspace.Raycast, MOCK_WORKSPACE_RAYCAST, "dispose restores Raycast")
-eq(workspace.Spherecast, MOCK_WORKSPACE_SPHERECAST,
-    "dispose restores Spherecast")
-eq(SA.RaycastAimRestore().hooked, true, "restore reinstalls hooks")
-ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST, "hooks active again")
-setFlags({
-    raycastAimEnabled = savedRay.enabled,
-    raycastAimAggressive = savedRay.aggressive,
-    raycastAimFov = savedRay.fov,
-    raycastAimTargetPart = savedRay.targetPart,
-    raycastAimMinRayMag = savedRay.minRayMag,
-    raycastAimMaxOriginDist = savedRay.maxOriginDist,
-    raycastAimAlignDot = savedRay.alignDot,
-    raycastAimMaxFilterChars = savedRay.maxFilterChars,
-})
-mock_ray_aim_reset()
-
 CFG.fovCenterMode = "Mouse"
 CFG.fov = 150
 CFG.targetNpcs = false
@@ -1203,162 +988,6 @@ MOCK_MANIP_BLOCKED = false
 MOCK_TOOL_ACTIVATE_FAIL = false
 MOCK_MOUSE_FAIL = false
 pcall(function() ws.CurrentCamera.CFrame = CFrame.new(0, 3, 0) end)
-
--- ── No Camera Snap + reversible gun mods ────────────────────────────
-local noSnap = { saved = {
-    masterEnabled = CFG.masterEnabled, gunEnabled = CFG.gunEnabled,
-    gunShotOnly = CFG.gunShotOnly, gunCooldown = CFG.gunCooldown,
-    prediction = CFG.prediction, hitChance = CFG.hitChance,
-    distance = CFG.distance, fov = CFG.fov, fovCenterMode = CFG.fovCenterMode,
-    targetPriority = CFG.targetPriority, targetBone = CFG.targetBone,
-    targetBoneMode = CFG.targetBoneMode, targetNpcs = CFG.targetNpcs,
-    teamCheck = CFG.teamCheck, wallCheck = CFG.wallCheck,
-    manipulation = CFG.manipulation, triggerbot = CFG.triggerbot,
-    autoFire = CFG.autoFire, triggerHeadOnly = CFG.triggerHeadOnly,
-    triggerRandomPart = CFG.triggerRandomPart,
-    triggerPart = CFG.triggerPart, triggerUseManip = CFG.triggerUseManip,
-    fireWallCheck = CFG.fireWallCheck, noCameraSnap = CFG.noCameraSnap,
-    gmEnabled = CFG.gmEnabled, gmInstantEquip = CFG.gmInstantEquip,
-    gmInstantAds = CFG.gmInstantAds, gmNoSpread = CFG.gmNoSpread,
-    gmForceAuto = CFG.gmForceAuto, gmNoRecoil = CFG.gmNoRecoil,
-    gmNoSway = CFG.gmNoSway, gmNoKick = CFG.gmNoKick,
-}, pin = SA.PinnedTarget }
-
-mock_gm_reset()
-setFlags({
-    noCameraSnap = true, masterEnabled = true, gunEnabled = true,
-    gunShotOnly = false, gunCooldown = 0, prediction = false,
-    hitChance = 100, distance = 0, fov = 220, fovCenterMode = "Mouse",
-    targetPriority = "Pinned", targetBone = "Head", targetBoneMode = "Global",
-    targetNpcs = false, teamCheck = false, wallCheck = false,
-    manipulation = false, triggerbot = false, autoFire = false,
-    triggerHeadOnly = true, triggerRandomPart = false, triggerPart = "Head",
-    triggerUseManip = false, fireWallCheck = true,
-})
-UserInputService.GetMouseLocation = function() return Vector2.new(641, 345) end
-noSnap.model = Players:GetPlayers()[2].Character
-noSnap.bone = noSnap.model:FindFirstChild("Head")
-SA.PinnedTarget = { model = noSnap.model, bone = noSnap.bone,
-    pos = noSnap.bone.Position, name = noSnap.model.Name }
-MOCK_MANIP_BLOCKED = false
-mock_advance_time(0.2)
-mock_cam_cframe_reset()
-
--- The legacy resolver may resolve a target and re-write its shot data, but
--- it must not make a single camera.CFrame assignment while the mode is ON.
-quiet(function() mock_frame(0.016) end)
-eq(MOCK_CAM_CFRAME_WRITES, 0, "No Camera Snap ON writes zero camera CFrames")
-noSnap.shot = SA.ResolveShot()
-ok(noSnap.shot ~= nil, "No Camera Snap keeps target resolution live")
-eq(noSnap.shot.model, noSnap.model, "No Camera Snap resolves the pinned model")
-eq(noSnap.shot.bone.Name, "Head", "No Camera Snap keeps the resolved bone")
-ok(SA.Target.lastShot ~= nil, "No Camera Snap records last shot target")
-eq(SA.SilentAimState().noCameraSnap, true, "state reports No Camera Snap ON")
-
--- Triggerbot still fires with No Camera Snap ON; only its camera sandwich
--- is removed. The VIS target gate and Tool-first FireOnce stay intact.
-CFG.triggerbot = true
-mock_advance_time(0.2)
-noSnap.shotsBefore = SA.FireAssistState().shots
-mock_cam_cframe_reset()
-eq(SA.FireAssistTick(true), true, "Triggerbot still fires with No Camera Snap")
-eq(SA.FireAssistState().shots, noSnap.shotsBefore + 1,
-    "Triggerbot shot count with No Camera Snap")
-eq(MOCK_CAM_CFRAME_WRITES, 0, "Triggerbot camera sandwich disabled")
-eq(SA.FireAssistState().backend, "tool", "Triggerbot Tool-first backend kept")
-
--- OFF is the legacy v7.7 sandwich: the same frame resolves a shot AND
--- writes camera.CFrame. Turning it back ON restores any in-flight snap.
-setFlag("noCameraSnap", false)
-mock_advance_time(0.2)
-mock_cam_cframe_reset()
-quiet(function() mock_frame(0.016) end)
-ok(MOCK_CAM_CFRAME_WRITES >= 1, "camera sandwich writes when No Camera Snap OFF")
-noSnap.shot = SA.ResolveShot()
-ok(noSnap.shot ~= nil, "legacy camera sandwich keeps target resolution")
-setFlag("noCameraSnap", true)
-mock_cam_cframe_reset()
-eq(MOCK_CAM_CFRAME_WRITES, 0, "switching No Camera Snap ON is clean")
-
--- Gun mods: all seven toggles patch only shape-matched tables. Timing
--- values stay finite and > 0 (0 / -math.huge caused the "stuck gun").
-setFlags({
-    gmEnabled = true, gmInstantEquip = true, gmInstantAds = true,
-    gmNoSpread = true, gmForceAuto = true, gmNoRecoil = true,
-    gmNoSway = true, gmNoKick = true,
-})
-quiet(function() mock_frame(0.016) end)
-noSnap.gm = SA.GunModsState()
-ok(noSnap.gm.scanned == true, "gun mods GC scan completed")
-ok(noSnap.gm.configTables >= 1, "gun mods config table shape matched")
-ok(noSnap.gm.defs >= 1, "gun defs table shape matched")
-ok(noSnap.gm.recoilLive >= 1, "recoil live state shape matched")
-ok(noSnap.gm.spreadLive >= 1, "spread live state shape matched")
-ok(noSnap.gm.swayLive >= 1, "sway live state shape matched")
-eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.001, "Instant Equip uses non-zero min time")
-eq(MOCK_GM_CONFIG.HOLSTER_TIME, 0.001, "Holster uses non-zero min time")
-eq(MOCK_GM_CONFIG.AdsTime, 0.001, "Instant ADS uses non-zero min time")
-eq(MOCK_GM_CONFIG.AdsOutTime, 0.001, "ADS-out uses non-zero min time")
-eq(MOCK_GM_CONFIG.adsTime, 0.001, "lowercase adsTime uses non-zero min time")
-eq(MOCK_GM_CONFIG.MOVE_SPREAD, 0, "No Spread zeroes MOVE_SPREAD")
-eq(MOCK_GM_CONFIG.AirSpread, 0, "No Spread zeroes AirSpread")
-eq(MOCK_GM_CONFIG.RecoilClimb, 0, "No Recoil zeroes RecoilClimb")
-eq(MOCK_GM_CONFIG.KICK_BACK, 0, "No Kick zeroes KICK_BACK")
-eq(MOCK_GM_CONFIG.SWAY, 0, "No Sway zeroes SWAY")
-eq(MOCK_GM_CONFIG.TREMBLE_AFTER, 9999, "No Sway delays tremble")
-eq(MOCK_GM_DEF.spread, 0, "No Spread zeroes gun-def spread")
-eq(MOCK_GM_DEF.adsSpread, 0, "No Spread zeroes gun-def adsSpread")
-eq(MOCK_GM_DEF.auto, true, "Force Auto patches only the gun def")
-eq(MOCK_GM_LIVE.recoil, 0, "No Recoil zeroes live recoil")
-eq(MOCK_GM_LIVE.kick, 0, "No Kick zeroes live kick")
-eq(MOCK_GM_LIVE.SpreadPx, 0, "No Spread zeroes live SpreadPx")
-ok(MOCK_GM_LIVE.equipAt > -math.huge, "equipAt is finite, not -math.huge")
-ok(MOCK_GM_LIVE.equipAt < math.huge, "equipAt has no infinite overflow")
-ok(MOCK_GM_LIVE.equipAt <= os.clock(), "equipAt is a finite past timestamp")
-eq(MOCK_GM_LIVE.sway.X, 0, "No Sway zeroes live sway vector")
-eq(MOCK_GM_LIVE.lean, 0, "No Sway zeroes live lean")
-eq(MOCK_GM_LIVE.ads, 0.5, "Instant Ads does not overwrite live ads spring")
-eq(noSnap.gm.errors, 0, "gun mods render tick has no errors")
-
--- Turning the master OFF restores EVERY saved original, including auto.
-setFlags({ gmEnabled = false })
-quiet(function() mock_frame(0.016) end)
-eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.55, "gun mods restore original equip time")
-eq(MOCK_GM_CONFIG.AdsTime, 0.28, "gun mods restore original ADS time")
-eq(MOCK_GM_CONFIG.MOVE_SPREAD, 3, "gun mods restore original move spread")
-eq(MOCK_GM_CONFIG.RecoilClimb, 1.2, "gun mods restore original recoil climb")
-eq(MOCK_GM_CONFIG.SWAY, 1, "gun mods restore original sway")
-eq(MOCK_GM_CONFIG.TREMBLE_AFTER, 4, "gun mods restore original tremble")
-eq(MOCK_GM_DEF.spread, 2, "gun mods restore original gun-def spread")
-eq(MOCK_GM_DEF.auto, false, "gun mods restore original auto flag")
-eq(SA.GunModsState().patched, 0, "gun mods saved-original map is empty")
-eq(isreadonly(MOCK_GM_CONFIG), false, "gun mods leave writable tables writable")
-
--- A single toggle must not patch unrelated constants / live fields.
-mock_gm_reset()
-setFlags({
-    gmEnabled = true, gmInstantEquip = true, gmInstantAds = false,
-    gmNoSpread = false, gmForceAuto = false, gmNoRecoil = false,
-    gmNoSway = false, gmNoKick = false,
-})
-quiet(function() mock_frame(0.016) end)
-eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.001, "targeted Instant Equip patches equip")
-eq(MOCK_GM_CONFIG.AdsTime, 0.28, "targeted Instant Equip leaves ADS alone")
-eq(MOCK_GM_CONFIG.RecoilClimb, 1.2, "targeted Instant Equip leaves recoil alone")
-eq(MOCK_GM_DEF.auto, false, "targeted Instant Equip leaves auto alone")
-eq(MOCK_GM_LIVE.SpreadPx, 12, "targeted Instant Equip leaves SpreadPx alone")
-eq(SA.GunModsState().errors, 0, "targeted gun mods tick has no errors")
-setFlags({ gmEnabled = false })
-quiet(function() mock_frame(0.016) end)
-eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.55, "targeted gun mod is reversible")
-mock_gm_reset()
-
--- Restore everything the block touched, including the UI flag setters.
-setFlags(noSnap.saved)
-SA.PinnedTarget = noSnap.pin
-UserInputService.GetMouseLocation = nil
-MOCK_MANIP_BLOCKED = false
-mock_cam_cframe_reset()
 
 -- ── Hitbox Expander v2: silent, self-healing, reversible ───────────
 do
@@ -2063,8 +1692,7 @@ for _, name in ipairs(removedOutputAPIs) do
 end
 local keptStateAPIs = {
     "SelfCheck", "SelfCheckState", "FustBowState", "FustBowRefresh",
-    "FustBowRestore", "FustBowDispose", "RaycastAimState", "RaycastAimRefresh",
-    "RaycastAimRestore", "RaycastAimDispose", "EspPerfState", "EspFrameBudget",
+    "FustBowRestore", "FustBowDispose", "EspPerfState", "EspFrameBudget",
     "HitboxState", "HitboxScan", "HitboxRestore", "DrawSyncStats",
     "DrawSyncPending", "DrawDiag", "DrawWriteFailures", "KeybindConflicts",
     "ConfigCoverage", "SilentAimState", "FireAssistState", "ForceHeadState",
@@ -2156,39 +1784,16 @@ else
         "full unload: hitbox expanded before unload")
     setFlags({
         masterEnabled = true, gunEnabled = true, fustBowEnabled = true,
-        raycastAimEnabled = true,
     })
     SA.FustBowRefresh()
-    SA.RaycastAimRefresh()
-    mock_gm_reset()
-    setFlags({
-        gmEnabled = true, gmInstantEquip = true, gmNoSpread = true,
-        gmInstantAds = false, gmForceAuto = false, gmNoRecoil = false,
-        gmNoSway = false, gmNoKick = false,
-    })
-    quiet(function() mock_frame(0.016) end)
-    eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.001,
-        "full unload: gun mod active before unload")
     ok(MOCK_FUST_SHOOT.FireServer ~= fireServerOriginal,
         "full unload: Fust bow hook active before unload")
-    ok(workspace.Raycast ~= MOCK_WORKSPACE_RAYCAST,
-        "full unload: raycast aim hook active before unload")
     local unloaded, why = SA.FullUnload()
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 2,
         "full unload restores hitbox originals")
     eq(MOCK_FUST_SHOOT.FireServer, fireServerOriginal,
         "full unload restores the original FireServer")
     eq(_G.__saFustBow, nil, "full unload clears Fust bow state")
-    eq(workspace.Raycast, MOCK_WORKSPACE_RAYCAST,
-        "full unload restores workspace.Raycast")
-    eq(workspace.Spherecast, MOCK_WORKSPACE_SPHERECAST,
-        "full unload restores workspace.Spherecast")
-    eq(_G.__saRaycastAim, nil, "full unload clears raycast aim state")
-    eq(MOCK_GM_CONFIG.EQUIP_TIME, 0.55,
-        "full unload restores original gun timing")
-    eq(MOCK_GM_CONFIG.MOVE_SPREAD, 3,
-        "full unload restores original spread constants")
-    eq(_G.__saGunMods, nil, "full unload clears gun mods state")
     ok(unloaded == true, "full unload: " .. tostring(why))
     eq(SA.Alive, false, "unload stops loops")
     eq(SA.Unloaded, true, "unload guard")

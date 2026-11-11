@@ -27,7 +27,7 @@
 -- a previous execution are restored below on load.
 -- ────────────────────────────────────────────────────────────────────
 
-local saManipSharedRP = SA.MarkInternalRayParams(RaycastParams.new())
+local saManipSharedRP = RaycastParams.new()
 saManipSharedRP.FilterType = Enum.RaycastFilterType.Exclude
 saManipSharedRP.IgnoreWater = true
 
@@ -263,7 +263,7 @@ end
 -- It uses a private RaycastParams and only reads the Workspace; the real
 -- shot resolver is still the only place that mutates world state.
 do
-    local probeRP = SA.MarkInternalRayParams(RaycastParams.new())
+    local probeRP = RaycastParams.new()
     probeRP.FilterType = Enum.RaycastFilterType.Exclude
     probeRP.IgnoreWater = true
 

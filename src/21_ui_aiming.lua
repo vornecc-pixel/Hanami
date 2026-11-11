@@ -301,15 +301,6 @@ local fovPresetDropdown = masterSec:dropdown({
 })
 
 bindToggle(gunSec, "Gun Silent Aim", "gunEnabled")
-local noSnapToggle = bindToggle(gunSec, "No Camera Snap", "noCameraSnap",
-    "ON: keep target resolution + shot rewriting, but NEVER write camera.CFrame. OFF: v7.7 camera sandwich")
--- Restore any in-flight sandwich BEFORE the mode becomes active. Profiles,
--- quick actions and keybinds all go through this same hn_ setter.
-local noSnapFlagSetter = library.config_flags["hn_noCameraSnap"]
-library.config_flags["hn_noCameraSnap"] = function(v)
-    if SA.SetNoCameraSnap then pcall(SA.SetNoCameraSnap, v) end
-    if noSnapFlagSetter then noSnapFlagSetter(v) end
-end
 bindToggle(gunSec, "Only While Firing", "gunShotOnly")
 bindToggle(gunSec, "Wall Check", "wallCheck",
     "Strict LOS-only silent-aim shots. Fire Assist Wall Check is a separate toggle; bypassed while Manipulation is ON")
@@ -527,27 +518,4 @@ fustSec:label({ name = "Fust.Items specs: hunting 220/50 · compound 290/40 · c
 fustSec:label({ name = "Guns are untouched; shots stay silent with no console output" })
 addButton(fustSec, "Rehook Fust Bow", function()
     SA.FustBowRefresh()
-end)
-
--- ── AIMING : column 6 (second silent-aim version / raycast hook) ────
-local rayCol = Aiming:column()
-local raySec = rayCol:section({ name = "Raycast Silent Aim" })
-
-bindToggle(raySec, "Enable Raycast Silent Aim", "raycastAimEnabled",
-    "Default OFF: hookfunction on workspace.Raycast + Spherecast; redirects the camera-aligned damage ray to the FOV target")
-bindToggle(raySec, "Aggressive (Wallbang)", "raycastAimAggressive",
-    "Two-pass redirect with an Include-only-players ray so the shot passes through walls")
-bindSlider(raySec, "FOV (degrees)", "raycastAimFov", 10, 360, 5, "deg")
-bindDropdown(raySec, "Target Part", "raycastAimTargetPart",
-    { "Head", "HumanoidRootPart", "UpperTorso", "Torso" })
-bindSlider(raySec, "Min Ray Magnitude", "raycastAimMinRayMag", 1, 500, 5, "")
-bindSlider(raySec, "Max Origin Distance", "raycastAimMaxOriginDist", 0, 30, 0.5, " studs")
-bindSlider(raySec, "Aim Alignment", "raycastAimAlignDot", 0.5, 1, 0.01, "")
-bindSlider(raySec, "Max Filter Characters", "raycastAimMaxFilterChars", 0, 8, 1, "")
-raySec:label({ name = "Damage ray: camera-near origin + camera-look direction + 0-1 character filter" })
-raySec:label({ name = "Tracer ray excluded: muzzle origin + all-character filter is cosmetic only" })
-raySec:label({ name = "true = single pass (walls block) · aggressive = two-pass wallbang" })
-raySec:label({ name = "Separate from camera-snap gun aim and Fust bow hook" })
-addButton(raySec, "Rehook Raycast Aim", function()
-    SA.RaycastAimRefresh()
 end)
