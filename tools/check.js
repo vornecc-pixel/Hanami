@@ -189,8 +189,9 @@ const newKeys = [
   'displayBrightnessEnabled', 'displayBrightness',
   'uiTheme', 'uiFont',
   'espStaffDetect', 'unknownHumanoidScan',
+  'fovMode', 'fovDegrees', 'fovHitbox',
 ];
-assert(newKeys.length === 77, `expected 77 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 80, `expected 80 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -200,8 +201,12 @@ const backfill = config.slice(
   config.indexOf('-- backfill'),
   config.indexOf('-- Older saved configs')
 );
+// The FOV reference / measurement block is clamped just BEFORE the
+// config-profile block, so start the slice at the FOV reference clamp:
+// that keeps fovMode / fovDegrees / fovHitbox inside the checked range
+// instead of silently escaping the normalisation guard.
 const clamps = config.slice(
-  config.indexOf('CFG.configProfile'),
+  config.indexOf('-- FOV reference + visible circle'),
   config.indexOf('-- The old hardcoded')
 );
 assert(shipped.length > 100 && backfill.length > 100 && clamps.length > 100,
@@ -790,7 +795,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,141 assertions',
+  '6,240 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -840,6 +845,15 @@ const requiredDocs = [
   'SA.StaffWatchState()',
   'SA.GetStaffRoleConfirmed()',
   'NPC refresh throttle',
+  'SA.FovMode()',
+  'SA.FovDegrees()',
+  'SA.FovPointInside',
+  'SA.FovSegmentInside',
+  'FOV measurement modes',
+  'half-angle',
+  'nearest point on the projected',
+  'fovHitbox',
+  'head-to-root segment',
   'nearest-player profile regressions',
   'SA.FOV_STARTUP',
   'SA.EspFovSnapshot()',

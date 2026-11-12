@@ -316,6 +316,8 @@ function SA.EspFovState()
     return {
         center = SA.AimPoint and SA.AimPoint() or nil,
         radius = SA.FovRadius and SA.FovRadius() or nil,
+        mode = SA.FovMode and SA.FovMode() or "Pixels",
+        degrees = SA.FovDegrees and SA.FovDegrees() or nil,
         signature = SA.EspDrawSignature or "",
         transitions = SA.EspFovTransitions or 0,
         reference = "Mouse / crosshair",
@@ -657,7 +659,8 @@ function SA.ApplyEspFx(cam)
     -- freeze. The target is now handled per entity (highlight colour and
     -- usage marks) instead of through a global transition.
     local drawSig = table.concat({
-        tostring(CFG.fov), espNum(fovR),
+        tostring(CFG.fov), tostring(CFG.fovMode), tostring(CFG.fovDegrees),
+        espNum(fovR),
         tostring(CFG.masterEnabled), tostring(CFG.gunEnabled),
         tostring(CFG.snapLineEnabled), tostring(CFG.showFov),
         tostring(CFG.fovFilled),

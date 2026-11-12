@@ -16,8 +16,18 @@ fovSec:label({ name = "Reference = crosshair; invalid mouse -> screen centre" })
 bindToggle(fovSec, "Force ScreenGui Drawing", "forceGuiDrawing",
     "OFF by default = try native Drawing first, then reliable Roblox GUI frames. Turn ON to force ScreenGui")
 fovSec:label({ name = "FOV / snapline / lead colour pickers are inline on their own toggles" })
--- CFG.fov -> SA.FovRadius(): ONE radius for the circle, aim cone, tracers and arrows
+-- Two ways to measure the same circle. Pixels keeps the historic
+-- screen-space radius; Degrees measures the camera angle and derives the
+-- pixel radius from the live FieldOfView, so one setting behaves the same
+-- on every resolution. The circle, aim cone, tracers and arrows all read
+-- SA.FovRadius(), which already honours the mode.
+bindDropdown(fovSec, "FOV Mode", "fovMode", { "Pixels", "Degrees" })
 bindSlider(fovSec, "Aim / Circle Radius (px)", "fov", 30, 500, 1, "px")
+fovSec:label({ name = "Pixels mode radius. Degrees mode ignores this slider" })
+bindSlider(fovSec, "Aim / Circle Angle (deg)", "fovDegrees", 1, 89, 1, "deg")
+fovSec:label({ name = "Degrees mode half-angle; pixel radius = (vh/2) * tan(deg) / tan(FOV/2)" })
+bindToggle(fovSec, "Include Hitbox in FOV", "fovHitbox",
+    "ON = test the whole head-to-root segment, not just one bone. A box visibly inside the circle counts even if its head bone is a few px outside")
 bindSlider(fovSec, "Transparency (%)", "fovTransparency", 0, 100, 1, "%")
 fovSec:label({ name = "Transparency 0% = solid, 100% = nearly invisible" })
 bindSlider(fovSec, "Thickness", "fovThickness", 1, 5, 1, "")

@@ -50,12 +50,131 @@ end
 -- Alias kept so older FX code and any saved snippets keep working.
 function SA.FovCenter() return SA.AimPoint() end
 
+-- ── TWO WAYS TO MEASURE THE FOV ─────────────────────────────────────
+-- "Pixels" is the historic screen circle: CFG.fov is a radius in pixels
+-- around SA.AimPoint(). It is easy to draw, but 220 px on a 1080p screen
+-- and 220 px on a 4K screen are different amounts of the world, and it
+-- has nothing to do with the camera's own field of view.
+--
+-- "Degrees" measures the ANGLE between the camera look vector and the
+-- direction to the candidate, so the same number means the same cone at
+-- every resolution and every camera FieldOfView. The circle is still
+-- drawn, with the pixel radius that this angle covers on the CURRENT
+-- viewport / camera FOV:
+--     r_px = (vp.Y / 2) * tan(deg) / tan(camFov / 2)
+-- Roblox cameras use a vertical FieldOfView of 70 by default, so a
+-- 35 deg setting is exactly half the screen height at the centre.
+local FOV_PIXEL_MAX = 500   -- matches the UI slider
+local FOV_DEG_MAX   = 89    -- a half-angle of 90 deg has no pixel radius
+
+function SA.FovDegrees()
+    local d = tonumber(CFG.fovDegrees) or 35
+    if d < 1 then d = 1 elseif d > FOV_DEG_MAX then d = FOV_DEG_MAX end
+    return d
+end
+
+function SA.FovMode()
+    return (CFG.fovMode == "Degrees") and "Degrees" or "Pixels"
+end
+
+-- Pixel radius of the configured cone on the current viewport.
+-- In Pixels mode this is simply CFG.fov (clamped to the viewport), so
+-- existing profiles keep the exact same circle they had before.
 function SA.FovRadius()
     local vp = SA.ViewportSize()
-    local r = math.max(tonumber(CFG.fov) or 220, 1)
-    -- cap at half the shorter screen side: a radius bigger than the
-    -- viewport cannot be drawn or used as a meaningful reference
-    return math.min(r, math.min(vp.X, vp.Y) / 2)
+    local maxR = math.min(vp.X, vp.Y) / 2
+    if SA.FovMode() ~= "Degrees" then
+        local r = math.max(tonumber(CFG.fov) or 220, 1)
+        -- cap at half the shorter screen side: a radius bigger than the
+        -- viewport cannot be drawn or used as a meaningful reference
+        return math.min(r, maxR)
+    end
+    local cam = ws.CurrentCamera
+    local camFov = tonumber(cam and cam.FieldOfView) or 70
+    if camFov < 1 or camFov > 179 then camFov = 70 end
+    local half = math.rad(camFov) / 2
+    local tanCam = math.tan(half)
+    if tanCam < 0.0001 then return maxR end
+    local r = (vp.Y / 2) * math.tan(math.rad(SA.FovDegrees())) / tanCam
+    if r ~= r then return 1 end                    -- NaN guard
+    return math.clamp(r, 1, maxR)
+end
+
+-- Is a world position inside the configured FOV?
+-- `sp` / `onScreen` are the caller's WorldToViewportPoint result so the
+-- hot target loop never projects the same part twice. Both modes use the
+-- SAME `sp`, so a target that is inside the angle is also inside the
+-- drawn circle: in Degrees mode the circle radius IS the angle's pixel
+-- radius, and the angle itself is the authority.
+function SA.FovPointInside(camera, worldPos, sp, onScreen, aimPx, radius)
+    local mode = SA.FovMode()
+    local aim = aimPx or SA.AimPoint()
+    local rad = radius or SA.FovRadius()
+    if mode == "Degrees" then
+        local cam = camera or ws.CurrentCamera
+        if not cam then return onScreen ~= false end
+        local cp = cam.CFrame.Position
+        local to = worldPos - cp
+        local dist = to.Magnitude
+        if dist < 0.0001 then return true end
+        local dot = to.Unit:Dot(cam.CFrame.LookVector)
+        if dot > 1 then dot = 1 elseif dot < -1 then dot = -1 end
+        return dot >= math.cos(math.rad(SA.FovDegrees()))
+    end
+    if onScreen == false or not sp then return false end
+    local dx, dy = sp.X - aim.X, sp.Y - aim.Y
+    return (dx * dx + dy * dy) <= rad * rad
+end
+
+-- Shortest distance from a point to the 2D segment a-b.
+local function segDist2(px, py, ax, ay, bx, by)
+    local vx, vy = bx - ax, by - ay
+    local wx, wy = px - ax, py - ay
+    local len2 = vx * vx + vy * vy
+    local t = 0
+    if len2 > 0.0001 then
+        t = (wx * vx + wy * vy) / len2
+        if t < 0 then t = 0 elseif t > 1 then t = 1 end
+    end
+    local dx, dy = px - (ax + vx * t), py - (ay + vy * t)
+    return dx * dx + dy * dy
+end
+SA.FovSegDist2 = segDist2
+
+-- Widened membership: nearest point on the projected head->root segment
+-- instead of the single bone. Fixes "the box is inside the circle but the
+-- head bone is 3 px outside".
+function SA.FovSegmentInside(camera, headPos, rootPos, spHead, spRoot,
+                             aimPx, radius)
+    if SA.FovMode() == "Degrees" then
+        -- The segment is a 3D one; test both ends plus the midpoint so a
+        -- tall target straddling the cone edge still counts as inside.
+        local mid = (headPos + rootPos) / 2
+        local cam = camera or ws.CurrentCamera
+        return SA.FovPointInside(cam, headPos, nil, true, aimPx, radius)
+            or SA.FovPointInside(cam, rootPos, nil, true, aimPx, radius)
+            or SA.FovPointInside(cam, mid, nil, true, aimPx, radius)
+    end
+    local aim = aimPx or SA.AimPoint()
+    local rad = radius or SA.FovRadius()
+    local r2 = rad * rad
+    if not spHead and not spRoot then return false end
+    if not spHead or not spRoot then
+        local p = spHead or spRoot
+        local dx, dy = p.X - aim.X, p.Y - aim.Y
+        return (dx * dx + dy * dy) <= r2
+    end
+    return segDist2(aim.X, aim.Y, spHead.X, spHead.Y,
+        spRoot.X, spRoot.Y) <= r2
+end
+
+function SA.FovState2()
+    return {
+        mode = SA.FovMode(),
+        degrees = SA.FovDegrees(),
+        pixels = SA.FovRadius(),
+        hitbox = CFG.fovHitbox == true,
+    }
 end
 
 -- Target velocity is now sampled/smoothed by 08_prediction.lua
@@ -244,18 +363,36 @@ local function pickBestTarget(camera, aimPx, originPos, preview, boneFn)
     -- EXACTLY the same centre + radius the FOV circle is drawn with.
     -- `aimPx` must be SA.AimPoint(); the radius always comes from
     -- SA.FovRadius() so targets inside the circle are the ones picked.
+    -- In Degrees mode SA.FovPointInside uses the camera angle and the
+    -- radius only matters for scoring, so `radius > 0` must not veto.
     local aimRef = aimPx or SA.AimPoint()
     local radius = SA.FovRadius()
     local r2 = radius * radius
+    local widen = CFG.fovHitbox == true
     local function consider(bone, model, hum)
         if not bone then return end
         local bp = bone.Position
         if CFG.distance > 0 and (bp - originPos).Magnitude > CFG.distance then return end
         local sp, onScreen = camera:WorldToViewportPoint(bp)
-        if not onScreen then return end
-        local dx, dy = sp.X - aimRef.X, sp.Y - aimRef.Y
+        local inside = SA.FovPointInside(camera, bp, sp, onScreen, aimRef, radius)
+        if widen then
+            -- Widen from the single bone to the projected head->root
+            -- segment: a target whose box is visibly inside the circle is
+            -- not missed because its head bone sits a few pixels outside.
+            local rootPart = model and model.FindFirstChild
+                and model:FindFirstChild("HumanoidRootPart") or nil
+            local rp = rootPart and rootPart.Position
+            if rp and rp ~= bp then
+                local spR = select(1, camera:WorldToViewportPoint(rp))
+                if SA.FovSegmentInside(camera, bp, rp, sp, spR, aimRef, radius) then
+                    inside = true
+                end
+            end
+        end
+        if not inside then return end
+        local dx, dy = (sp and sp.X or aimRef.X) - aimRef.X,
+                        (sp and sp.Y or aimRef.Y) - aimRef.Y
         local d2 = dx * dx + dy * dy
-        if radius > 0 and d2 > r2 then return end
         local sc = score(bp, d2, hum)
         if sc < best.delta then
             best = { delta = sc, bone = bone, model = model, pos = bp }
@@ -403,7 +540,8 @@ function SA.TriggerTarget()
     local camera = ws.CurrentCamera
     if not camera or not lp.Character then return nil end
     local origin = camera.CFrame.Position
-    local best = pickBestTarget(camera, SA.AimPoint(), origin, true, SA.TriggerBonePart)
+    local best = pickBestTarget(camera, SA.AimPoint(), origin, true,
+        SA.TriggerBonePart)
     if not best or not best.bone then return nil end
     local pos = best.bone.Position
     -- Use the SAME tolerant LOS helper the ESP "VIS" tag uses. The old

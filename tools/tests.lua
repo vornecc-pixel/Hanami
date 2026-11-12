@@ -3627,6 +3627,135 @@ function saNpcRefreshThrottleRegression()
 end
 saNpcRefreshThrottleRegression()
 
+-- FOV measurement modes: Pixels keeps the historic screen circle, Degrees
+-- measures the camera angle and derives the same circle from the live
+-- FieldOfView, and fovHitbox widens membership to the head->root segment.
+-- All three must be pure reads: no global default changes, no writes.
+function saFovModeRegression()
+    local savedMode, savedDeg, savedHit = CFG.fovMode, CFG.fovDegrees, CFG.fovHitbox
+    local savedFov = CFG.fov
+    local savedCalls = MOCK_W2V_CALLS
+
+    -- ── normalisation: bad saved values fall back, they never crash ──
+    CFG.fovMode = "Nonsense"
+    eq(SA.FovMode(), "Pixels", "unknown FOV mode falls back to Pixels")
+    CFG.fovMode = "Degrees"
+    eq(SA.FovMode(), "Degrees", "Degrees mode is selectable")
+    CFG.fovMode = savedMode
+
+    -- ── Pixels mode is byte-for-byte the old behaviour ──
+    CFG.fovMode = "Pixels"
+    CFG.fov = 220
+    eq(SA.FovRadius(), 220, "Pixels mode radius is CFG.fov")
+    CFG.fov = 100000
+    eq(SA.FovRadius(), 360, "Pixels mode still caps at half the viewport")
+    CFG.fov = 220
+
+    -- ── Degrees mode: radius comes from the camera, not CFG.fov ──
+    CFG.fovMode = "Degrees"
+    CFG.fovDegrees = 35
+    MOCK_CAMERA.FieldOfView = 70
+    -- vh/2 * tan(35) / tan(35) = vh/2 = 360
+    eq(math.floor(SA.FovRadius() + 0.5), 360,
+        "35 deg at a 70 deg camera fills half the screen height")
+    CFG.fovDegrees = 1
+    local tiny = SA.FovRadius()
+    ok(tiny > 0 and tiny < 40, "a narrow degree cone is a small circle")
+    -- A NARROWER camera FOV magnifies the same angle => bigger circle.
+    -- 10 deg at a 70 deg camera is tiny; at a 40 deg camera it doubles.
+    -- (Measured below the half-viewport cap so the comparison is real.)
+    CFG.fovDegrees = 10
+    MOCK_CAMERA.FieldOfView = 70
+    local wideCam = SA.FovRadius()
+    MOCK_CAMERA.FieldOfView = 40
+    local zoomed = SA.FovRadius()
+    ok(wideCam > 0 and wideCam < 360, "a 10 deg cone stays under the cap")
+    ok(zoomed > wideCam, "zooming the camera enlarges the degree circle")
+    CFG.fovDegrees = 35
+    MOCK_CAMERA.FieldOfView = 70
+    CFG.fov = 60
+    eq(math.floor(SA.FovRadius() + 0.5), 360,
+        "Degrees mode ignores the pixel slider")
+    CFG.fov = savedFov
+
+    -- ── membership: the angle is the authority in Degrees mode ──
+    CFG.fovMode = "Degrees"
+    CFG.fovDegrees = 20
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)   -- looks down -Z
+    local ahead = Vector3.new(0, 3, -50)
+    ok(SA.FovPointInside(MOCK_CAMERA, ahead, Vector3.new(640, 360, 1), true),
+        "straight ahead is inside the degree FOV")
+    -- Behind the camera: the dot product is negative, never inside.
+    local behind = Vector3.new(0, 3, 50)
+    eq(SA.FovPointInside(MOCK_CAMERA, behind, Vector3.new(640, 360, 1), true),
+        false, "a target behind the camera is outside the degree FOV")
+    -- 60 deg off-axis with a 20 deg cone must be outside.
+    local wide = Vector3.new(50, 3, -28.8675)
+    eq(SA.FovPointInside(MOCK_CAMERA, wide, Vector3.new(640, 360, 1), true),
+        false, "an off-axis target outside the cone is rejected")
+    -- ... and the same point must be INSIDE once the cone is wide enough.
+    CFG.fovDegrees = 70
+    ok(SA.FovPointInside(MOCK_CAMERA, wide, Vector3.new(640, 360, 1), true),
+        "widening the cone admits the same off-axis target")
+
+    -- ── membership: Pixels mode still uses the 2D distance ──
+    CFG.fovMode = "Pixels"
+    CFG.fov = 100
+    UserInputService.GetMouseLocation = function() return Vector2.new(640, 360) end
+    eq(SA.FovPointInside(MOCK_CAMERA, ahead, Vector3.new(650, 360, 1), true),
+        true, "pixel FOV accepts a point inside the circle")
+    eq(SA.FovPointInside(MOCK_CAMERA, ahead, Vector3.new(900, 360, 1), true),
+        false, "pixel FOV rejects a point outside the circle")
+    eq(SA.FovPointInside(MOCK_CAMERA, ahead, Vector3.new(650, 360, 1), false),
+        false, "an off-screen point is never inside the pixel FOV")
+
+    -- ── segment helper: midpoint counts even when both ends are out ──
+    -- Segment from (640,300) to (640,420) crosses the aim point (640,360).
+    eq(SA.FovSegDist2(640, 360, 640, 300, 640, 420), 0,
+        "segment distance is zero for a point on the segment")
+    ok(SA.FovSegDist2(700, 360, 640, 300, 640, 420) <= 60 * 60 + 1,
+        "segment distance measures to the nearest point")
+    eq(SA.FovSegDist2(640, 360, 640, 300, 640, 300), 60 * 60,
+        "a degenerate segment falls back to the endpoint")
+    ok(SA.FovSegmentInside(MOCK_CAMERA, ahead, behind,
+        Vector3.new(640, 300, 1), Vector3.new(640, 420, 1),
+        Vector2.new(640, 360), 100),
+        "a head-to-root segment crossing the circle is inside")
+
+    -- ── fovHitbox default is OFF and it never changes another default ──
+    eq(CFG.fovHitbox, false, "fovHitbox ships OFF")
+    eq(SA.FovState2().hitbox, false, "FovState2 reports the hitbox flag")
+    CFG.fovHitbox = true
+    eq(SA.FovState2().hitbox, true, "fovHitbox can be enabled")
+    eq(SA.FovState2().mode, "Pixels", "FovState2 reports the mode")
+    eq(SA.FovState2().pixels, SA.FovRadius(), "FovState2 shares the radius")
+
+    -- ── the circle, the state surfaces and the ESP all agree ──
+    eq(SA.FovState().mode, SA.FovMode(), "circle state reports the mode")
+    eq(SA.EspFovState().mode, SA.FovMode(), "ESP state reports the mode")
+    eq(SA.FovState().radius, SA.FovRadius(), "circle uses the shared radius")
+
+    -- ── a target pick works in Degrees mode (no pixels anywhere) ──
+    CFG.fovMode = "Degrees"
+    CFG.fovDegrees = 60
+    CFG.masterEnabled = true
+    CFG.gunEnabled = true
+    pcall(SA.PreviewTargetReset)
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    local okPick, picked = pcall(function() return SA.PreviewTarget(true) end)
+    ok(okPick, "degree-mode preview target does not error")
+    ok(picked == nil or picked.bone ~= nil,
+        "degree-mode preview returns a bone or nothing")
+    ok((MOCK_W2V_CALLS or 0) >= savedCalls,
+        "degree-mode picking keeps the projection counter live")
+
+    CFG.fovMode, CFG.fovDegrees, CFG.fovHitbox = savedMode, savedDeg, savedHit
+    CFG.fov = savedFov
+    MOCK_CAMERA.FieldOfView = 70
+    pcall(SA.PreviewTargetReset)
+end
+saFovModeRegression()
+
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then
     -- Prepare a real startup auto-load for the NEXT re-execute. The live

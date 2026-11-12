@@ -92,6 +92,8 @@ function SA.FovState()
         backend      = fovBackend,
         centre       = centre,
         centreMode   = "Mouse / crosshair reference",
+        mode         = SA.FovMode and SA.FovMode() or "Pixels",
+        degrees      = SA.FovDegrees and SA.FovDegrees() or nil,
         radius       = SA.FovRadius(),
         visible      = vis,
         transparency = CFG.fovTransparency,

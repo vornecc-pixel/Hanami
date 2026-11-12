@@ -1289,6 +1289,9 @@ local camera = Instance.new("Camera")
 camera.Name = "Camera"
 camera.CFrame = CFrame.new(0, 3, 0)
 camera.ViewportSize = Vector2.new(1280, 720)
+-- Real Roblox cameras expose a vertical FieldOfView of 70 by default.
+-- SA.FovRadius() in Degrees mode needs it, so the mock must have it too.
+camera.FieldOfView = 70
 camera.Parent = WorkspaceService
 WorkspaceService.CurrentCamera = camera
 MOCK_CAMERA = camera

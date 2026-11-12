@@ -712,6 +712,16 @@ local SA_CFG_SHIPPED = {
 
     -- targeting
     fov        = 220,
+    -- FOV measurement. "Pixels" is the long-standing screen circle
+    -- (CFG.fov = pixel radius around SA.AimPoint()). "Degrees" measures
+    -- the angle between the camera look vector and the direction to the
+    -- target, so the SAME setting means the same thing on 1080p and 4K.
+    -- fovHitbox widens BOTH modes from one bone to the target's whole
+    -- head-to-root segment, so a box that is visibly inside the circle
+    -- is not missed because its head bone sits a few pixels outside.
+    fovMode    = "Pixels",
+    fovDegrees = 35,
+    fovHitbox  = false,
     distance   = 0,
     wallCheck  = false,
     teamCheck  = false,
@@ -1028,6 +1038,7 @@ for k, v in pairs({
     crateMaxDist = 3000,
     showFov = false, fovFilled = false, fovTransparency = 1, fovThickness = 3,
     fovCenterMode = "Mouse", forceGuiDrawing = false,
+    fovMode = "Pixels", fovDegrees = 35, fovHitbox = false,
     espCleanMode = false,
     espPerElementColors = false, espShowBox = false, espCornerBox = false,
     espShowFill = false, espShowOutline = false, espShowSkeleton = false,
@@ -1144,6 +1155,14 @@ CFG.showFov           = CFG.showFov == true
 CFG.fovTransparency   = saClampNum(CFG.fovTransparency, 0, 100, 1)
 CFG.fovThickness      = saClampNum(CFG.fovThickness, 1, 5, 3)
 CFG.fovCenterMode     = "Mouse"
+-- New FOV measurement keys are normalised on EVERY load. Pixel mode keeps
+-- the existing 30-500 slider range; degrees are clamped to a cone that
+-- can actually be drawn (1-89 deg, the 90 deg half-angle is the edge of
+-- the frustum), and the hitbox widening is a plain boolean.
+CFG.fovMode           = ({ Pixels=true, Degrees=true })[CFG.fovMode]
+                        and CFG.fovMode or "Pixels"
+CFG.fovDegrees        = saClampNum(CFG.fovDegrees, 1, 89, 35)
+CFG.fovHitbox         = CFG.fovHitbox == true
 CFG.snapLineEnabled   = CFG.snapLineEnabled == true
 CFG.snapLineOrigin    = "FOV Reference"
 CFG.snapLineThickness = saClampNum(CFG.snapLineThickness, 1, 10, 3)
