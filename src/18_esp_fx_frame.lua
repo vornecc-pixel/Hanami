@@ -42,7 +42,7 @@ local ESP_LOW_OFFSET    = Vector3.new(0, 3, 0)
 local ESP_CRATE_TOP     = Vector3.new(0, 2, 0)
 local ESP_CRATE_BOTTOM  = Vector3.new(0, 2, 0)
 
-local function espNum(v)
+local function espNum(v)   -- 0.01 quantisation: the cheap rig-anchor key
     return tostring(math.floor((tonumber(v) or 0) * 100 + 0.5))
 end
 
@@ -83,10 +83,17 @@ local function espCameraKey(cam)
     sig.lx, sig.ly, sig.lz = look.X, look.Y, look.Z
     sig.ux, sig.uy, sig.uz = up.X, up.Y, up.Z
     sig.vx, sig.vy, sig.fov = vp.X, vp.Y, fov
-    sig.key = espVecKey(cp) .. "|" .. espVecKey(look) .. "|"
-        .. espVecKey(up) .. "|" .. espNum(rx) .. "," .. espNum(ry)
-        .. "," .. espNum(rz) .. "|" .. espNum(vp.X) .. "," .. espNum(vp.Y)
-        .. "|" .. espNum(fov)
+    -- PRECISION: espNum() rounds to 0.01, which on a unit look vector is
+    -- asin(0.01) = 0.57 degrees of camera rotation silently treated as "no
+    -- change". At 720p / 70 deg that is ~6 px of stale box position on
+    -- every slow sweep, snapping into place whenever the key finally
+    -- ticks over — precisely the "ESP drifts away while you look at it,
+    -- then comes back" report. Camera keys therefore use a 1e-6
+    -- quantisation (0.00006 deg, well under a pixel) instead of 0.01.
+    sig.key = SA.EspKey6(cp) .. "|" .. SA.EspKey6(look) .. "|"
+        .. SA.EspKey6(up) .. "|" .. SA.EspKey6({ X = rx, Y = ry, Z = rz })
+        .. "|" .. SA.EspNum6(vp.X) .. "," .. SA.EspNum6(vp.Y)
+        .. "|" .. SA.EspNum6(fov)
     local st = SA.EspGeomStats
     st.cameraKeyBuilds = (st.cameraKeyBuilds or 0) + 1
     return sig.key

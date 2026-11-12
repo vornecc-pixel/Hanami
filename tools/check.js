@@ -189,9 +189,9 @@ const newKeys = [
   'displayBrightnessEnabled', 'displayBrightness',
   'uiTheme', 'uiFont',
   'espStaffDetect', 'unknownHumanoidScan',
-  'fovMode', 'fovDegrees', 'fovHitbox',
+  'fovMode', 'fovDegrees', 'fovHitbox', 'fovStyle', 'fovSegments',
 ];
-assert(newKeys.length === 80, `expected 80 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 82, `expected 82 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -377,8 +377,29 @@ for (const needle of [
 // The stutter fix: per-entity FOV state keys on the entity's own
 // viewport / FOV membership only, never on the shared draw signature.
 const drawSrc = read('src/18_esp_fx_draw.lua');
-assert(drawSrc.includes('local stateKey = tostring(p) .. "|" .. tostring(fov.onScreen)'),
+assert(drawSrc.includes('local fovState = tostring(fov.onScreen)'),
   'per-entity FOV state key must not include the draw signature');
+// REWRITE guard: an FOV crossing may only clear the FOV-owned draw group.
+// Calling hideFx() here wiped the whole entity (box, name, chams) on every
+// circle crossing, which is the "ESP slides away while you look at it"
+// bug. Neither hideFx nor a geometry deferral may come back.
+assert(!/if o\.espFovState ~= fovState then[\s\S]{0,400}?pcall\(hideFx, o\)/.test(drawSrc),
+  'FOV transition must not hide the whole entity (only the fov draw group)');
+assert(drawSrc.includes('pcall(hideFxGroup, o, "fov")'),
+  'FOV transition must clear only the fov draw group');
+assert(!/o\.geomForceFresh = true/.test(
+  drawSrc.slice(drawSrc.indexOf('if o.espFovState ~= fovState'), drawSrc.indexOf('if o.espFovState ~= fovState') + 600)),
+  'FOV transition must not defer geometry by a frame');
+// NPC ESP is FOV-independent by request: the NPC branch builds a neutral
+// snapshot instead of reading the aim circle.
+assert(drawSrc.includes('if pal == "npc" then'),
+  'NPC ESP must have its own non-FOV snapshot branch');
+// The snapline preview is player-only.
+const sharedSrc = read('src/02_shared.lua');
+assert(sharedSrc.includes('playersOnly'),
+  'pickBestTarget must support a players-only preview');
+assert(sharedSrc.includes('if CFG.targetNpcs and not playersOnly then'),
+  'the players-only preview must skip the NPC candidate list');
 assert(!drawSrc.includes('SA.EspDrawSignature or ""'),
   'per-entity FOV state key must not fold in the draw signature');
 assert(frameSrc.includes('local function playerFxStale('),
@@ -795,7 +816,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,240 assertions',
+  '6,369 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -854,6 +875,12 @@ const requiredDocs = [
   'nearest point on the projected',
   'fovHitbox',
   'head-to-root segment',
+  'FOV Drawing Style',
+  'hideFxGroup',
+  'NPC ESP is not FOV-aware',
+  'Snapline is player-only',
+  'SA.EspKey6',
+  'ringDraws',
   'nearest-player profile regressions',
   'SA.FOV_STARTUP',
   'SA.EspFovSnapshot()',

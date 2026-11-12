@@ -11,6 +11,13 @@ local fovSec = fovCol:section({ name = "FOV Circle / Snapline" })
 bindToggle(fovSec, "Show FOV Circle", "showFov",
     "The circle IS the aim reference point: silent aim, snapline, tracers and arrows all use the same centre + radius")
 bindToggle(fovSec, "Filled", "fovFilled")
+-- Every FOV drawing method. All of them use the same centre + radius as
+-- aim, and each degrades to Line-only primitives if Circle is missing.
+bindDropdown(fovSec, "FOV Drawing Style", "fovStyle",
+    { "Circle", "Segments", "Corners", "Dots", "Double", "Dashes",
+      "Cross", "Pulse" })
+fovSec:label({ name = "Circle/Pulse = native ring. Segments/Corners/Dots/Dashes = Line-only, executor-safe" })
+bindSlider(fovSec, "Ring Segments", "fovSegments", 8, 128, 1, "")
 bindDropdown(fovSec, "FOV Reference", "fovCenterMode", { "Mouse" })
 fovSec:label({ name = "Reference = crosshair; invalid mouse -> screen centre" })
 bindToggle(fovSec, "Force ScreenGui Drawing", "forceGuiDrawing",

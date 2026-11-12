@@ -119,7 +119,19 @@ local function refreshNpcESP()
 
                 end
                 local g = SA.EspGeom(o, cam, hrp.Position, head.Position, "npc")
-                if g and g.onScreen then
+                -- NPC ESP IS NOT FOV-AWARE, and it has exactly ONE draw
+                -- owner: the screen-space FX pass (18_esp_fx_draw.lua).
+                --
+                -- The legacy Instance lines below used to be written AND
+                -- made visible here on every data refresh while the FX
+                -- pass hid them again on every frame. Two writers, two
+                -- different projections: the box kept a stale
+                -- refresh-time position between refreshes and visibly
+                -- lagged / jumped as the camera moved. The refresh now
+                -- only records the projection (kept for state probes and
+                -- for the fallback below); the FX pass owns visibility.
+                local screenSpace = type(SA.HideEspBillboard) == "function"
+                if g and g.onScreen and not screenSpace then
                     local x, y, w, h = g.x, g.y, g.w, g.h
                     o.lines.top.From = Vector2.new(x, y); o.lines.top.To = Vector2.new(x + w, y)
                     o.lines.bottom.From = Vector2.new(x, y + h); o.lines.bottom.To = Vector2.new(x + w, y + h)
@@ -139,7 +151,9 @@ local function refreshNpcESP()
                             or Color3.fromRGB(255, 220, 60):Lerp(Color3.fromRGB(255, 60, 60), 1 - ratio * 2)
                         o.lines.hpFill.Visible = true
                     else o.lines.hpBg.Visible = false; o.lines.hpFill.Visible = false end
-                else for _, l in pairs(o.lines) do l.Visible = false end end
+                elseif not screenSpace then
+                    for _, l in pairs(o.lines) do l.Visible = false end
+                end
             end
         end
     end

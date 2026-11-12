@@ -96,7 +96,31 @@ local function drawEntityInner(cam, o, opt)
 
     -- ONE FOV reference for off-screen arrows AND the crate ESP mode.
     -- fov.point is the real projection; px is only the clamped edge pixel.
-    local fov = SA.EspFovSnapshot(cam, g, opt.fovCenter, opt.fovRadius)
+    --
+    -- NPC ESP IS NOT FOV-AWARE (by request). A guard NPC's box, name and
+    -- distance are drawn from its viewport projection only: the aim
+    -- circle must never hide, clamp or re-colour an NPC, and turning the
+    -- camera across an NPC must not make it flicker. NPC rows therefore
+    -- use a neutral snapshot: onScreen is the projection's own answer and
+    -- `inside` is always false, so nothing in the NPC path can depend on
+    -- the circle. Only PLAYER rows (and the crate FOV mode) read the real
+    -- circle.
+    local pal = p or "player"
+    local fov
+    if pal == "npc" then
+        local raw = g and g.raw
+        local onScr0 = g ~= nil and g.onScreen == true
+        local point0 = raw and Vector2.new(raw.X, raw.Y)
+            or Vector2.new((cam.ViewportSize or Vector2.new(1280, 720)).X / 2,
+                           (cam.ViewportSize or Vector2.new(1280, 720)).Y / 2)
+        fov = { point = point0, clamped = point0, dir = Vector2.new(0, 1),
+                center = point0, radius = 1, onScreen = onScr0,
+                inside = false, outside = false, edge = point0,
+                fovAware = false }
+    else
+        fov = SA.EspFovSnapshot(cam, g, opt.fovCenter, opt.fovRadius)
+        fov.fovAware = true
+    end
     local px = fov.onScreen and fov.point or fov.clamped
     local onScr = fov.onScreen
     local fovC, fovR, dir = fov.center, fov.radius, fov.dir
@@ -143,18 +167,26 @@ local function drawEntityInner(cam, o, opt)
     -- several times per second. The shared signature is now applied ONCE
     -- per real toggle change by SA.EspStyleSweep() (18_esp_fx_frame.lua),
     -- and this per-entity key covers only the real geometry transitions.
-    local stateKey = tostring(p) .. "|" .. tostring(fov.onScreen) .. "|"
-        .. tostring(fov.inside)
-    if o.espFovState ~= stateKey then
-        o.espFovState = stateKey
+    -- Only the FOV-DERIVED extras are keyed here (off-screen arrow,
+    -- FOV-clamped tracer, crate dot). Those are the draws whose meaning
+    -- changes when an entity crosses the circle.
+    --
+    -- REWRITE: this used to call hideFx(o), which erased the entity's
+    -- WHOLE draw set — box, name, distance, chams — on every FOV and
+    -- viewport transition, and redrew it only on the next frame. A target
+    -- crossing the circle edge (or a camera sweep carrying the circle over
+    -- it) therefore blinked off and back, and a cleared geomKey deferred
+    -- the fresh projection by a frame: the visible "ESP slides away while
+    -- you look at it, then snaps back when you look away" report.
+    -- Crossing the circle now hides only the FOV extras. The box and text
+    -- are re-styled from this frame's projection like any other frame.
+    local fovState = tostring(fov.onScreen) .. "|" .. tostring(fov.inside)
+    if o.espFovState ~= fovState then
+        o.espFovState = fovState
         SA.EspFovTransitions = (SA.EspFovTransitions or 0) + 1
-        pcall(hideFx, o)
+        pcall(hideFxGroup, o, "fov")
         pcall(SA.EspHideDuplicateOverlays, o, opt.model)
         startFxFrame(o)
-        -- Keep the projection object for state probes, but force ONE fresh
-        -- SA.EspGeom() next frame so a sliced entity cannot reuse it.
-        o.geomKey = nil
-        o.geomForceFresh = true
     end
 
     -- Read label visibility BEFORE hiding them: the refreshes rewrite
@@ -190,6 +222,7 @@ local function drawEntityInner(cam, o, opt)
             counts.outside = counts.outside + 1
             local dot = getDraw(o, "cratefovdot", "Circle")
             if dot then
+                setDrawGroup(o, "cratefovdot", "fov")
                 dot.Position = px
                 dot.Radius = 4
                 dot.Color = base
@@ -418,10 +451,13 @@ local function drawEntityInner(cam, o, opt)
         end
     end
 
-    -- tracer + off-screen arrow (PLAYER-ONLY)
+    -- tracer + off-screen arrow (PLAYER-ONLY). Both are FOV-derived, so
+    -- they are tagged into the "fov" group: a circle crossing clears just
+    -- these instead of the whole entity.
     if CFG.espShowTracer and playerOnly then
         local l = getDraw(o, "tracer", "Line")
         if l then
+            setDrawGroup(o, "tracer", "fov")
             l.From = opt.origin
             l.To = (CFG.espArrowFOV and outsideFov) and fov.edge or px
             l.Color = fxColor(p, base, seed, "Tracer")
@@ -439,6 +475,7 @@ local function drawEntityInner(cam, o, opt)
     if showArrow then
         local tri = getDraw(o, "arrow", "Triangle")
         if tri then
+            setDrawGroup(o, "arrow", "fov")
             pcall(function()
                 local anchorAt = CFG.espArrowFOV and fov.edge or fov.clamped
                 local a = SA.Atan2(dir.Y, dir.X)

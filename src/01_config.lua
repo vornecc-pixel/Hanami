@@ -722,6 +722,19 @@ local SA_CFG_SHIPPED = {
     fovMode    = "Pixels",
     fovDegrees = 35,
     fovHitbox  = false,
+    -- How the FOV circle itself is DRAWN. Every style is built from the
+    -- primitives an executor actually has (Line / Circle / Triangle), so
+    -- none of them can fail to render on a partial Drawing API.
+    --   Circle   - native circle (ScreenGui ring fallback)
+    --   Segments - polygon of Line segments (works with Line only)
+    --   Corners  - four corner arcs
+    --   Dots     - dotted ring
+    --   Double   - two concentric circles (inner ring at 50%)
+    --   Dashes   - dashed ring
+    --   Cross    - centre crosshair + circle
+    --   Pulse    - circle whose radius breathes
+    fovStyle   = "Circle",
+    fovSegments = 64,
     distance   = 0,
     wallCheck  = false,
     teamCheck  = false,
@@ -1039,6 +1052,7 @@ for k, v in pairs({
     showFov = false, fovFilled = false, fovTransparency = 1, fovThickness = 3,
     fovCenterMode = "Mouse", forceGuiDrawing = false,
     fovMode = "Pixels", fovDegrees = 35, fovHitbox = false,
+    fovStyle = "Circle", fovSegments = 64,
     espCleanMode = false,
     espPerElementColors = false, espShowBox = false, espCornerBox = false,
     espShowFill = false, espShowOutline = false, espShowSkeleton = false,
@@ -1163,6 +1177,11 @@ CFG.fovMode           = ({ Pixels=true, Degrees=true })[CFG.fovMode]
                         and CFG.fovMode or "Pixels"
 CFG.fovDegrees        = saClampNum(CFG.fovDegrees, 1, 89, 35)
 CFG.fovHitbox         = CFG.fovHitbox == true
+CFG.fovStyle          = ({ Circle=true, Segments=true, Corners=true,
+                           Dots=true, Double=true, Dashes=true, Cross=true,
+                           Pulse=true })[CFG.fovStyle]
+                        and CFG.fovStyle or "Circle"
+CFG.fovSegments       = saClampNum(CFG.fovSegments, 8, 128, 64)
 CFG.snapLineEnabled   = CFG.snapLineEnabled == true
 CFG.snapLineOrigin    = "FOV Reference"
 CFG.snapLineThickness = saClampNum(CFG.snapLineThickness, 1, 10, 3)

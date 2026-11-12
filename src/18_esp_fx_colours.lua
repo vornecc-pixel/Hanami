@@ -216,6 +216,22 @@ local function hideLegacyFx(o)
     hideEspBillboard(o)
 end
 
+-- Hide EVERYTHING this entity owns (pooled draws, legacy lines, cham).
+-- Only for a real "this entity must disappear" event: toggle OFF, death,
+-- stream-out, out of range, character swap, dispose.
+-- High-precision keys for CAMERA data only. 0.01 quantisation on a unit
+-- look vector hides up to 0.57 deg of camera rotation (~6 px at 720p),
+-- which is the "box drifts then snaps back" artefact. 1e-6 resp. 0.00006
+-- deg keeps a stale projection under a pixel.
+function SA.EspNum6(v)
+    return tostring(math.floor((tonumber(v) or 0) * 1000000 + 0.5))
+end
+function SA.EspKey6(v)
+    if not v then return "0,0,0" end
+    return SA.EspNum6(v.X) .. "," .. SA.EspNum6(v.Y) .. ","
+        .. SA.EspNum6(v.Z)
+end
+
 local function hideFx(o)
     if not o then return end
     o.fxFrame = fxFrame() - 1
@@ -226,6 +242,41 @@ local function hideFx(o)
         end
     end
     hideLegacyFx(o)
+end
+
+-- Hide ONLY the pooled draws created in a given group (e.g. "fov").
+--
+-- WHY THIS EXISTS: hideFx() was being called on every FOV / viewport
+-- state transition (18_esp_fx_draw.lua stateKey). Crossing the FOV circle
+-- changed `fov.inside`, which hid the entity's ENTIRE draw set — box,
+-- name, distance, chams — and the redraw only happened on the next
+-- frame's getDraw() pass. A player sliding along the circle edge, or a
+-- camera sweep that moves the circle over a player, therefore blinked the
+-- whole ESP off for a frame and back on. That is the "ESP moves away and
+-- only comes back when you stop looking" report.
+--
+-- FOV-owned extras (the off-screen arrow, the FOV-clamped tracer, the
+-- crate dot) still need erasing when they stop applying. They are
+-- accounted in their own group so a transition costs a few arrow writes
+-- instead of a full entity rebuild.
+local function hideFxGroup(o, group)
+    if not o or not o.fx then return end
+    local g = o.fxGroup
+    for key, d in pairs(o.fx) do
+        if g and g[key] == group then
+            pcall(function() if d.Visible ~= false then d.Visible = false end end)
+        end
+    end
+end
+
+-- Tag the pooled draws a group owns. Called once per draw when it is
+-- created (getDraw) or reused, never per frame.
+local function setDrawGroup(o, key, group)
+    if not o or not key then return end
+    local g = o.fxGroup
+    if not g then g = {}; o.fxGroup = g end
+    if g[key] == group then return end
+    g[key] = group
 end
 
 local function hideUnusedFx(o)

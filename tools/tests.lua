@@ -2461,7 +2461,13 @@ function saEspFovTransitionRegression()
     eq(insideFovState.inside, true, "inside FOV: raw point is inside")
     near(insideFovState.point.X, 640, 0.001,
         "inside FOV: snapshot not clamped to old edge")
-    eq(fovObj.geomForceFresh, true, "FOV transition forces fresh geometry")
+    -- REWRITE: an FOV crossing must NOT defer geometry by a frame. The
+    -- old contract was geomForceFresh = true, which made the entity keep
+    -- its previous projection for one more frame — the visible "box slides
+    -- away while you look at it" drift. The projection is now rebuilt
+    -- inside the same frame, and only FOV-owned extras are cleared.
+    eq(fovObj.geomForceFresh ~= true, true,
+        "FOV transition no longer defers geometry by one frame")
     near(fovObj.geomCache.raw.X, 640, 0.001,
         "inside FOV: fresh projection after camera turn")
     eq(fovObj.lines.top.Visible, true, "inside FOV: main box still drawn")
@@ -2599,7 +2605,9 @@ function saNpcFovTransitionRegression()
     eq(npcInsideFov.inside, true, "NPC inside FOV: raw point is inside")
     near(npcInsideFov.point.X, 640, 0.001,
         "NPC inside FOV: snapshot not clamped to old edge")
-    eq(npcObj.geomForceFresh, true, "NPC FOV transition forces fresh geometry")
+    -- Same rewrite as the player check above: no one-frame deferral.
+    eq(npcObj.geomForceFresh ~= true, true,
+        "NPC FOV transition no longer defers geometry")
     near(npcObj.geomCache.raw.X, 640, 0.001,
         "NPC inside FOV: fresh projection after camera turn")
     eq(npcObj.lines.top.Visible, true, "NPC inside FOV: main box still drawn")
@@ -3632,6 +3640,21 @@ saNpcRefreshThrottleRegression()
 -- FieldOfView, and fovHitbox widens membership to the head->root segment.
 -- All three must be pure reads: no global default changes, no writes.
 function saFovModeRegression()
+    -- Real perspective camera for the projection checks below.
+    MOCK_REAL_PROJECTION = true
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    MOCK_CAMERA.FieldOfView = 70
+    mock_cam_clear_look(MOCK_CAMERA)
+    mock_cam_look(MOCK_CAMERA, Vector3.new(0, 3, -50))
+    local straight = Vector3.new(0, 3, -40)
+    local sv, son = MOCK_CAMERA:WorldToViewportPoint(straight)
+    ok(son == true, "a target dead ahead projects on screen")
+    ok(math.abs(sv.X - 640) < 2 and math.abs(sv.Y - 360) < 2,
+        "a target dead ahead projects at the viewport centre")
+    local bv, bon = MOCK_CAMERA:WorldToViewportPoint(Vector3.new(0, 3, 40))
+    eq(bon, false, "a target behind the camera is NOT on screen")
+    ok(bv.Z < 0, "a target behind the camera has negative depth")
+
     local savedMode, savedDeg, savedHit = CFG.fovMode, CFG.fovDegrees, CFG.fovHitbox
     local savedFov = CFG.fov
     local savedCalls = MOCK_W2V_CALLS
@@ -3752,9 +3775,200 @@ function saFovModeRegression()
     CFG.fovMode, CFG.fovDegrees, CFG.fovHitbox = savedMode, savedDeg, savedHit
     CFG.fov = savedFov
     MOCK_CAMERA.FieldOfView = 70
+    MOCK_REAL_PROJECTION = false
+    mock_cam_clear_look(MOCK_CAMERA)
     pcall(SA.PreviewTargetReset)
 end
 saFovModeRegression()
+
+-- ESP rewrite regressions: an FOV crossing must never erase the entity,
+-- the camera key must be precise enough that a slow sweep cannot stall the
+-- projection, NPC ESP must be FOV-independent, and the snapline must be
+-- player-only. These use the REAL perspective mock camera.
+function saEspFovRewriteRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "espShowBox", "espShowName", "espShowDist", "espVisibleCheck",
+        "espShowOffscreen", "espShowTracer", "espOnlyNearest",
+        "espOnlyAimTarget", "espTeamMode", "espMaxDist", "espDataRefreshMs",
+        "perfMode", "fov", "masterEnabled", "gunEnabled", "snapLineEnabled",
+        "fovStyle", "fovSegments", "fovMode", "fovDegrees", "showFov",
+        "targetNpcs" }) do
+        savedFlags[k] = CFG[k]
+    end
+    setFlags({ espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+        espShowBox = true, espShowName = true, espShowDist = true,
+        espVisibleCheck = false, espShowOffscreen = false,
+        espShowTracer = false, espOnlyNearest = false,
+        espOnlyAimTarget = false, espTeamMode = "All", espMaxDist = 5000,
+        espDataRefreshMs = 16, perfMode = false, fov = 400,
+        masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
+        fovMode = "Pixels", targetNpcs = false })
+    MOCK_REAL_PROJECTION = true
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    MOCK_CAMERA.FieldOfView = 70
+    mock_cam_clear_look(MOCK_CAMERA)
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+    UserInputService.GetMouseLocation = function() return Vector2.new(640, 360) end
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    frameTimes(8)
+
+    local obj, plr = nil, nil
+    for p, o in pairs(espObjects) do
+        if p.Name == "NearestGuy" then obj, plr = o, p end
+    end
+    ok(obj ~= nil, "FOV rewrite: ESP object exists")
+
+    -- ── 1. Crossing the FOV circle must NOT erase the box / name ──
+    -- Put the aim circle far from the target, then sweep it across by
+    -- moving the mouse reference instead of the camera (pure FOV change).
+    CFG.fov = 60
+    UserInputService.GetMouseLocation = function() return Vector2.new(200, 360) end
+    pcall(SA.PreviewTargetReset)
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    local transitionsBefore = SA.EspFovTransitions or 0
+    UserInputService.GetMouseLocation = function() return Vector2.new(640, 360) end
+    pcall(SA.PreviewTargetReset)
+    local frameBefore = SA.EspFxFrame
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    ok((SA.EspFovTransitions or 0) > transitionsBefore,
+        "FOV rewrite: the circle crossing registered a transition")
+    eq(obj.fx and obj.fx.txName and obj.fx.txName.Visible, true,
+        "the name survives an FOV crossing (no whole-entity hide)")
+    local boxDrawn = false
+    for _, k in ipairs({ "top", "bottom", "left", "right" }) do
+        if obj.lines[k] and obj.lines[k].Visible then boxDrawn = true end
+        if obj.fx and obj.fx["box1"] and obj.fx["box1"].Visible then boxDrawn = true end
+    end
+    -- The legacy lines are hidden by design while the FX pass owns the
+    -- drawing, so accept either the pooled box or the legacy box.
+    local poolBox = obj.fx and ((obj.fx.box1 and obj.fx.box1.Visible)
+        or (obj.fx.box2 and obj.fx.box2.Visible))
+    ok(poolBox == true, "the box survives an FOV crossing")
+
+    -- ── 2. Slow camera sweep keeps the projection exact every frame ──
+    local hrp = obj.root or (plr.Character and plr.Character:FindFirstChild("HumanoidRootPart"))
+    ok(hrp ~= nil, "FOV rewrite: rig root available")
+    local worst, samples = 0, 0
+    for i = 1, 25 do
+        mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1 - i * 0.05, i * 1.1))
+        quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+        local v, on = MOCK_CAMERA:WorldToViewportPoint(hrp.Position)
+        if on and obj.fx and obj.fx.txName and obj.fx.txName.Visible then
+            worst = math.max(worst, math.abs(obj.fx.txName.Position.X - v.X))
+            samples = samples + 1
+        end
+    end
+    ok(samples >= 10, "FOV rewrite: the sweep kept sampling the target")
+    ok(worst < 1.0, "the drawn name tracks the camera exactly (" ..
+        string.format("%.2f", worst) .. " px worst)")
+
+    -- ── 3. The camera key resolves sub-degree rotation ──
+    local k1 = SA.EspDrawSignature
+    local before = SA.EspGeomStats.cameraKeyBuilds or 0
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1.001, 0.02))
+    SA.EspGeom(obj, MOCK_CAMERA, hrp.Position, hrp.Position, "player")
+    ok((SA.EspGeomStats.cameraKeyBuilds or 0) > before,
+        "a tiny camera rotation rebuilds the geometry key")
+    ok(k1 ~= nil, "draw signature is still exposed")
+
+    -- ── 4. NPC ESP is FOV-independent ──
+    setFlags({ npcEspEnabled = true, espEnabled = false })
+    SA.EspGeomInvalidate()
+    frameTimes(6)
+    local nobj = nil
+    for _, o in pairs(npcObjects) do nobj = o; break end
+    ok(nobj ~= nil, "FOV rewrite: an NPC ESP object exists")
+    -- Park the circle far away: the NPC must still draw normally.
+    CFG.fov = 40
+    UserInputService.GetMouseLocation = function() return Vector2.new(60, 60) end
+    pcall(SA.PreviewTargetReset)
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(nobj.fx and nobj.fx.txName and nobj.fx.txName.Visible, true,
+        "NPC name is unaffected by the FOV circle")
+    local npcSnap = SA.EspFovSnapshot(MOCK_CAMERA, nobj.geomCache,
+        SA.AimPoint(), SA.FovRadius())
+    ok(npcSnap.onScreen == true, "NPC snapshot uses its own projection")
+    -- And crossing the circle must not touch the NPC at all.
+    local npcTransitions = 0
+    for _ = 1, 4 do
+        UserInputService.GetMouseLocation = function()
+            return Vector2.new(60 + npcTransitions * 200, 60)
+        end
+        npcTransitions = npcTransitions + 1
+        pcall(SA.PreviewTargetReset)
+        quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+        eq(nobj.fx and nobj.fx.txName and nobj.fx.txName.Visible, true,
+            "NPC name survives FOV circle movement " .. npcTransitions)
+    end
+    setFlags({ npcEspEnabled = false, espEnabled = true })
+    SA.EspGeomInvalidate()
+
+    -- ── 5. Snapline / shared preview is player-only ──
+    -- With NPCs enabled as aim candidates, remove every player from the
+    -- scene: the shared preview must then return NOTHING (it may not fall
+    -- back to an NPC). That is the player-only guarantee, with no new API.
+    CFG.targetNpcs = true
+    local savedChars = {}
+    for _, p2 in ipairs(Players:GetPlayers()) do
+        if p2 ~= lp then
+            savedChars[p2] = p2.Character
+            p2.Character = nil
+        end
+    end
+    pcall(SA.PreviewTargetReset)
+    local previewWithOnlyNpcs = SA.PreviewTarget(true)
+    eq(previewWithOnlyNpcs, nil,
+        "the snapline preview never picks an NPC when targetNpcs is ON")
+    for p2, ch in pairs(savedChars) do p2.Character = ch end
+    -- Restore the crosshair AND the camera: the NPC loop above moved both.
+    UserInputService.GetMouseLocation = function() return Vector2.new(640, 360) end
+    CFG.fov = 400
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+    SA.EspGeomInvalidate()
+    pcall(SA.PreviewTargetReset)
+    local previewWithPlayers = SA.PreviewTarget(true)
+    ok(previewWithPlayers ~= nil, "the preview picks a player again")
+    eq(previewWithPlayers and previewWithPlayers.model ~= nil, true,
+        "the shared preview target is a player model")
+    CFG.targetNpcs = false
+
+    -- ── 6. Every FOV drawing style runs and is reported ──
+    CFG.showFov = true
+    for _, style in ipairs({ "Circle", "Segments", "Corners", "Dots",
+                             "Double", "Dashes", "Cross", "Pulse" }) do
+        CFG.fovStyle = style
+        MockLastError = nil
+        quiet(function() frameTimes(2) end)
+        eq(MockLastError, nil, "FOV style " .. style .. " draws without error")
+        eq(SA.FovState().style, style, "FOV state reports style " .. style)
+    end
+    CFG.fovStyle = "Circle"
+    frameTimes(1)
+    ok((SA.FovState().ringDraws or 0) == 0,
+        "the plain Circle style needs no ring lines")
+    CFG.fovStyle = "Segments"
+    quiet(function() frameTimes(2) end)
+    ok((SA.FovState().ringDraws or 0) > 0,
+        "the Segments style draws ring lines")
+    ok((SA.FovState().ringAllocated or 0) >= (SA.FovState().ringDraws or 0),
+        "allocated ring lines cover the drawn ones")
+    -- Switching back to Circle must leave no stale ring lines behind.
+    CFG.fovStyle = "Circle"
+    frameTimes(2)
+    eq(SA.FovState().ringDraws, 0,
+        "switching to Circle hides every pooled ring line")
+    CFG.fovStyle = savedFlags.fovStyle
+
+    MOCK_REAL_PROJECTION = false
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    MOCK_CAMERA.FieldOfView = 70
+    mock_cam_clear_look(MOCK_CAMERA)
+    SA.EspGeomInvalidate()
+    pcall(SA.PreviewTargetReset)
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saEspFovRewriteRegression()
 
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then

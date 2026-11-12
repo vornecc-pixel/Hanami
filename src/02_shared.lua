@@ -331,7 +331,11 @@ end
 -- preview = true -> pure "closest to crosshair inside FOV" lookup for the
 -- snapline. Skips the wall abort and the hit-chance roll so the line stays
 -- stable instead of flickering with RNG.
-local function pickBestTarget(camera, aimPx, originPos, preview, boneFn)
+-- `playersOnly` forces the pick to ignore NPCs, regardless of
+-- CFG.targetNpcs. The snapline preview uses it: the aim line is a
+-- PLAYER-only preview by request, so a guard NPC can never own it.
+local function pickBestTarget(camera, aimPx, originPos, preview, boneFn,
+                              playersOnly)
     if not camera or not lp.Character then return nil end
     -- Pinned target wins for the REAL shot, but never hijacks the
     -- snapline preview (which must stay the closest-to-crosshair pick).
@@ -410,7 +414,7 @@ local function pickBestTarget(camera, aimPx, originPos, preview, boneFn)
             end
         end
     end
-    if CFG.targetNpcs then
+    if CFG.targetNpcs and not playersOnly then
         -- SA.GetNpcs() is provided by 03_entity_scan.lua (whole-workspace scan)
         local npcs = SA.GetNpcs and SA.GetNpcs() or {}
         for _, model in ipairs(npcs) do
@@ -471,7 +475,10 @@ function SA.PreviewTarget(refresh)
         previewFovKey = fovKey
     end
     local ok, best = pcall(function()
-        return pickBestTarget(camera, aimPx, camera.CFrame.Position, true)
+        -- playersOnly = true: the shared preview feeds the snapline, and
+        -- the snapline is a player-only aim preview by request.
+        return pickBestTarget(camera, aimPx, camera.CFrame.Position, true,
+            nil, true)
     end)
     if not ok or not best or not best.model then best = false end
     previewCache, previewStamp, previewFrame = best, now, frame

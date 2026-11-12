@@ -259,12 +259,51 @@ local function hex_color(s)
     return Color3.fromRGB(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
 end
 
+MOCK_REAL_PROJECTION = false
+
+-- ── REAL CFrame basis ───────────────────────────────────────────────
+-- A CFrame with a real rotation (built by CFrame.lookAt, or by
+-- mock_cam_look()) exposes genuine LookVector / RightVector / UpVector
+-- and a real * multiplication, so camera turning can actually be
+-- modelled. A plain CFrame.new(x, y, z) stays axis-aligned (-Z look),
+-- exactly like an un-rotated Roblox CFrame.
+local function cf_basis(t)
+    local lx = rawget(t, "lx")
+    if lx then
+        return Vector3.new(lx, rawget(t, "ly"), rawget(t, "lz")),
+               Vector3.new(rawget(t, "rx"), rawget(t, "ry"), rawget(t, "rz")),
+               Vector3.new(rawget(t, "ux"), rawget(t, "uy"), rawget(t, "uz"))
+    end
+    return Vector3.new(0, 0, -1), Vector3.new(1, 0, 0), Vector3.new(0, 1, 0)
+end
+function mock_cam_look(cam, target)
+    local cf = cam.CFrame
+    local o = cf.Position
+    local d = Vector3.new(target.X - o.X, target.Y - o.Y, target.Z - o.Z).Unit
+    -- right = look x worldUp, up = right x look (right-handed, Roblox order)
+    local right = d:Cross(Vector3.new(0, 1, 0))
+    if right.Magnitude < 0.001 then right = Vector3.new(1, 0, 0) end
+    right = right.Unit
+    local up = right:Cross(d).Unit
+    rawset(cf, "lx", d.X); rawset(cf, "ly", d.Y); rawset(cf, "lz", d.Z)
+    rawset(cf, "rx", right.X); rawset(cf, "ry", right.Y); rawset(cf, "rz", right.Z)
+    rawset(cf, "ux", up.X); rawset(cf, "uy", up.Y); rawset(cf, "uz", up.Z)
+    return cf
+end
+function mock_cam_clear_look(cam)
+    local cf = cam.CFrame
+    for _, k in ipairs({ "lx", "ly", "lz", "rx", "ry", "rz", "ux", "uy", "uz" }) do
+        rawset(cf, k, nil)
+    end
+    return cf
+end
+
 local CF_META = {}
 CF_META.__index = function(t, k)
     if k == "Position" then return rawget(t, "pos") or Vector3.zero end
-    if k == "RightVector" then return Vector3.new(1, 0, 0) end
-    if k == "UpVector" then return Vector3.new(0, 1, 0) end
-    if k == "LookVector" then return Vector3.new(0, 0, -1) end
+    if k == "RightVector" then return (select(2, cf_basis(t))) end
+    if k == "UpVector" then return (select(3, cf_basis(t))) end
+    if k == "LookVector" then return (cf_basis(t)) end
     if k == "ToObjectSpace" then
         return function(self, other)
             return CFrame.new(other.Position.X - self.Position.X,
@@ -281,13 +320,36 @@ CF_META.__index = function(t, k)
     return rawget(t, k)
 end
 CF_META.__tostring = function() return "CFrame" end
+CF_META.__mul = function(a, b)
+    local _, r, u = cf_basis(a)
+    local l = (cf_basis(a))
+    local p = a.Position
+    if rawget(b, "__kind") == "CFrame" then
+        local bp = b.Position
+        local out = CFrame.new(
+            p.X + r.X * bp.X + u.X * bp.Y + l.X * bp.Z,
+            p.Y + r.Y * bp.X + u.Y * bp.Y + l.Y * bp.Z,
+            p.Z + r.Z * bp.X + u.Z * bp.Y + l.Z * bp.Z)
+        if rawget(b, "lx") then
+            -- keep the child's own rotation for the (rare) rotated case
+            rawset(out, "lx", b.lx); rawset(out, "ly", b.ly); rawset(out, "lz", b.lz)
+        end
+        return out
+    end
+    return Vector3.new(
+        p.X + r.X * b.X + u.X * b.Y + l.X * b.Z,
+        p.Y + r.Y * b.X + u.Y * b.Y + l.Y * b.Z,
+        p.Z + r.Z * b.X + u.Z * b.Y + l.Z * b.Z)
+end
 
 CFrame = {
     new = function(x, y, z)
         return setmetatable({ __kind = "CFrame", pos = Vector3.new(x or 0, y or 0, z or 0) }, CF_META)
     end,
     lookAt = function(origin, target)
-        return setmetatable({ __kind = "CFrame", pos = origin or Vector3.zero }, CF_META)
+        local cf = setmetatable({ __kind = "CFrame",
+            pos = origin or Vector3.zero }, CF_META)
+        return mock_cam_look({ CFrame = cf }, target)
     end,
 }
 CFrame.fromEulerAnglesXYZ = function(rx, ry, rz)
@@ -755,9 +817,50 @@ INST_META.__index = function(t, k)
     if k == "WorldToViewportPoint" then
         return function(self, p)
             MOCK_W2V_CALLS = (MOCK_W2V_CALLS or 0) + 1
-            local x = 640 + (p and p.X or 0) * 0.1
-            local y = 360 - (p and p.Y or 0) * 10
-            return Vector3.new(x, y, 1), true
+            -- Real perspective projection around the camera's actual
+            -- basis, so "turn the camera until the box is centred,
+            -- off-screen, or behind you" is testable for the first time.
+            -- Roblox semantics: Z is camera-space depth (positive in
+            -- front, negative behind) and the boolean is "inside the
+            -- viewport", NOT "in front".
+            if not MOCK_REAL_PROJECTION then
+                -- LEGACY FLAT PROJECTION (the historical mock): every
+                -- point lands near the screen centre. Kept as the default
+                -- so the long-standing suite keeps its exact numbers.
+                -- MOCK_REAL_PROJECTION = true enables the real camera
+                -- maths below for the ESP camera/orientation tests.
+                local x = 640 + (p and p.X or 0) * 0.1
+                local y = 360 - (p and p.Y or 0) * 10
+                return Vector3.new(x, y, 1), true
+            end
+            local cf = self.CFrame
+            local o = cf.Position
+            local look, right, up = cf_basis(cf)
+            local d = Vector3.new((p and p.X or 0) - o.X,
+                (p and p.Y or 0) - o.Y, (p and p.Z or 0) - o.Z)
+            local z = d:Dot(look)
+            local x = d:Dot(right)
+            local y = d:Dot(up)
+            local vp = self.ViewportSize or Vector2.new(1280, 720)
+            local fov = tonumber(self.FieldOfView) or 70
+            local tanV = math.tan(math.rad(fov) / 2)
+            local aspect = vp.X / math.max(vp.Y, 1)
+            if z <= 0.0001 then
+                -- Behind the camera: Roblox mirrors the projection. Real
+                -- clients return a large mirrored coordinate, never a
+                -- usable on-screen point.
+                local depth = math.max(math.abs(z), 0.0001)
+                local sx = (x / (depth * tanV * aspect))
+                local sy = (y / (depth * tanV))
+                return Vector3.new(vp.X / 2 - sx * vp.X / 2,
+                    vp.Y / 2 + sy * vp.Y / 2, -depth), false
+            end
+            local sx = (x / (z * tanV * aspect))
+            local sy = (y / (z * tanV))
+            local px = vp.X / 2 + sx * vp.X / 2
+            local py = vp.Y / 2 - sy * vp.Y / 2
+            local onScreen = px >= 0 and px <= vp.X and py >= 0 and py <= vp.Y
+            return Vector3.new(px, py, z), onScreen
         end
     end
     if k == "Raycast" then
