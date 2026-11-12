@@ -182,10 +182,6 @@ const newKeys = [
   'fustBowEnabled', 'fustBowFov', 'fustBowTargetPart',
   'fustBowManipulation', 'fustBowManipPeek', 'fustBowManipMaxDist',
   'fustBowOriginRadius',
-  'armorViewer', 'armorShowIcons', 'armorShowTotals', 'armorOnlyInFov',
-  'armorMaxDist', 'armorScanSec', 'armorSortMode',
-  'armorLockPos', 'armorWindowX', 'armorWindowY', 'armorWindowW',
-  'armorWindowH',
   'gunNoSpread', 'gunShotProbe', 'gunInspectDefs', 'gunInspectScripts',
   'gunInspectGunControl', 'gunInspectLiveGun', 'gunNoRecoil',
   'gunCameraKickFilter', 'gunFireRate', 'gunFireRateMultiplier',
@@ -195,7 +191,7 @@ const newKeys = [
   'espStaffDetect', 'unknownHumanoidScan',
   'fovMode', 'fovDegrees', 'fovHitbox', 'fovStyle', 'fovSegments',
 ];
-assert(newKeys.length === 94, `expected 82 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 82, `expected 82 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -972,12 +968,7 @@ const requiredDocs = [
   'ESP-only best preset',
   'uiTheme',
   'uiFont',
-  '46-part list',
-  '### Armor Viewer',
-  'SA.ArmorAnalyze',
-  'SA.ArmorTargets()',
-  'SA.ArmorViewerState()',
-  'armorViewer',
+  '44-part list',
   '### Fust bow ballistic silent aim',
   'Fust Bow Ballistic Aim',
   'SA.FustBowState()',
