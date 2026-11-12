@@ -611,12 +611,34 @@ function SA.EspColorFromText(text)
     end
     return out
 end
+-- Widget-less settings (the armor window geometry) are not part of the
+-- Atlanta config, so they ride along in their own key the same way the
+-- colour snapshot does. Without this, resizing the window and saving
+-- silently threw the geometry away.
+function SA.WindowGeometrySnapshot()
+    return {
+        x = tonumber(CFG.armorWindowX) or 260, y = tonumber(CFG.armorWindowY) or 120,
+        w = tonumber(CFG.armorWindowW) or 360, h = tonumber(CFG.armorWindowH) or 470,
+    }
+end
+function SA.WindowGeometryRestore(t)
+    if type(t) ~= "table" then return false end
+    local w = tonumber(t.w); local h = tonumber(t.h)
+    local x = tonumber(t.x); local y = tonumber(t.y)
+    if w then CFG.armorWindowW = math.clamp(w, 280, 720) end
+    if h then CFG.armorWindowH = math.clamp(h, 240, 900) end
+    if x then CFG.armorWindowX = x end
+    if y then CFG.armorWindowY = y end
+    if SA.ArmorViewerResetGeometry then pcall(SA.ArmorViewerResetGeometry) end
+    return true
+end
 function SA.EspColorEncode(data)
     local js = SA.EspJson()
     if not js or type(data) ~= "string" then return data end
     local ok, cfg = pcall(function() return js:JSONDecode(data) end)
     if not ok or type(cfg) ~= "table" then return data end
     cfg.__saEspColors = SA.EspColorSnapshot()
+    cfg.__saWindows = SA.WindowGeometrySnapshot()
     local okEnc, enc = pcall(function() return js:JSONEncode(cfg) end)
     if okEnc and type(enc) == "string" then return enc end
     return data
@@ -625,8 +647,13 @@ function SA.EspColorDecode(data)
     local js = SA.EspJson()
     if js and type(data) == "string" then
         local ok, cfg = pcall(function() return js:JSONDecode(data) end)
-        if ok and type(cfg) == "table" and type(cfg.__saEspColors) == "table" then
-            return SA.EspColorRestore(cfg.__saEspColors)
+        if ok and type(cfg) == "table" then
+            if type(cfg.__saWindows) == "table" then
+                pcall(SA.WindowGeometryRestore, cfg.__saWindows)
+            end
+            if type(cfg.__saEspColors) == "table" then
+                return SA.EspColorRestore(cfg.__saEspColors)
+            end
         end
     end
     return 0

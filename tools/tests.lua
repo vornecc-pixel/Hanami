@@ -4538,6 +4538,85 @@ function saArmorViewerRegression()
 end
 saArmorViewerRegression()
 
+-- ── CONFIG SAVE / LOAD: the "nothing loads" regressions ─────────────
+-- Three separate ways a saved config failed to come back:
+--   1. the dropdown opened on `default` every session while `default`
+--      has no file on disk, so Load failed with "profile not found"
+--   2. widget-less settings (the armor window geometry) were never in
+--      get_config, so resizing then saving silently dropped them
+--   3. the Save button read configName while Load/Delete read
+--      configProfile, so a typed name saved but never loaded
+function saConfigRoundTripRegression()
+    local savedName, savedProfile = CFG.configProfile, CFG.configName
+
+    -- (1) "default" must always be loadable, never "profile not found".
+    local okDefault, whyDefault = SA.LoadProfile("default")
+    ok(okDefault == true, "default profile always loads: " .. tostring(whyDefault))
+    eq(CFG.configProfile, "default", "default load selects default")
+
+    -- (2) window geometry survives a save/load through the profile file.
+    SA.ResetToDefaults()
+    setFlags({ armorViewer = true, armorScanSec = 5 })
+    CFG.armorWindowX, CFG.armorWindowY = 55, 90
+    CFG.armorWindowW, CFG.armorWindowH = 640, 700
+    ok(SA.SaveProfile("GeoProbe") == true, "geometry profile saved")
+    CFG.armorWindowX, CFG.armorWindowY = 260, 120
+    CFG.armorWindowW, CFG.armorWindowH = 360, 470
+    setFlags({ armorScanSec = 2 })
+    ok(SA.LoadProfile("GeoProbe") == true, "geometry profile loaded")
+    eq(CFG.armorWindowW, 640, "window width survives save/load")
+    eq(CFG.armorWindowH, 700, "window height survives save/load")
+    eq(CFG.armorWindowX, 55, "window x survives save/load")
+    eq(CFG.armorWindowY, 90, "window y survives save/load")
+    eq(CFG.armorScanSec, 5, "a normal slider survives the same save")
+
+    -- Geometry is clamped on the way back in, so a hand-edited or
+    -- corrupted profile cannot produce a window off screen.
+    local blob = SA.ExportConfig()
+    local evil = blob:gsub('"w":%s*640', '"w":999999')
+    ok(SA.ImportConfig(evil) == true, "corrupt geometry still imports")
+    ok(CFG.armorWindowW <= 720, "imported geometry is clamped")
+
+    -- (3) clipboard export/import carries the same settings.
+    SA.ResetToDefaults()
+    CFG.armorWindowW, CFG.armorWindowH = 500, 600
+    setFlags({ armorScanSec = 7 })
+    local exported = SA.ExportConfig()
+    ok(type(exported) == "string" and #exported > 0, "export produces data")
+    SA.ResetToDefaults()
+    ok(SA.ImportConfig(exported) == true, "exported config re-imports")
+    eq(CFG.armorWindowW, 500, "export carries window width")
+    eq(CFG.armorScanSec, 7, "export carries normal flags")
+
+    -- (4) the dropdown re-opens on the profile last written, not always
+    -- `default`, so a manual Load in a new session hits a real profile.
+    SA.ResetToDefaults()
+    setFlags({ perfMode = true, nearestTopN = 4 })
+    CFG.configName, CFG.configProfile = "Remember Me", "Remember Me"
+    ok(SA.SaveProfile("Remember Me") == true, "remember-me profile saved")
+    eq(SA.GetLastProfile(), "Remember_Me", "last profile marker written")
+    CFG.configProfile, CFG.configName = "default", "default"
+    eq(SA.LastProfileOrDefault(), "Remember_Me",
+        "dropdown restores the last used profile")
+    eq(CFG.configProfile, "Remember_Me", "dropdown flag follows the restore")
+    ok(SA.LoadProfile(CFG.configProfile) == true, "restored profile loads")
+    eq(CFG.perfMode, true, "restored profile carries its flags")
+
+    -- Every widget-backed flag must survive a round trip; a flag that
+    -- silently stops serialising is exactly the reported symptom.
+    local snapshot = SA.FlagSnapshot()
+    local round = SA.ExportConfig()
+    ok(SA.ImportConfig(round) == true, "full config round trip")
+    eq(SA.FlagSnapshot(), snapshot, "every flag survives a full round trip")
+    eq(#SA.ConfigCoverage(), 0, "no config flag is orphaned")
+
+    SA.DeleteProfile("GeoProbe")
+    SA.DeleteProfile("Remember Me")
+    CFG.configProfile, CFG.configName = savedProfile, savedName
+end
+saConfigRoundTripRegression()
+
+
 
 
 

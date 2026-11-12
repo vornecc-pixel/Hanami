@@ -154,6 +154,19 @@ function SA.GetLastProfile()
     return saCfgSafeName(name)
 end
 
+-- The dropdown used to open on `default` every session even when the user
+-- had saved and auto-loaded a named profile, so a manual Load in the new
+-- session hit the wrong entry. Start on the profile that was last written.
+function SA.LastProfileOrDefault()
+    local last = SA.GetLastProfile()
+    pcall(function()
+        if readfile(SA.ProfileDir .. "/" .. last .. ".cfg") ~= nil then
+            CFG.configProfile, CFG.configName = last, last
+        end
+    end)
+    return CFG.configProfile
+end
+
 function SA.FlagCount()
     local n = 0
     pcall(function() for _ in pairs(library.flags) do n = n + 1 end end)
@@ -182,6 +195,19 @@ end
 
 function SA.LoadProfile(name)
     name = saCfgSafeName(name)
+    -- "default" is always loadable: it means the shipped defaults. Without
+    -- this the fresh-session dropdown sits on `default`, which has no file
+    -- on disk, so Load failed with "profile not found" until the user
+    -- happened to pick a saved name -- the "nothing loads" symptom.
+    if name == "default" then
+        local okReset = pcall(SA.ResetToDefaults)
+        if not okReset then return false, "reset to defaults failed" end
+        CFG.configName, CFG.configProfile = "default", "default"
+        pcall(function() writefile(SA.ProfileLast, "default") end)
+        SA.LastConfigResult = { profile = "default", flags = SA.FlagCount(),
+                                colors = SA.EspColorCount(), bytes = 0 }
+        return true
+    end
     local data = nil
     local ok, err = pcall(function()
         data = readfile(SA.ProfileDir .. "/" .. name .. ".cfg")
@@ -650,6 +676,9 @@ profileSec:textbox({
     placeholder = "profile name",
     callback = function(text) CFG.configName = tostring(text or "") end,
 })
+-- Restore the dropdown to the profile actually used last session before
+-- the widget is built, so Load/Delete point somewhere real.
+pcall(SA.LastProfileOrDefault)
 local saCfgProfileItems = SA.ListProfiles()
 local saCfgHasSelected = false
 for _, n in ipairs(saCfgProfileItems) do
@@ -672,13 +701,32 @@ profileSec:dropdown({
     end,
 })
 addButton(profileSec, "Save Profile", function()
-    local ok, err = SA.SaveProfile(CFG.configName or CFG.configProfile)
+    -- Save to the typed name when there is one, otherwise the dropdown.
+    -- The two are kept in sync by the dropdown callback below.
+    local target = CFG.configName or CFG.configProfile
+    if type(target) ~= "string" or target == "" then
+        target = CFG.configProfile or "default"
+    end
+    SA.SaveProfile(target)
 end)
 addButton(profileSec, "Load Profile", function()
-    local ok, err = SA.LoadProfile(CFG.configProfile)
+    -- Load what the dropdown shows, but if the user just typed a name for
+    -- a profile that exists on disk, prefer that: typing a name and
+    -- clicking Load used to silently load the dropdown entry instead.
+    local target = CFG.configProfile
+    local typed = CFG.configName
+    if type(typed) == "string" and typed ~= "" then
+        local safe = saCfgSafeName(typed)
+        local exists = false
+        pcall(function()
+            exists = readfile(SA.ProfileDir .. "/" .. safe .. ".cfg") ~= nil
+        end)
+        if exists then target = safe end
+    end
+    SA.LoadProfile(target)
 end)
 addButton(profileSec, "Delete Profile", function()
-    local ok, err = SA.DeleteProfile(CFG.configProfile)
+    SA.DeleteProfile(CFG.configProfile)
 end)
 addButton(profileSec, "Reset to Defaults", function() SA.ResetToDefaults() end)
 addButton(profileSec, "Export Config to Clipboard", function() SA.ExportConfig() end)

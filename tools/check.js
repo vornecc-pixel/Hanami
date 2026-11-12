@@ -891,7 +891,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,660 assertions',
+  '6,732 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
