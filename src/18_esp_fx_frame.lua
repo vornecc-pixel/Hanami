@@ -230,12 +230,20 @@ local function addAimToNearest(aimModel)
 end
 
 local function refreshNearestSet(myPos, aimModel)
-    -- The aim target always keeps a slot, even between nearest-N sorts.
-    addAimToNearest(aimModel)
-    if not CFG.espOnlyNearest then return end
+    -- Drop stale aim-target slots every frame; only the live target keeps
+    -- the full-rate geometry path. With Only Nearest N OFF this is the whole
+    -- set, so a target that left the FOV cannot stay "stuck" forever.
+    if not CFG.espOnlyNearest then
+        espNearestSet = {}
+        addAimToNearest(aimModel)
+        return
+    end
     local frame = SA.EspFxFrame or 0
     if espNearestBuilt and espNearestCount == CFG.espNearestCount
-        and (frame - espNearestFrame) < espDataInterval() then return end
+        and (frame - espNearestFrame) < espDataInterval() then
+        addAimToNearest(aimModel)
+        return
+    end
     espNearestSet = {}
     addAimToNearest(aimModel)
     local list = {}
@@ -494,6 +502,12 @@ function SA.ApplyEspFx(cam)
     -- arrows/tracers are repositioned from the current fovC every frame.
     SA.EspDrawSignature = table.concat({
         tostring(CFG.fov), espNum(fovR),
+        -- Toggling Gun Silent Aim, snapline or the visible circle changes
+        -- the aim target / reference state. Force ONE cleanup + fresh
+        -- geometry pass so no box/name/arrow stays pinned to the old edge.
+        tostring(CFG.masterEnabled), tostring(CFG.gunEnabled),
+        tostring(CFG.snapLineEnabled), tostring(CFG.showFov),
+        tostring(CFG.fovFilled), tostring(targetModel ~= nil),
         tostring(CFG.espShowOffscreen), tostring(CFG.espArrowFOV),
         tostring(CFG.espShowTracer), tostring(CFG.espTracerOrigin),
         tostring(CFG.espShowBox), tostring(CFG.espCornerBox),

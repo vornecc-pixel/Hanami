@@ -537,7 +537,7 @@ function SA.FullUnload()
     _G.__saEspObjects, _G.__saNpcObjects, _G.__saCrateObjects = nil, nil, nil
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
-    _G.__saWhiteColorFix = nil
+    _G.__saWhiteColorFix, _G.__saFovFix = nil, nil
     _G.__saFustBow = nil
     _G.__saGunMods = nil
     pcall(function() if SA.EspFontRegistryReset then SA.EspFontRegistryReset() end end)

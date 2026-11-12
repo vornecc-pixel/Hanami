@@ -107,6 +107,34 @@ local function saLockActive()
     return SA.IsEquippedBow() ~= true
 end
 
+-- ESP Highlight Aim Target must follow Gun Silent Aim even when the
+-- snapline toggle is OFF. Snapline owns SA.Target.model while it is ON;
+-- otherwise refresh the FOV pick here at 20 Hz (no extra render listener).
+local saAimTargetLast = 0
+local function saRefreshAimTarget()
+    if CFG.snapLineEnabled == true then return end
+    local now = tick()
+    if now - saAimTargetLast < 0.05 then return end
+    saAimTargetLast = now
+    if not (CFG.masterEnabled == true and CFG.gunEnabled == true) then
+        SA.Target.model, SA.Target.pos = nil, nil
+        return
+    end
+    local camera = ws.CurrentCamera
+    if not camera then
+        SA.Target.model, SA.Target.pos = nil, nil
+        return
+    end
+    local ok, best = pcall(function()
+        return pickBestTarget(camera, SA.AimPoint(), camera.CFrame.Position, true)
+    end)
+    if ok and best then
+        SA.Target.model, SA.Target.pos = best.model, best.pos
+    else
+        SA.Target.model, SA.Target.pos = nil, nil
+    end
+end
+
 -- ────────────────────────────────────────────────────────────────────
 -- TARGET RESOLUTION — one path for tap snap and render step (guns only)
 -- The FOV centre/radius come from 02_shared.lua, and the exact ballistic
@@ -537,4 +565,7 @@ function SA.FireAssistState()
 end
 
 
-saFireAssist.conn = bindRender(function() SA.FireAssistTick(false) end)
+saFireAssist.conn = bindRender(function()
+    pcall(saRefreshAimTarget)
+    SA.FireAssistTick(false)
+end)

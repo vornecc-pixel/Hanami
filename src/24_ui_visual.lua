@@ -23,7 +23,7 @@ fovSec:label({ name = "Transparency 0% = solid, 100% = nearly invisible" })
 bindSlider(fovSec, "Thickness", "fovThickness", 1, 5, 1, "")
 
 bindToggle(fovSec, "Snapline (aim preview)", "snapLineEnabled",
-    "Line from the FOV centre to the exact target silent aim would pick. GREEN = clear, RED = blocked")
+    "Line from the FOV centre to the exact target silent aim would pick. Works with just this toggle ON; GREEN = clear, RED = blocked")
 bindDropdown(fovSec, "Line Origin", "snapLineOrigin", { "FOV Reference" })
 bindSlider(fovSec, "Snapline Size / Thickness", "snapLineThickness", 1, 10, 1, "")
 bindToggle(fovSec, "Show Lead Marker", "snapShowLead",

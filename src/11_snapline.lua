@@ -7,7 +7,8 @@
 -- ────────────────────────────────────────────────────────────────────
 -- SNAPLINE (FOV AIM PREVIEW)
 -- Draws from the FOV reference point to the exact target silent aim
--- would pick. GREEN = line of sight clear, RED = wall/blocked.
+-- would pick. GREEN = line of sight clear, RED = wall/blocked. The
+-- snapline toggle works on its own; no Silent Aim master / gun gate.
 --
 -- FIX: the old init block wrote ~14 native Drawing properties OUTSIDE a
 -- pcall. On executors with a partial Drawing API the very first bad write
@@ -28,18 +29,25 @@ local function initDraw(kind, props)
     return d
 end
 
-local snapLine = initDraw("Line", { Thickness = 1, Transparency = 0.2, Visible = false })
-local snapDot  = initDraw("Circle", { Radius = 4, Filled = true, NumSides = 24,
+local snapLine = initDraw("Line", { Thickness = 3, Transparency = 0.2, Visible = false })
+local snapDot  = initDraw("Circle", { Radius = 6, Filled = true, NumSides = 24,
                                       Transparency = 0.2, Visible = false })
-local leadLine = initDraw("Line", { Thickness = 1, Transparency = 0.35, Visible = false })
-local leadDot  = initDraw("Circle", { Radius = 5, Filled = false, NumSides = 24,
+local leadLine = initDraw("Line", { Thickness = 3, Transparency = 0.35, Visible = false })
+local leadDot  = initDraw("Circle", { Radius = 7, Filled = false, NumSides = 24,
                                       Transparency = 0.35, Visible = false })
 
 local function clearSnapTarget()
     if not SA.Target then return end
     -- Keep the silent-aim fields (pred / lastShot / lastShotAt) intact.
-    SA.Target.model, SA.Target.pos = nil, nil
+    -- While the snapline is ON it owns SA.Target.model, so a target that
+    -- leaves the FOV must clear the ESP highlight immediately. With the
+    -- snapline OFF and Gun Silent Aim ON, saRefreshAimTarget() owns the
+    -- model; with BOTH OFF there is no owner, so clear it here too.
     SA.Target.visible, SA.Target.screen, SA.Target.t = nil, nil, nil
+    if CFG.snapLineEnabled == true
+        or not (CFG.masterEnabled == true and CFG.gunEnabled == true) then
+        SA.Target.model, SA.Target.pos = nil, nil
+    end
 end
 
 local function hideSnap()
@@ -65,6 +73,8 @@ function SA.SnaplineState()
     return {
         enabled = CFG.snapLineEnabled == true,
         master = CFG.masterEnabled == true and CFG.gunEnabled == true,
+        independent = true,
+        gate = "snapline toggle only",
         thickness = snapSize(),
         origin = "FOV Reference",
         reference = ref,
@@ -82,7 +92,9 @@ local function snapProject(cam, v3, ok)
 end
 
 local function updateSnapLine()
-    if not (CFG.snapLineEnabled and CFG.masterEnabled and CFG.gunEnabled) then
+    -- Works with JUST the Visual -> Snapline toggle ON. Gun Silent Aim is
+    -- no longer a prerequisite; the line is an aim preview, not a shot.
+    if not CFG.snapLineEnabled then
         hideSnap(); return
     end
     local cam = ws.CurrentCamera

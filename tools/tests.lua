@@ -133,17 +133,17 @@ if run == 1 or run == 3 then
     eq(CFG.gmEnabled, false, "ESP best startup: gun mods stay OFF")
     eq(CFG.showFov, true, "FOV startup: circle ON so the reference is visible")
     eq(CFG.fovTransparency, 1, "FOV startup: 1% transparent / solid")
-    eq(CFG.fovThickness, 2, "FOV startup: visible 2px stroke")
+    eq(CFG.fovThickness, 3, "FOV startup: visible 3px stroke")
     eq(CFG.fovCenterMode, "Mouse", "FOV startup: mouse / crosshair reference")
     eq(CFG.snapLineOrigin, "FOV Reference", "FOV startup: snapline shares reference")
-    eq(CFG.snapLineThickness, 1, "FOV startup: snapline size default")
+    eq(CFG.snapLineThickness, 3, "FOV startup: thick 3px snapline default")
     ok(type(SA.FOV_STARTUP) == "table", "FOV startup snapshot")
     eq(SA.AimPoint().X, 640, "FOV reference X follows mock mouse")
     eq(SA.AimPoint().Y, 360, "FOV reference Y follows mock mouse")
     eq(SA.FovState().enabled, true, "FOV state enabled at load")
     eq(SA.FovState().transparency, 1, "FOV state solid")
-    eq(SA.FovState().thickness, 2, "FOV state visible thickness")
-    eq(SA.SnaplineState().thickness, 1, "snapline state size")
+    eq(SA.FovState().thickness, 3, "FOV state visible 3px thickness")
+    eq(SA.SnaplineState().thickness, 3, "snapline state 3px size")
     eq(SA.SnaplineState().origin, "FOV Reference", "snapline state origin")
     eq(CFG.snapLineEnabled, false, "ESP best startup: snapline stays OFF")
     eq(CFG.nearestWindow, false, "ESP best startup: HUD stays OFF")
@@ -575,7 +575,7 @@ function saFovReferenceRegression()
     eq(SA.FovState().exists, true, "FOV circle object exists")
     eq(SA.FovState().visible, "true", "FOV circle is actually drawn")
     eq(SA.FovState().transparency, 1, "FOV circle is solid, not 50% faint")
-    eq(SA.FovState().thickness, 2, "FOV circle stroke is visible")
+    eq(SA.FovState().thickness, 3, "FOV circle 3px stroke is visible")
     UserInputService.GetMouseLocation = savedMouse
     CFG.fovCenterMode = savedMode
 end
@@ -584,6 +584,7 @@ saFovReferenceRegression()
 -- Snapline size is a separate 1-10 control; FOV thickness is independent.
 function saSnaplineSizeRegression()
     local saved = CFG.snapLineThickness
+    eq(saved, 3, "snapline ships 3px thick")
     setFlags({ snapLineThickness = 7 })
     eq(CFG.snapLineThickness, 7, "custom snapline size written")
     eq(SA.SnaplineState().thickness, 7, "custom snapline size state")
@@ -598,6 +599,36 @@ function saSnaplineSizeRegression()
 end
 saSnaplineSizeRegression()
 
+-- The snapline must work with JUST its own Visual toggle ON. It is an aim
+-- preview, not a shot, so Gun Silent Aim / master are not prerequisites.
+function saSnaplineIndependentRegression()
+    local savedFlags = {
+        masterEnabled = CFG.masterEnabled,
+        gunEnabled = CFG.gunEnabled,
+        snapLineEnabled = CFG.snapLineEnabled,
+        snapLineThickness = CFG.snapLineThickness,
+    }
+    setFlags({
+        masterEnabled = false, gunEnabled = false,
+        snapLineEnabled = true, snapLineThickness = 3,
+    })
+    frameTimes(1)
+    eq(CFG.masterEnabled, false, "snapline works without silent aim master")
+    eq(CFG.gunEnabled, false, "snapline works without gun silent aim")
+    eq(SA.SnaplineState().enabled, true, "snapline state enabled")
+    eq(SA.SnaplineState().master, false, "snapline state reports gun aim OFF")
+    eq(SA.SnaplineState().independent, true, "snapline is independent")
+    eq(SA.SnaplineState().gate, "snapline toggle only", "snapline gate")
+    ok(snapLine ~= nil, "snapline draw object exists")
+    eq(snapLine.Visible, true, "snapline draws with only its own toggle ON")
+    eq(snapLine.Thickness, 3, "snapline uses thick 3px default")
+    near(snapLine.From.X, SA.AimPoint().X, 0.001,
+        "snapline starts at FOV reference")
+    ok(SA.Target.model ~= nil, "snapline picks a FOV target with gun aim OFF")
+    setFlags(savedFlags)
+end
+saSnaplineIndependentRegression()
+
 -- Hiding the snapline must not leave a stale target for ESP / state APIs.
 function saSnapTargetCleanupRegression()
     local savedFlags = {
@@ -607,13 +638,29 @@ function saSnapTargetCleanupRegression()
     }
     local savedTarget = {}
     for k, v in pairs(SA.Target or {}) do savedTarget[k] = v end
+
+    -- Snapline OFF + Gun Silent Aim OFF: no stale target anywhere.
     SA.Target.model = "stale target"
     SA.Target.screen = Vector2.new(12, 34)
-    setFlags({ snapLineEnabled = false })
-    frameTimes(1)
+    setFlags({ snapLineEnabled = false, masterEnabled = false, gunEnabled = false })
+    frameTimes(5)
     eq(SA.Target.model, nil, "hidden snapline clears stale target model")
     eq(SA.Target.screen, nil, "hidden snapline clears stale target pixel")
     eq(SA.SnaplineState().target, nil, "snapline state has no stale target")
+
+    -- Snapline OFF + Gun Silent Aim ON: silent aim owns ESP highlight target.
+    setFlags({ masterEnabled = true, gunEnabled = true })
+    frameTimes(5)
+    ok(SA.Target.model ~= nil,
+        "Gun Silent Aim keeps ESP highlight target with snapline OFF")
+    eq(SA.Target.screen, nil, "hidden snapline has no stale pixel")
+    eq(SA.SnaplineState().target, nil, "snapline state has no stale target")
+
+    -- Turning Gun Silent Aim OFF clears the shared target again.
+    setFlags({ masterEnabled = false, gunEnabled = false })
+    frameTimes(5)
+    eq(SA.Target.model, nil, "gun aim OFF clears shared target")
+
     for k in pairs(SA.Target) do SA.Target[k] = nil end
     for k, v in pairs(savedTarget) do SA.Target[k] = v end
     setFlags(savedFlags)
@@ -2299,6 +2346,21 @@ function saEspFovTransitionRegression()
     if fovObj.fx and fovObj.fx.arrow then
         eq(fovObj.fx.arrow.Visible, true, "leave FOV: edge arrow restored")
     end
+
+    -- Toggling Gun Silent Aim / snapline changes the shared aim-target state.
+    -- It must invalidate the per-entity signature ONCE and erase stale draws.
+    local sigBefore = SA.EspFovState().signature
+    local transBefore = SA.EspFovState().transitions
+    setFlags({ masterEnabled = true, gunEnabled = true, snapLineEnabled = true })
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    ok(SA.EspFovState().signature ~= sigBefore,
+        "Gun Silent Aim toggle changes ESP draw signature")
+    ok(SA.EspFovState().transitions > transBefore,
+        "Gun Silent Aim toggle forces stale-overlay cleanup")
+    frameTimes(1)
+    eq(SA.Target.model, nil,
+        "outside FOV with snapline ON clears stale highlight target")
+    setFlags({ masterEnabled = false, gunEnabled = false, snapLineEnabled = false })
 
     fovObj.root.Position = savedRoot
     fovObj.head.Position = savedHead

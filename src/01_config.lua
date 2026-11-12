@@ -684,7 +684,7 @@ local SA_CFG_SHIPPED = {
     showFov         = false,
     fovFilled       = false,
     fovTransparency = 1,
-    fovThickness    = 2,
+    fovThickness    = 3,
     fovCenterMode   = "Mouse",     -- always the mouse / crosshair reference
     forceGuiDrawing = false,        -- ScreenGui backend always works; native Drawing often doesn't
 
@@ -727,7 +727,7 @@ local SA_CFG_SHIPPED = {
     -- aim preview / snapline (size is a separate 1-10 control)
     snapLineEnabled   = false,
     snapLineOrigin    = "FOV Reference",
-    snapLineThickness = 1,
+    snapLineThickness = 3,
     snapShowLead      = false,
 
     -- crate esp
@@ -886,14 +886,14 @@ if saFreshStartup then
 end
 
 -- The FOV circle is the ONE non-ESP startup exception. It is ON, solid
--- (1% transparent) and thick enough to see; every other non-ESP feature
+-- (1% transparent) and 3px thick; every other non-ESP feature
 -- keeps the old OFF startup. ResetToDefaults() preserves this split, and
 -- FullUnload() clears the fresh-session marker for the next load.
 SA.FOV_STARTUP = {
     showFov = true, fov = 220, fovFilled = false,
-    fovTransparency = 1, fovThickness = 2,
+    fovTransparency = 1, fovThickness = 3,
     fovCenterMode = "Mouse", forceGuiDrawing = false,
-    snapLineOrigin = "FOV Reference", snapLineThickness = 1,
+    snapLineOrigin = "FOV Reference", snapLineThickness = 3,
 }
 for k, v in pairs(SA.FOV_STARTUP) do SA.CFG_DEFAULTS[k] = v end
 if saFreshStartup then
@@ -917,7 +917,7 @@ for k, v in pairs({
     npcShowHealth = false, npcShowTool = false, npcShowState = false,
     npcVisibleCheck = false, npcMaxDist = 2000,
     snapLineEnabled = false, snapLineOrigin = "FOV Reference",
-    snapLineThickness = 1,
+    snapLineThickness = 3,
     snapShowLead = false,
     prediction = false, predictionGravity = false, predictionAmmo = false,
     predictionIterations = 4, predictionAutoPing = false, predictionPingScale = 1,
@@ -932,7 +932,7 @@ for k, v in pairs({
     crateShowLoot = false, crateShowOpened = false, crateLooseDetect = false,
     crateHighlight = false, crateInvertState = false, crateLidDetect = false,
     crateMaxDist = 3000,
-    showFov = false, fovFilled = false, fovTransparency = 1, fovThickness = 2,
+    showFov = false, fovFilled = false, fovTransparency = 1, fovThickness = 3,
     fovCenterMode = "Mouse", forceGuiDrawing = false,
     espCleanMode = false,
     espPerElementColors = false, espShowBox = false, espCornerBox = false,
@@ -989,10 +989,10 @@ end
 -- faint 50%-transparent circle and a legacy snapline origin; reset them to
 -- the visible FOV reference startup ONCE. Saved user tweaks after this
 -- point are preserved. FOV is the only non-ESP startup exception.
-if _G.__saFovFix ~= 4 then
+if _G.__saFovFix ~= 5 then
     for k, v in pairs(SA.FOV_STARTUP) do CFG[k] = v end
     CFG.saTapReorder = false
-    _G.__saFovFix = 4
+    _G.__saFovFix = 5
 end
 
 -- One-time migration back to the CLASSIC manipulation slider set. v7.7
@@ -1047,11 +1047,11 @@ CFG.nearestWindow    = CFG.nearestWindow == true  -- HUD defaults OFF
 -- put it back to 50% transparency, or put the slider outside its range.
 CFG.showFov           = CFG.showFov == true
 CFG.fovTransparency   = saClampNum(CFG.fovTransparency, 0, 100, 1)
-CFG.fovThickness      = saClampNum(CFG.fovThickness, 1, 5, 2)
+CFG.fovThickness      = saClampNum(CFG.fovThickness, 1, 5, 3)
 CFG.fovCenterMode     = "Mouse"
 CFG.snapLineEnabled   = CFG.snapLineEnabled == true
 CFG.snapLineOrigin    = "FOV Reference"
-CFG.snapLineThickness = saClampNum(CFG.snapLineThickness, 1, 10, 1)
+CFG.snapLineThickness = saClampNum(CFG.snapLineThickness, 1, 10, 3)
 
 -- Clamp every new BETTER input too: a stale / hand-edited saved profile
 -- must never put a dropdown outside its items or a slider outside range.

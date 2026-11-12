@@ -280,8 +280,8 @@ for (const key of fovKeys) {
     `non-FOV key in FOV_STARTUP: ${key}`);
 }
 for (const needle of [
-  'showFov = true', 'fovTransparency = 1', 'fovThickness = 2',
-  'fovCenterMode = "Mouse"', 'snapLineThickness = 1',
+  'showFov = true', 'fovTransparency = 1', 'fovThickness = 3',
+  'fovCenterMode = "Mouse"', 'snapLineThickness = 3',
 ]) {
   assert(fovBlock.includes(needle), `FOV startup missing ${needle}`);
 }
@@ -299,8 +299,34 @@ assert(allSource.includes('SA.EspFovTransitions'),
   'FOV transition counter missing');
 assert(read('src/10_fov_circle.lua').includes('CFG.fovTransparency or 1'),
   'FOV circle must default to the solid 1% transparency');
+assert(read('src/10_fov_circle.lua').includes('CFG.fovThickness or 3'),
+  'FOV circle must default to the 3px stroke');
+assert(config.includes('if _G.__saFovFix ~= 5 then'),
+  'FOV migration marker must be bumped for the 3px defaults');
 assert(read('src/02_shared.lua').includes('(p.X > 0 or p.Y > 0)'),
   'AimPoint must reject the invalid (0,0) mouse sentinel');
+const snapSrc = read('src/11_snapline.lua');
+assert(snapSrc.includes('if not CFG.snapLineEnabled then'),
+  'snapline must work with its own toggle only');
+assert(!snapSrc.includes('CFG.snapLineEnabled and CFG.masterEnabled'),
+  'snapline must not require the Silent Aim master gate');
+assert(snapSrc.includes('Thickness = 3'),
+  'snapline must ship a thick 3px line');
+assert(read('src/09_silent_aim.lua').includes('local function saRefreshAimTarget()'),
+  'Gun Silent Aim must refresh the shared ESP aim target');
+assert(read('src/25_ui_misc.lua').includes('_G.__saFovFix = nil'),
+  'FullUnload must clear the FOV migration marker');
+assert(read('src/24_ui_visual.lua').includes('Works with just this toggle ON'),
+  'snapline tooltip must document the independent toggle');
+const frameSrc = read('src/18_esp_fx_frame.lua');
+for (const needle of [
+  'tostring(CFG.masterEnabled)', 'tostring(CFG.gunEnabled)',
+  'tostring(CFG.snapLineEnabled)', 'tostring(CFG.showFov)',
+  'tostring(targetModel ~= nil)',
+]) {
+  assert(frameSrc.includes(needle),
+    `ESP draw signature must include ${needle}`);
+}
 assert(read('src/24_ui_visual.lua').includes('"snapLineThickness", 1, 10'),
   'customizable snapline size slider missing');
 
@@ -316,13 +342,19 @@ const tests = read('tools/tests.lua');
 for (const needle of [
   'saEspFovTransitionRegression', 'saNpcFovTransitionRegression',
   'saCrateFovTransitionRegression', 'saFovReferenceRegression',
-  'saSnaplineSizeRegression', 'saColorProfileRegression',
+  'saSnaplineSizeRegression', 'saSnaplineIndependentRegression',
+  'saSnapTargetCleanupRegression', 'saColorProfileRegression',
   'WorldToViewportPoint = function',
   'FOV reference follows mouse X despite stale centre mode',
   'FOV enter triggers one-time overlay cleanup',
   'NPC FOV enter triggers one-time overlay cleanup',
   'crate FOV enter triggers one-time overlay cleanup',
   'custom snapline size state',
+  'snapline draws with only its own toggle ON',
+  'snapline uses thick 3px default',
+  'Gun Silent Aim keeps ESP highlight target with snapline OFF',
+  'Gun Silent Aim toggle changes ESP draw signature',
+  'outside FOV with snapline ON clears stale highlight target',
   'saved profile carries ESP colours',
   'import-only colour block restores pickers',
   'inside FOV: stale FOV-edge box replaced',
@@ -431,13 +463,14 @@ const requiredDescriptions = {
     'trigger bone', 'vis', 'wall check'],
   'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist'],
   'src/08_prediction.lua': ['gun diff', 'override'],
-  'src/09_silent_aim.lua': ['silent aim', 'guns only', 'trigger', 'auto fire',
-    'vis', 'wall check', 'tool-first', 'mouse1click',
-    'dedicated fust bow part'],
+  'src/09_silent_aim.lua': ['shared aim target refresh', 'silent aim',
+    'guns only', 'trigger', 'auto fire', 'vis', 'wall check',
+    'tool-first', 'mouse1click', 'dedicated fust bow part'],
   'src/09_z_fust_bow.lua': ['fust bow', 'ballistic', 'hookfunction',
     'shoot.fireserver', 'peek-origin', 'fov', 'bow specs', 'state'],
-  'src/10_fov_circle.lua': ['solid', 'visible', 'reference point'],
-  'src/11_snapline.lua': ['fov reference', 'snapline size'],
+  'src/10_fov_circle.lua': ['solid', 'visible', '3px', 'reference point'],
+  'src/11_snapline.lua': ['independent', 'fov reference',
+    'thick 3px', 'snapline size'],
   'src/13_esp_players_refresh.lua': ['per-player', 'cached player rig', 'vis',
     'shared projection cache', 'geometry cache'],
   'src/14_esp_npcs.lua': ['npc esp', 'cached rig'],
@@ -450,7 +483,7 @@ const requiredDescriptions = {
     'fov enter/leave', 'transition cleanup',
     'legacy line', 'hoisted helpers', 'usage marks', 'direct segments'],
   'src/18_esp_fx_frame.lua': ['per-frame', 'crate fov', 'team map',
-    'fov enter/leave', 'fov transition',
+    'fov enter/leave', 'fov transition', 'gun silent aim toggle cleanup',
     'cached rig', 'fps', 'geometry cache', 'geometry slicing',
     'camera signature', 'priority slicing', 'hidden pass',
     'one fewer pcall'],
@@ -468,7 +501,8 @@ const requiredDescriptions = {
   'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov',
     'esp-only best startup',
     'inline', 'no colour mini-tabs'],
-  'src/24_ui_visual.lua': ['fov reference', 'snapline size', 'theme', 'font',
+  'src/24_ui_visual.lua': ['fov reference', 'independent', 'thick snapline',
+    'snapline size', 'theme', 'font',
     'top-n', 'performance', 'keybind', 'popup',
     'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
     'utilities'],
@@ -539,7 +573,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '5,379 assertions',
+  '5,436 assertions',
   'all 75 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -560,6 +594,11 @@ const requiredDocs = [
   'Player, NPC and crate FOV enter/leave',
   'FOV reference point',
   'customizable snapline size',
+  'independent thick snapline',
+  '3px defaults',
+  'Gun Silent Aim toggle cleanup',
+  'shared aim target',
+  'just its own toggle ON',
   'saved colour pickers',
   'SA.FOV_STARTUP',
   'SA.EspFovSnapshot()',

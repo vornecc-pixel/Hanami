@@ -67,7 +67,7 @@ local function ensureFov()
     -- None of these is fatal. Even if NumSides / Filled are unsupported the
     -- object can still be shown (the GUI backend supports all of them).
     fovSet(c, "Filled", false)
-    fovSet(c, "Thickness", math.max(CFG.fovThickness or 2, 1))
+    fovSet(c, "Thickness", math.max(CFG.fovThickness or 3, 1))
     fovSet(c, "NumSides", 64)
     fovSet(c, "Visible", false)
     pcall(function() if c.Backend == "ScreenGui" then fovBackend = "ScreenGui" end end)
@@ -127,7 +127,7 @@ bindRender(function()
     fovSet(c, "Radius",       SA.FovRadius())
     fovSet(c, "Position",     SA.AimPoint())
     fovSet(c, "Filled",       CFG.fovFilled)
-    fovSet(c, "Thickness",    math.max(CFG.fovThickness or 2, 1))
+    fovSet(c, "Thickness",    math.max(CFG.fovThickness or 3, 1))
     -- 1% transparent = a solid, actually visible circle. 0 is accepted too.
     fovSet(c, "Transparency", math.clamp((CFG.fovTransparency or 1) / 100, 0, 0.95))
     fovSet(c, "Color",        (CFG.manipulation and ESP_COLORS.fovManip or ESP_COLORS.fov)
