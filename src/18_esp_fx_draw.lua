@@ -293,9 +293,17 @@ local function drawEntityInner(cam, o, opt)
             tagColor = tag.admin and espC("adminTag") or espC("staffTag")
         end
         local side = CFG.espTagSide == true
+        -- The side column used to start at g.y, the exact row the centred
+        -- name and the right-aligned distance already occupy. All three
+        -- landed in one band and the tags spilled past the box edge —
+        -- the stacked, misaligned tag cluster in the report. The column
+        -- now starts BELOW the name row (the name's own text height),
+        -- so the top of the box holds name + distance and the tags stack
+        -- underneath the box top on the right.
+        local sideTop = g.y + rowH + 2
         showText(o, "txTag" .. i, tag.text,
             side and (g.x + g.w + 7) or cx,
-            side and (g.y + (i - 1) * rowH)
+            side and (sideTop + (i - 1) * rowH)
                 or (g.y + g.h + 4 + rowH + (i - 1) * rowH),
             fxTextWidth(ts, tag.text), rowH,
             side and Vector2.new(0, 0) or Vector2.new(0.5, 0),

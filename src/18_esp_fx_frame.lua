@@ -177,8 +177,13 @@ function SA.EspGeom(o, cam, rootPos, headPos, kind)
         h = math.max(math.abs(hv.Y - lv.Y), 18)
         w = math.max(h * 0.9, 24)
     else
-        h = math.abs(hv.Y - lv.Y)
-        w = h / 2
+        -- A far target is a handful of pixels tall, and `h` had NO floor:
+        -- at 200+ studs the box degenerated to a sliver (or to 0 px when
+        -- the two projections rounded together) with the text stacked on
+        -- top of it. Clamp like the crate path so a distant player still
+        -- gets a readable, correctly ordered tag.
+        h = math.max(math.abs(hv.Y - lv.Y), 18)
+        w = math.max(h / 2, 12)
     end
     local z = tonumber(raw.Z) or 0
     local vp = cam.ViewportSize or Vector2.new(1280, 720)

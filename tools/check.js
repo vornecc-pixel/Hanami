@@ -280,6 +280,28 @@ assert(allSource.includes('SA.HideEspBillboard = hideEspBillboard'),
 assert(allSource.includes('cameraTurned and 1'),
   'src/18_esp_fx_frame.lua: camera-turn fresh geometry missing');
 
+// Tag layout: the right-hand tag column must start BELOW the name row,
+// and a distant player box must keep a minimum size (it used to collapse
+// to a sliver, stacking every label onto one pixel row).
+assert(allSource.includes('local sideTop = g.y + rowH + 2'),
+  'src/18_esp_fx_draw.lua: side tag column must clear the name row');
+assert(!allSource.includes('side and (g.y + (i - 1) * rowH)'),
+  'src/18_esp_fx_draw.lua: side tags must not start on the name row');
+{
+  const fxFrame = read('src/18_esp_fx_frame.lua');
+  const floorCount =
+    (fxFrame.match(/math\.max\(math\.abs\(hv\.Y - lv\.Y\), 18\)/g) || []).length;
+  assert(floorCount >= 2,
+    'src/18_esp_fx_frame.lua: player box needs the same height floor as crates');
+  assert(fxFrame.includes('math.max(h / 2, 12)'),
+    'src/18_esp_fx_frame.lua: player box width floor missing');
+}
+
+// Cold start: an enabled kind with no objects must build immediately
+// instead of waiting out the Performance Mode interval.
+assert(allSource.includes('COLD START GUARD'),
+  'src/19_render_loop.lua: cold-start build guard missing');
+
 // FOV circle is the sole non-ESP startup exception: ON, solid, visible,
 // mouse reference, with a separate 1-10 snapline size control.
 const fovStart = config.indexOf('SA.FOV_STARTUP = {');
@@ -836,7 +858,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,399 assertions',
+  '6,471 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',

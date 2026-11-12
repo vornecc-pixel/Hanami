@@ -4071,6 +4071,204 @@ function saPlayerEspWorksRegression()
 end
 saPlayerEspWorksRegression()
 
+-- ── ESP TAG LAYOUT: no stacked / overlapping player labels ──────────
+-- Report: a player tag rendered its name, distance and state / type rows
+-- on top of each other in one band at the top-left of the box.
+--
+-- Root cause (measured, not guessed): with espTagSide = true the tag
+-- column started at g.y — the exact row the centred NAME (anchor 0.5,1 at
+-- g.y) and the right-aligned DISTANCE (anchor 1,0 at g.y) already occupy.
+-- All three landed in one horizontal band and the tags then ran past the
+-- box's right edge. The column now starts below the name row.
+--
+-- Second bug found while measuring: the player box height had no floor
+-- (h = |hv.Y - lv.Y|), unlike the crate path (min 18). At 200+ studs a
+-- player box collapsed to a sliver with every label stacked on it.
+function saEspTagLayoutRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "espShowBox", "espShowName", "espShowDist", "espShowTool",
+        "espShowState", "espShowHealth", "espTagSide", "espCleanMode",
+        "espTagBackdrop", "espMaxDist", "perfMode", "espOnlyNearest",
+        "espOnlyAimTarget", "espTeamMode", "showFov", "masterEnabled",
+        "gunEnabled", "snapLineEnabled", "espVisibleCheck", "fov" }) do
+        savedFlags[k] = CFG[k]
+    end
+    setFlags({ espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+        espShowBox = true, espShowName = true, espShowDist = true,
+        espShowTool = true, espShowState = true, espShowHealth = true,
+        espCleanMode = false, espTagBackdrop = false, espMaxDist = 5000,
+        perfMode = false, espOnlyNearest = false, espOnlyAimTarget = false,
+        espTeamMode = "All", showFov = false, masterEnabled = false,
+        gunEnabled = false, snapLineEnabled = false, espVisibleCheck = false,
+        fov = 400 })
+    MOCK_REAL_PROJECTION = true
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    MOCK_CAMERA.FieldOfView = 70
+    mock_cam_clear_look(MOCK_CAMERA)
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    frameTimes(10)
+    local o
+    for pl, ob in pairs(espObjects) do
+        if pl.Name == "NearestGuy" then o = ob end
+    end
+    ok(o ~= nil, "tag layout: player object built")
+
+    local function rectOf(d)
+        local anc = tostring(d.Anchor)
+        local x, y = d.Position.X, d.Position.Y
+        local w, h = d.Size.X, d.Size.Y
+        local ox, oy = 0.5, 0
+        if anc == "1,0" then ox = 1 elseif anc == "0,0" then ox = 0
+        elseif anc == "0.5,1" then oy = 1 elseif anc == "1,1" then
+            ox, oy = 1, 1 end
+        return x - ox * w, y - oy * h, x - ox * w + w, y - oy * h + h
+    end
+
+    local function worstOverlap()
+        local rects = {}
+        for _, d in pairs(o.fx or {}) do
+            if tostring(d.__saPoolKind) == "Text" and d.Visible then
+                local x0, y0, x1, y1 = rectOf(d)
+                rects[#rects + 1] = { x0 = x0, y0 = y0, x1 = x1, y1 = y1 }
+            end
+        end
+        local worst = 0
+        for i = 1, #rects do
+            for j = i + 1, #rects do
+                local a, b = rects[i], rects[j]
+                local ox = math.min(a.x1, b.x1) - math.max(a.x0, b.x0)
+                local oy = math.min(a.y1, b.y1) - math.max(a.y0, b.y0)
+                if ox > 0.5 and oy > 0.5 then
+                    worst = math.max(worst, math.min(ox, oy))
+                end
+            end
+        end
+        return worst
+    end
+
+    for _, side in ipairs({ false, true }) do
+        setFlags({ espTagSide = side })
+        SA.EspGeomInvalidate()
+        frameTimes(8)
+        local label = side and "right column" or "stacked under box"
+        eq(worstOverlap(), 0,
+            "player tags do not overlap in " .. label .. " mode")
+    end
+
+    setFlags({ espTagSide = true })
+    SA.EspGeomInvalidate()
+    frameTimes(8)
+    local nameD = o.fx and o.fx.txName
+    local tag1 = o.fx and o.fx.txTag1
+    if nameD and tag1 then
+        local _, _, _, ny1 = rectOf(nameD)
+        local _, ty0 = rectOf(tag1)
+        ok(ty0 >= ny1 - 0.5,
+            "right-column tags start below the name row (name ends "
+            .. string.format("%.1f", ny1) .. ", tags start "
+            .. string.format("%.1f", ty0) .. ")")
+    else
+        ok(true, "right-column tag rows not present in this layout")
+    end
+
+    setFlags({ espEnabled = false, espTagSide = false })
+    MOCK_REAL_PROJECTION = false
+    mock_cam_clear_look(MOCK_CAMERA)
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saEspTagLayoutRegression()
+
+-- ── A distant player box must not collapse to a sliver ──────────────
+function saEspBoxFloorRegression()
+    for _, dist in ipairs({ 5, 60, 200, 600 }) do
+        local o = { geomAnchor = nil }
+        local fakeCam = {
+            ViewportSize = Vector2.new(1280, 720),
+            CFrame = CFrame.new(0, 3, 0),
+            WorldToViewportPoint = function(_, p)
+                local s = 400 / math.max(dist, 1)
+                return Vector3.new(640, 360 - s * 0.5, dist), true
+            end,
+        }
+        local g = SA.EspGeom(o, fakeCam, Vector3.new(0, 0, -dist),
+            Vector3.new(0, 1, -dist), "player")
+        ok(g ~= nil, "box geometry at " .. dist .. " studs")
+        if g then
+            ok(g.h >= 17.5, string.format(
+                "player box height floored at %d studs (got %.1f)",
+                dist, g.h))
+            ok(g.w >= 11.5, string.format(
+                "player box width floored at %d studs (got %.1f)",
+                dist, g.w))
+        end
+    end
+end
+saEspBoxFloorRegression()
+
+-- ── A turning camera must carry every tag with it ───────────────────
+-- The "ESP gets stuck when the camera turns too much" report: whatever a
+-- turn does to building, slicing or refreshing, a tag that IS drawn must
+-- be drawn at the CURRENT projection, never at a cached one. Measured
+-- worst-case error for both pipelines, in normal AND Performance Mode.
+function saEspCameraFollowRegression()
+    for _, pal in ipairs({ "player", "npc" }) do
+        for _, mode in ipairs({ false, true }) do
+            setFlags({ perfMode = mode,
+                espEnabled = (pal == "player"),
+                npcEspEnabled = (pal == "npc"), crateEnabled = false,
+                npcShowName = true, npcShowDist = true, npcMaxDist = 5000,
+                espShowBox = true, espShowName = true, espShowDist = true,
+                espMaxDist = 5000, espDataRefreshMs = 100, showFov = false,
+                masterEnabled = false, gunEnabled = false,
+                snapLineEnabled = false, espOnlyNearest = false,
+                espOnlyAimTarget = false, espTeamMode = "All", fov = 400 })
+            MOCK_REAL_PROJECTION = true
+            MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+            MOCK_CAMERA.FieldOfView = 70
+            mock_cam_clear_look(MOCK_CAMERA)
+            mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+            SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+            frameTimes(14)
+            local o
+            if pal == "player" then
+                for pl, ob in pairs(espObjects) do
+                    if pl.Name == "NearestGuy" then o = ob end
+                end
+            else
+                for _, ob in pairs(npcObjects) do o = ob; break end
+            end
+            local label = pal .. (mode and " perf" or " normal")
+            ok(o ~= nil, "camera follow: " .. label .. " object exists")
+            if o then
+                local worst = 0
+                for _, ang in ipairs({ 0.4, 1.1, 1.9, 2.6, 3.3, 2.1,
+                                       1.0, 0.3, 2.9 }) do
+                    mock_cam_look(MOCK_CAMERA, Vector3.new(
+                        math.cos(ang) * 12, 1 + math.sin(ang * 2) * 2,
+                        math.sin(ang) * 12))
+                    mock_frame(0.016)
+                    local d = o.fx and o.fx.txName
+                    if d and d.Visible then
+                        local v = MOCK_CAMERA:WorldToViewportPoint(o.root.Position)
+                        worst = math.max(worst, math.abs(d.Position.X - v.X))
+                    end
+                end
+                ok(worst < 1.5, string.format(
+                    "camera follow: %s tag tracks the camera (worst %.1f px)",
+                    label, worst))
+            end
+            setFlags({ espEnabled = false, npcEspEnabled = false })
+            SA.EspGeomInvalidate()
+        end
+    end
+    MOCK_REAL_PROJECTION = false
+    mock_cam_clear_look(MOCK_CAMERA)
+end
+saEspCameraFollowRegression()
+
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then
     -- Prepare a real startup auto-load for the NEXT re-execute. The live

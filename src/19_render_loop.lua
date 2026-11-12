@@ -257,6 +257,21 @@ bindRender(function(dt)
     else
         espBuildAccum = 0
     end
+    -- COLD START GUARD. Pacing exists to spread builds out once ESP is
+    -- already on screen; it must never delay the first objects. In
+    -- Performance Mode the interval can reach 300-500 ms on a slow
+    -- client, so a fresh toggle stayed completely empty for a third of a
+    -- second (and, with the accumulator reset each skipped frame, could
+    -- look like ESP "not loading at all"). If an enabled kind has no
+    -- objects yet, build NOW.
+    if not buildOk then
+        if (CFG.espEnabled and next(espObjects) == nil)
+            or (CFG.npcEspEnabled and next(npcObjects) == nil)
+            or (CFG.crateEnabled and next(crateObjects) == nil) then
+            buildOk = true
+            espBuildAccum = 0
+        end
+    end
     if buildOk then espBuildAccum = 0 end
     if not buildOk then
         SA.EspPerf.buildSkips = (SA.EspPerf.buildSkips or 0) + 1
