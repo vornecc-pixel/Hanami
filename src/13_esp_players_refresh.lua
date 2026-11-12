@@ -45,6 +45,11 @@ local function refreshOnePlayer(plr, o, cam)
     -- are parented to the OLD character, so they can never come back on
     -- their own. Dropping them lets the render loop rebuild on the new one.
     if o.char and o.char ~= char then clearESP(plr); return end
+    -- The legacy BillboardGui / Highlight are OPTIONAL now: a build that
+    -- dropped them (unsupported property on this client) must NOT be
+    -- treated as stale, or the object would be cleared and rebuilt in an
+    -- endless loop. Only a fallback that still EXISTS but lost its parent
+    -- means the rig went away.
     if o.bb and not o.bb.Parent then clearESP(plr); return end
     if o.highlight and not o.highlight.Parent then clearESP(plr); return end
 
@@ -82,17 +87,19 @@ local function refreshOnePlayer(plr, o, cam)
     -- the documented fallback when no screen-space draw exists) but the
     -- legacy labels are never SHOWN while the FX pass is alive.
     local screenSpace = type(SA.HideEspBillboard) == "function"
-    o.bb.Enabled = not screenSpace
-    o.nameLbl.Text = plr.Name
-    o.nameLbl.TextColor3 = col
-    o.distLbl.Text = string.format("[%dm]",
-        math.floor(dist / (SA.STUDS_PER_METER or 3.571)))
-    if screenSpace then
-        o.nameLbl.Visible = false
-        o.distLbl.Visible = false
-    else
-        o.nameLbl.Visible = CFG.espShowName
-        o.distLbl.Visible = CFG.espShowDist
+    -- Every legacy widget may be missing on this client (see buildESP):
+    -- the screen-space FX pass is the real renderer, so nil-safe writes
+    -- keep the player alive instead of erroring the refresh out.
+    if o.bb then o.bb.Enabled = not screenSpace end
+    if o.nameLbl then
+        o.nameLbl.Text = plr.Name
+        o.nameLbl.TextColor3 = col
+        o.nameLbl.Visible = (not screenSpace) and CFG.espShowName == true
+    end
+    if o.distLbl then
+        o.distLbl.Text = string.format("[%dm]",
+            math.floor(dist / (SA.STUDS_PER_METER or 3.571)))
+        o.distLbl.Visible = (not screenSpace) and CFG.espShowDist == true
     end
 
     -- ── Structured text for the new screen-space Tahoma layout ───────
@@ -151,22 +158,26 @@ local function refreshOnePlayer(plr, o, cam)
         table.insert(bits, visible and "VIS" or "WALL")
     end
     if CFG.espShowHealthText then table.insert(bits, hpText) end
-    o.infoLbl.Text = table.concat(bits, " | ")
-    o.infoLbl.TextColor3 = col
-    o.infoLbl.Visible = #bits > 0
+    if o.infoLbl then
+        o.infoLbl.Text = table.concat(bits, " | ")
+        o.infoLbl.TextColor3 = col
+        o.infoLbl.Visible = #bits > 0
+    end
 
-    local g = SA.EspGeom(o, cam, hrp.Position, head.Position, "player")
-    if g and g.onScreen then
-        local x, y, w, h = g.x, g.y, g.w, g.h
-        o.lines.top.From = Vector2.new(x, y); o.lines.top.To = Vector2.new(x + w, y)
-        o.lines.bottom.From = Vector2.new(x, y + h); o.lines.bottom.To = Vector2.new(x + w, y + h)
-        o.lines.left.From = Vector2.new(x, y); o.lines.left.To = Vector2.new(x, y + h)
-        o.lines.right.From = Vector2.new(x + w, y); o.lines.right.To = Vector2.new(x + w, y + h)
-        -- Colours are applied by the FX pass through SA.ApplyInstProp();
-        -- writing them here too would double every legacy-line write.
-        -- The health bar is drawn by the FX pass from the live ratio.
-    elseif o.lines then
-        for _, l in pairs(o.lines) do l.Visible = false end
+    -- Legacy box geometry is only a fallback; the FX pass owns the box
+    -- whenever it is alive. Nil-safe because the line pool is optional.
+    if o.lines then
+        local g = SA.EspGeom(o, cam, hrp.Position, head.Position, "player")
+        if g and g.onScreen and (o.lines.top and o.lines.bottom
+            and o.lines.left and o.lines.right) then
+            local x, y, w, h = g.x, g.y, g.w, g.h
+            o.lines.top.From = Vector2.new(x, y); o.lines.top.To = Vector2.new(x + w, y)
+            o.lines.bottom.From = Vector2.new(x, y + h); o.lines.bottom.To = Vector2.new(x + w, y + h)
+            o.lines.left.From = Vector2.new(x, y); o.lines.left.To = Vector2.new(x, y + h)
+            o.lines.right.From = Vector2.new(x + w, y); o.lines.right.To = Vector2.new(x + w, y + h)
+        elseif not screenSpace then
+            for _, l in pairs(o.lines) do l.Visible = false end
+        end
     end
 end
 

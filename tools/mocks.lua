@@ -943,7 +943,16 @@ INST_META.__index = function(t, k)
     end
     return rawget(t, k)
 end
+-- Which (ClassName, property) writes must throw, so a test can model a
+-- client that predates a property. The player build wraps everything in
+-- one pcall, so one missing property there aborts the WHOLE object.
+MOCK_BAD_PROP = nil
 INST_META.__newindex = function(t, k, v)
+    if MOCK_BAD_PROP and MOCK_BAD_PROP[k]
+        and (MOCK_BAD_PROP[k] == true or MOCK_BAD_PROP[k] == t.ClassName) then
+        error("mock: " .. tostring(t.ClassName) .. "." .. tostring(k)
+            .. " is not a valid member", 0)
+    end
     if k == "Size" then
         local props = rawget(t, "_props")
         if not props then props = {}; rawset(t, "_props", props) end

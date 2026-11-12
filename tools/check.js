@@ -376,7 +376,27 @@ for (const needle of [
 }
 // The stutter fix: per-entity FOV state keys on the entity's own
 // viewport / FOV membership only, never on the shared draw signature.
+// The player builder must register its object even when an OPTIONAL
+// widget fails. Wrapping BillboardGui + Highlight + Lines + registration
+// in one pcall is what made player ESP dead on clients that reject a
+// single property (Highlight.DepthMode) while NPC/crate ESP kept working.
 const drawSrc = read('src/18_esp_fx_draw.lua');
+const playerSrc = read('src/12_esp_players.lua');
+assert(playerSrc.includes('espObjects[plr] = {'),
+  'buildESP must register the player object');
+assert(!/local ok = pcall\(function\(\)[\s\S]{0,4000}?espObjects\[plr\] = \{/.test(playerSrc),
+  'buildESP must not wrap object registration in the widget pcall');
+assert(playerSrc.includes('pcall(function() h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end)'),
+  'Highlight.DepthMode must be individually guarded');
+assert(playerSrc.includes('local okLine, d = pcall(function() return SA.NewDraw("Line") end)'),
+  'each legacy Line must be created independently');
+const refreshSrc = read('src/13_esp_players_refresh.lua');
+assert(refreshSrc.includes('if o.bb then o.bb.Enabled = not screenSpace end'),
+  'the refresh must be nil-safe about the optional BillboardGui');
+assert(refreshSrc.includes('if o.nameLbl then'),
+  'the refresh must be nil-safe about the optional labels');
+assert(drawSrc.includes('if not l then'),
+  'setFxLine must fall through to a pooled draw for a missing legacy line');
 assert(drawSrc.includes('local fovState = tostring(fov.onScreen)'),
   'per-entity FOV state key must not include the draw signature');
 // REWRITE guard: an FOV crossing may only clear the FOV-owned draw group.
@@ -816,7 +836,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,369 assertions',
+  '6,399 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -881,6 +901,9 @@ const requiredDocs = [
   'Snapline is player-only',
   'SA.EspKey6',
   'ringDraws',
+  'MOCK_BAD_PROP',
+  'saPlayerEspWorksRegression',
+  'registration is unconditional',
   'nearest-player profile regressions',
   'SA.FOV_STARTUP',
   'SA.EspFovSnapshot()',

@@ -125,80 +125,97 @@ local function buildESP(plr)
 
     -- Held outside the pcall so a partial failure can be cleaned up
     -- instead of leaking orphaned Instances into the character.
-    local bb, hl, lines = nil, nil, nil
-    local ok = pcall(function()
-        bb = Instance.new("BillboardGui")
-        bb.Name = "HanamiPlayerGui"
-        bb.Size = UDim2.fromOffset(220, 56)
-        bb.StudsOffset = Vector3.new(0, 2.5, 0)
-        bb.AlwaysOnTop = true
-        bb.Adornee = head
-        bb.Parent = head
+    --
+    -- EVERY optional piece is built in its OWN pcall. The old build wrapped
+    -- the BillboardGui, three labels, the Highlight, six Lines and the
+    -- object registration in ONE pcall, so a single unsupported property
+    -- anywhere (Highlight.DepthMode on an older client, a TextLabel write a
+    -- strict executor rejects) aborted the whole thing: no object was ever
+    -- registered, and the render loop retried the same doomed build forever.
+    -- NPC ESP and crate ESP use separate builders, which is exactly why
+    -- players alone were dead while the other ESPs worked.
+    local bb, nameLbl, distLbl, infoLbl, hl, lines = nil, nil, nil, nil, nil, nil
 
-        local nameLbl = Instance.new("TextLabel")
-        nameLbl.Size = UDim2.new(1, 0, 0, 14)
-        nameLbl.BackgroundTransparency = 1
-        SA.ApplyEspFont(nameLbl)
-        nameLbl.TextSize = 11
-        nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        nameLbl.TextStrokeTransparency = 0
-        nameLbl.Parent = bb
+    -- 1. Legacy BillboardGui -- a FALLBACK for text only. The screen-space
+    --    FX pass draws the real name / distance / tags and needs no
+    --    Instance text at all, so a failure here costs nothing visible.
+    pcall(function()
+        local g = Instance.new("BillboardGui")
+        g.Name = "HanamiPlayerGui"
+        g.Size = UDim2.fromOffset(220, 56)
+        g.StudsOffset = Vector3.new(0, 2.5, 0)
+        g.AlwaysOnTop = true
+        g.Adornee = head
+        g.Parent = head
+        bb = g
 
-        local distLbl = Instance.new("TextLabel")
-        distLbl.Size = UDim2.new(1, 0, 0, 12)
-        distLbl.Position = UDim2.new(0, 0, 0, 14)
-        distLbl.BackgroundTransparency = 1
-        SA.ApplyEspFont(distLbl)
-        distLbl.TextSize = 11
-        distLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-        distLbl.TextStrokeTransparency = 0
-        distLbl.Parent = bb
-
-        -- weapon / state / VIS-WALL line (filled by 13_esp_players_refresh)
-        local infoLbl = Instance.new("TextLabel")
-        infoLbl.Size = UDim2.new(1, 0, 0, 12)
-        infoLbl.Position = UDim2.new(0, 0, 0, 28)
-        infoLbl.BackgroundTransparency = 1
-        SA.ApplyEspFont(infoLbl)
-        infoLbl.TextSize = 10
-        infoLbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-        infoLbl.TextStrokeTransparency = 0
-        infoLbl.Visible = false
-        infoLbl.Parent = bb
-
-        hl = Instance.new("Highlight")
-        hl.Name = "HanamiPlayerHighlight"
-        hl.Adornee = char
-        hl.FillTransparency = 0.3
-        hl.OutlineTransparency = 1
-        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        hl.Parent = char
-
-        lines = {
-            top = SA.NewDraw("Line"), bottom = SA.NewDraw("Line"),
-            left = SA.NewDraw("Line"), right = SA.NewDraw("Line"),
-            hpBg = SA.NewDraw("Line"), hpFill = SA.NewDraw("Line"),
-        }
-        -- A failed property write on one Drawing backend must not abort
-        -- the build and leave a half-created player in the queue.
-        for _, l in pairs(lines) do
-            pcall(function() l.Thickness = 1; l.Visible = false end)
+        local function addLabel(name, y, size, colour, forceHidden)
+            local lbl
+            pcall(function()
+                local t = Instance.new("TextLabel")
+                t.Size = UDim2.new(1, 0, 0, size)
+                t.Position = UDim2.new(0, 0, 0, y)
+                t.BackgroundTransparency = 1
+                pcall(function() SA.ApplyEspFont(t) end)
+                t.TextSize = (size >= 14) and 11 or 10
+                t.TextColor3 = colour
+                pcall(function() t.TextStrokeTransparency = 0 end)
+                if forceHidden then t.Visible = false end
+                t.Parent = g
+                lbl = t
+            end)
+            return lbl
         end
-        pcall(function() lines.hpBg.Thickness = 2; lines.hpFill.Thickness = 2 end)
-
-        espObjects[plr] = {
-            bb = bb, nameLbl = nameLbl, distLbl = distLbl, infoLbl = infoLbl,
-            highlight = hl, lines = lines,
-            char = char, root = hrp, head = head, hum = hum,
-        }
+        nameLbl = addLabel("Name", 0, 14, Color3.fromRGB(255, 255, 255), false)
+        distLbl = addLabel("Dist", 14, 12, Color3.fromRGB(200, 200, 200), false)
+        infoLbl = addLabel("Info", 28, 12, Color3.fromRGB(200, 200, 200), true)
     end)
-    if not ok then
-        -- Never leave a half-built character stranded in the DataModel.
-        pcall(function() if bb then bb:Destroy() end end)
-        pcall(function() if hl then hl:Destroy() end end)
-        if lines then for _, l in pairs(lines) do removeDrawing(l) end end
-        espObjects[plr] = nil
-        return false
+    -- A half-built BillboardGui is worse than none: drop it if its labels
+    -- did not survive, because the refresh writes to all three.
+    if bb and not (nameLbl and distLbl and infoLbl) then
+        pcall(function() bb:Destroy() end)
+        bb, nameLbl, distLbl, infoLbl = nil, nil, nil, nil
     end
+
+    -- 2. Cham -- purely cosmetic, fully optional.
+    pcall(function()
+        local h = Instance.new("Highlight")
+        h.Name = "HanamiPlayerHighlight"
+        h.Adornee = char
+        h.FillTransparency = 0.3
+        h.OutlineTransparency = 1
+        -- DepthMode does not exist on older clients; the cham still works.
+        pcall(function() h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end)
+        h.Parent = char
+        hl = h
+    end)
+
+    -- 3. Legacy box lines -- replaced by the FX pass whenever it is alive.
+    lines = {}
+    for _, key in ipairs({ "top", "bottom", "left", "right",
+                           "hpBg", "hpFill" }) do
+        local okLine, d = pcall(function() return SA.NewDraw("Line") end)
+        lines[key] = (okLine and d) or nil
+        if lines[key] then
+            pcall(function() lines[key].Thickness = 1; lines[key].Visible = false end)
+        end
+    end
+    pcall(function()
+        if lines.hpBg then lines.hpBg.Thickness = 2 end
+        if lines.hpFill then lines.hpFill.Thickness = 2 end
+    end)
+    -- Keep the table non-empty even when every Line failed, so the refresh
+    -- loops (which iterate o.lines) stay cheap instead of erroring.
+    if not (lines.top or lines.bottom or lines.left or lines.right) then
+        lines = nil
+    end
+
+    -- 4. Register UNCONDITIONALLY. The object is what the FX pass and the
+    --    refresh loop iterate; every optional part above may be nil.
+    espObjects[plr] = {
+        bb = bb, nameLbl = nameLbl, distLbl = distLbl, infoLbl = infoLbl,
+        highlight = hl, lines = lines,
+        char = char, root = hrp, head = head, hum = hum,
+    }
     return espObjects[plr] ~= nil
 end

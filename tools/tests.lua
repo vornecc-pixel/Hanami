@@ -3970,6 +3970,107 @@ function saEspFovRewriteRegression()
 end
 saEspFovRewriteRegression()
 
+-- Player ESP end-to-end: build -> refresh -> FX must actually draw, and
+-- the toggle must create and destroy the objects.
+function saPlayerEspWorksRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "espShowBox", "espShowName", "espShowDist", "espVisibleCheck",
+        "espShowOffscreen", "espShowTracer", "espOnlyNearest",
+        "espOnlyAimTarget", "espTeamMode", "espMaxDist", "espDataRefreshMs",
+        "perfMode", "fov", "masterEnabled", "gunEnabled", "snapLineEnabled",
+        "showFov" }) do savedFlags[k] = CFG[k] end
+    -- Start fully OFF, then toggle player ESP ON through the flag so the
+    -- real enable path runs (not just a direct CFG write).
+    setFlags({ espEnabled = false, npcEspEnabled = false, crateEnabled = false,
+        masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
+        showFov = false, espTeamMode = "All", espMaxDist = 5000,
+        espDataRefreshMs = 16, perfMode = false, fov = 400 })
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    frameTimes(3)
+    local before = 0
+    for _ in pairs(espObjects) do before = before + 1 end
+    eq(before, 0, "player ESP OFF builds no player objects")
+
+    -- REAL-CLIENT FAILURE: one unsupported property on the player
+    -- BillboardGui / Highlight used to abort the whole pcall in
+    -- buildESP, so NO player object was ever registered while NPC ESP
+    -- (a different builder) kept working.
+    MOCK_BAD_PROP = { DepthMode = "Highlight" }
+    quiet(function() setFlag("espEnabled", true) end)
+    eq(CFG.espEnabled, true, "the player ESP toggle turns ON")
+    frameTimes(10)
+    local survived = 0
+    for _ in pairs(espObjects) do survived = survived + 1 end
+    ok(survived > 0,
+        "player ESP still builds when Highlight.DepthMode is unsupported")
+    -- Same guarantee for a rejected legacy label property.
+    for _ in pairs(espObjects) do end
+    quiet(function() setFlag("espEnabled", false) end)
+    frameTimes(2)
+    MOCK_BAD_PROP = { TextStrokeTransparency = "TextLabel" }
+    quiet(function() setFlag("espEnabled", true) end)
+    frameTimes(10)
+    local survived2 = 0
+    for _ in pairs(espObjects) do survived2 = survived2 + 1 end
+    ok(survived2 > 0,
+        "player ESP still builds when a legacy label property is unsupported")
+    -- ... and it must actually DRAW, not merely exist.
+    local drewDegraded = 0
+    for _, o in pairs(espObjects) do
+        if o.fx then
+            for _, d in pairs(o.fx) do
+                if d.Visible == true then drewDegraded = drewDegraded + 1 end
+            end
+        end
+    end
+    ok(drewDegraded > 0,
+        "player ESP still draws with the legacy text backend unavailable")
+    MOCK_BAD_PROP = nil
+    frameTimes(2)
+    local count = 0
+    for _ in pairs(espObjects) do count = count + 1 end
+    ok(count > 0, "turning player ESP ON builds player objects")
+
+    -- Every object must actually be drawn, not just exist.
+    local visible, withName, withBox = 0, 0, 0
+    for _, o in pairs(espObjects) do
+        local shown = false
+        if o.fx then
+            for _, d in pairs(o.fx) do
+                if d.Visible == true then shown = true end
+            end
+        end
+        if shown then visible = visible + 1 end
+        if o.fx and o.fx.txName and o.fx.txName.Visible == true then
+            withName = withName + 1
+        end
+        if o.fx and o.fx.box1 and o.fx.box1.Visible == true then
+            withBox = withBox + 1
+        end
+    end
+    ok(visible > 0, "player ESP draws at least one pooled draw")
+    ok(withName > 0, "player ESP draws a name label")
+    ok(withBox > 0, "player ESP draws a box")
+
+    -- Toggling OFF must hide everything again.
+    quiet(function() setFlag("espEnabled", false) end)
+    frameTimes(3)
+    local leaked = 0
+    for _, o in pairs(espObjects) do
+        if o.fx then
+            for _, d in pairs(o.fx) do
+                if d.Visible == true then leaked = leaked + 1 end
+            end
+        end
+    end
+    eq(leaked, 0, "turning player ESP OFF hides every player draw")
+
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+end
+saPlayerEspWorksRegression()
+
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then
     -- Prepare a real startup auto-load for the NEXT re-execute. The live

@@ -47,6 +47,10 @@ end
 
 local function setFxLine(o, key, x1, y1, x2, y2, color, t, thick, legacy)
     local l
+    -- `legacy` only means "prefer the prebuilt Instance line". A client
+    -- that rejected one of those lines leaves a nil slot, and the old code
+    -- then drew NOTHING for that edge (the box silently lost sides).
+    -- Fall through to the pooled draw whenever the legacy slot is nil.
     if legacy and o.lines then
         l = o.lines[key]
         if l then
@@ -54,7 +58,8 @@ local function setFxLine(o, key, x1, y1, x2, y2, color, t, thick, legacy)
             if not o.instApplied then o.instApplied = {} end
             SA.ApplyInstProp(o.instApplied, l, "Visible", true)
         end
-    else
+    end
+    if not l then
         l = getDraw(o, key, "Line")
     end
     if not l then return end
