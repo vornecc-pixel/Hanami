@@ -115,6 +115,34 @@ addButton(hudSec, "Lock Nearest as Aim Target", function()
     if name then setFlag("targetPriority", "Pinned") end
 end)
 
+-- ── ARMOR CONSOLE (Fust gear HUD) ──────────────────────────────────
+-- Same behaviour as the Nearest HUD: only visible while the menu is
+-- minimised, drag the header to move it, corner + scale + transparency.
+local armorSec = hudCol:section({ name = "Armor Console" })
+bindToggle(armorSec, "Armor Console HUD", "armorConsole",
+    "Shows each awake player's Fust gear and per-region protection while the menu is hidden")
+armorSec:label({ name = "Drag the header to move it · reads the FustWear folder the game already replicates" })
+bindToggle(armorSec, "Only Players In FOV", "armorConsoleFov",
+    "List only players inside the aim circle (same reference the circle draws with)")
+bindToggle(armorSec, "Show Protection Totals", "armorConsoleShowTotals",
+    "Per-region percentage on each row; otherwise the FOV badge")
+bindDropdown(armorSec, "Sort By", "armorConsoleSort",
+    { "Nearest", "Distance", "Name", "Most Armor" })
+bindSlider(armorSec, "Max Distance", "armorConsoleMaxDist", 0, 5000, 50, " studs (0 = all)")
+bindSlider(armorSec, "Scan Interval", "armorConsoleScanSec", 0.25, 5, 0.25, " s")
+bindSlider(armorSec, "Players Shown", "armorConsoleMaxPlayers", 1, 5, 1, "")
+bindDropdown(armorSec, "Corner", "armorConsoleCorner", {
+    "Top Left", "Top Right", "Bottom Left", "Bottom Right",
+})
+bindSlider(armorSec, "HUD Scale", "armorConsoleScale", 0.6, 1.8, 0.1, "x")
+bindSlider(armorSec, "HUD Transparency (%)", "armorConsoleTransparency", 0, 80, 1, "%")
+addButton(armorSec, "Refresh Armor Console", function()
+    pcall(SA.ArmorConsoleRefresh)
+end)
+addButton(armorSec, "Reset Console Position", function()
+    pcall(SA.ArmorConsoleResetPosition)
+end)
+
 bindToggle(perfSec, "Performance Mode", "perfMode",
     "Adaptive ESP rebuild pacing, drawing reuse, entity cap per frame and FPS counter")
 bindSlider(perfSec, "ESP Text Refresh (ms @60fps)", "espDataRefreshMs", 16, 500, 1, "ms")

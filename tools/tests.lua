@@ -4399,6 +4399,221 @@ function saConfigRoundTripRegression()
 end
 saConfigRoundTripRegression()
 
+-- ── ARMOR CONSOLE ───────────────────────────────────────────────────
+-- The reference script only printed to the console. This regression
+-- pins the behaviour that replaced it: catalog accuracy, readable icon
+-- codes, region inference, FOV awareness, nearest-crosshair ordering and
+-- a panel that actually fills on the frame it is built.
+function saArmorConsoleRegression()
+    local savedFlags = {}
+    for _, key in ipairs({ "armorConsole", "armorConsoleFov",
+        "armorConsoleShowTotals", "armorConsoleMaxDist",
+        "armorConsoleScanSec", "armorConsoleSort", "armorConsoleCorner",
+        "armorConsoleScale", "armorConsoleMaxPlayers" }) do
+        savedFlags[key] = CFG[key]
+    end
+
+    -- The supplied catalog is authoritative: 26 items, exact prot + abbr.
+    eq(#SA.ARMOR_CATALOG, 26, "armor console: catalog has all 26 items")
+    local byId = {}
+    for _, item in ipairs(SA.ARMOR_CATALOG) do byId[item.id] = item end
+    for _, row in ipairs({
+        { "heavy_plate_helmet", 55, "HPH" }, { "riot_helmet", 30, "RIOT" },
+        { "night_vision_goggles", 10, "NVG" }, { "hoodie", 16, "HOD" },
+        { "heavy_plate_pants", 32, "HPP" }, { "burlap_shoes", 5, "BS" },
+        { "combat_boots", 12, "CBT" }, { "metal_chest_plate", 37, "MCP" },
+    }) do
+        local entry = byId[row[1]]
+        ok(entry ~= nil, "armor console: catalog has " .. row[1])
+        eq(entry and entry.prot, row[2], "armor console: prot for " .. row[1])
+        eq(entry and entry.abbr, row[3], "armor console: abbr for " .. row[1])
+    end
+    eq(SA.ARMOR_REGION_CAP, 80, "armor console: region cap")
+
+    -- Icon codes: catalog abbr, then name initials for unknown gear.
+    eq(SA.ArmorIconAbbr("heavy_plate_helmet"), "HPH", "armor: abbr lookup")
+    eq(SA.ArmorIconAbbr("night_vision_goggles"), "NVG", "armor: nvg abbr")
+    eq(SA.ArmorIconAbbr("mystery_kevlar_vest"), "MKV", "armor: initials fallback")
+    -- BS is used by both burlap_shirt and burlap_shoes: the two chips must
+    -- not be visually identical, so the colour is id-derived.
+    ok(SA.ArmorIconColor("burlap_shirt") ~= SA.ArmorIconColor("burlap_shoes"),
+        "armor: same-abbr chips get different colours")
+
+    -- Build a FustWear folder the way the game replicates it.
+    local nearest = nil
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Name == "NearestGuy" then nearest = plr end
+    end
+    ok(nearest ~= nil and nearest.Character ~= nil, "armor: NearestGuy present")
+    local char = nearest.Character
+    local wear = Instance.new("Folder")
+    wear.Name = "FustWear"
+    wear.Parent = char
+    local function addWear(name, itemId, slot)
+        local part = Instance.new("Part")
+        part.Name = name
+        part.Parent = wear
+        if itemId then part:SetAttribute("ItemId", itemId) end
+        if slot then part:SetAttribute("WASlot", slot) end
+    end
+    addWear("helm", "heavy_plate_helmet", "head")
+    addWear("jack", "heavy_plate_jacket", "torso_armor")
+    addWear("boots", "combat_boots", "feet")
+    addWear("helm2", "heavy_plate_helmet", "head")   -- duplicate mesh
+    addWear("odd")                                    -- no attributes
+
+    local worn, regions = SA.ArmorAnalyze(char)
+    eq(#worn, 4, "armor console: duplicate mesh collapses to one item")
+    eq(regions.Head, 55, "armor console: head total")
+    eq(regions.Torso, 47, "armor console: torso total")
+    eq(regions.Feet, 12, "armor console: feet total")
+    eq(SA.ArmorTotal(regions), 114, "armor console: grand total")
+    local unknown
+    for _, item in ipairs(worn) do
+        if item.id == "odd" then unknown = item end
+    end
+    ok(unknown ~= nil and unknown.known == false,
+        "armor console: unknown gear is flagged, not silently +0%")
+
+    -- Mesh-name suffix inference when the attributes are absent.
+    local c2 = Instance.new("Model")
+    c2.Parent = workspace
+    local w2 = Instance.new("Folder")
+    w2.Name = "FustWear"
+    w2.Parent = c2
+    local s1 = Instance.new("Part")
+    s1.Name = "road_sign_jacket_torso_armor"
+    s1.Parent = w2
+    local s2 = Instance.new("Part")
+    s2.Name = "hide_pants_legs_armor"
+    s2.Parent = w2
+    local w3, r3 = SA.ArmorAnalyze(c2)
+    eq(#w3, 2, "armor console: suffix fallback finds both items")
+    eq(r3.Torso, 25, "armor console: suffix fallback torso")
+    eq(r3.Legs, 14, "armor console: suffix fallback legs")
+    c2:Destroy()
+    eq(#SA.ArmorAnalyze(nil), 0, "armor console: nil character is safe")
+
+    -- ── FOV + nearest-crosshair ──
+    MOCK_REAL_PROJECTION = true
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    MOCK_CAMERA.FieldOfView = 70
+    mock_cam_clear_look(MOCK_CAMERA)
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+    local savedMouse = UserInputService.GetMouseLocation
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    CFG.fovMode, CFG.fov = "Pixels", 400
+    setFlags({ armorConsole = true, armorConsoleMaxDist = 0,
+        armorConsoleSort = "Nearest", armorConsoleFov = false })
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    frameTimes(2)
+
+    local targets = SA.ArmorTargets()
+    ok(#targets >= 2, "armor console: target list non-empty")
+    for i = 2, #targets do
+        if not targets[i - 1].behind and not targets[i].behind then
+            ok(targets[i - 1].px <= targets[i].px + 0.001,
+                "armor console: nearest-crosshair ordering")
+        end
+    end
+    for _, target in ipairs(targets) do
+        ok(target.behind == false or target.inFov == false,
+            "armor console: behind-camera is never in FOV")
+    end
+    setFlags({ armorConsoleFov = true })
+    for _, target in ipairs(SA.ArmorTargets()) do
+        eq(target.inFov, true, "armor console: FOV filter keeps only in-FOV")
+    end
+    setFlags({ armorConsoleFov = false, armorConsoleMaxDist = 1 })
+    for _, target in ipairs(SA.ArmorTargets()) do
+        ok(target.dist <= 1.001, "armor console: max distance enforced")
+    end
+    setFlags({ armorConsoleMaxDist = 0 })
+
+    -- ── the panel ──
+    SA.ArmorConsoleDispose()
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    frameTimes(2)
+    local st = SA.ArmorConsoleState()
+    eq(st.built, true, "armor console: panel builds")
+    ok(st.pooled >= 5, "armor console: rows are pooled")
+    ok(st.rows > 0, "armor console: panel fills on the build frame")
+    -- The first redraw can run before the panel exists. If that empty
+    -- redraw latches the change signature, the HUD stays blank until the
+    -- target's gear happens to change -- the original empty-panel bug.
+    SA.ArmorConsoleDispose()
+    local blank = SA.ArmorConsoleState()
+    eq(blank.built, false, "armor console: dispose clears built")
+    eq(blank.rows, 0, "armor console: disposed panel reports no rows")
+    frameTimes(1)
+    ok(SA.ArmorConsoleState().built == true,
+        "armor console: rebuilds on the next frame after dispose")
+    ok(SA.ArmorConsoleState().rows > 0,
+        "armor console: rebuilt panel fills without waiting for a gear change")
+    -- A redraw that finds no pooled rows must NOT latch the signature.
+    -- If it did, the next scan would be skipped as "unchanged" and the
+    -- HUD would stay blank until the target's gear moved -- the exact
+    -- empty-panel bug this regression exists for.
+    local st2 = SA.ArmorConsoleState()
+    ok(st2.redraws >= 1, "armor console: a real redraw happened")
+    local beforeRows = st2.rows
+    -- Dispose then rebuild: the panel must repopulate with identical gear,
+    -- which is only possible if the empty redraw did not latch.
+    SA.ArmorConsoleDispose()
+    frameTimes(2)
+    eq(SA.ArmorConsoleState().rows, beforeRows,
+        "armor console: identical gear still repopulates after a rebuild")
+    eq(st.errors, 0, "armor console: no errors while scanning")
+    eq(st.players, #targets, "armor console: state counts awake players")
+    ok(st.inFov >= 1, "armor console: state counts in-FOV players")
+
+    -- A stable lobby must not redraw every tick: that is the whole point
+    -- of the signature, and what replaced the 0.25s console spam.
+    local redrawsBefore = st.redraws
+    local skippedBefore = st.skipped
+    frameTimes(40)
+    ok(SA.ArmorConsoleState().skipped > skippedBefore,
+        "armor console: unchanged scans are skipped")
+    ok(SA.ArmorConsoleState().redraws >= redrawsBefore,
+        "armor console: redraw count never goes backwards")
+
+    -- Visibility follows the menu, exactly like the nearest HUD.
+    window.opened = true
+    mock_frame(0.016)
+    eq(SA.ArmorConsoleState().visible, false,
+        "armor console: hidden while the menu is open")
+    window.opened = false
+    mock_frame(0.016)
+    eq(SA.ArmorConsoleState().visible, true,
+        "armor console: visible while the menu is minimised")
+
+    -- Toggle OFF must stop all work.
+    setFlags({ armorConsole = false })
+    local scansBefore = SA.ArmorConsoleState().scans
+    frameTimes(20)
+    eq(SA.ArmorConsoleState().scans, scansBefore,
+        "armor console: disabled toggle performs no scans")
+    eq(SA.ArmorConsoleState().visible, false,
+        "armor console: disabled toggle hides the panel")
+
+    -- Toggle ON again repopulates without waiting out the interval.
+    setFlags({ armorConsole = true, armorConsoleMaxPlayers = 3 })
+    frameTimes(2)
+    ok(SA.ArmorConsoleState().rows > 0,
+        "armor console: re-enabling repopulates immediately")
+
+    SA.ArmorConsoleDispose()
+    wear:Destroy()
+    UserInputService.GetMouseLocation = savedMouse
+    MOCK_REAL_PROJECTION = false
+    mock_cam_clear_look(MOCK_CAMERA)
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saArmorConsoleRegression()
+
+
 
 
 

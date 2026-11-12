@@ -595,6 +595,7 @@ function SA.FullUnload(reason)
     pcall(function() disableCrateESP() end)
     pcall(function() if SA.EspPreviewDispose then SA.EspPreviewDispose() end end)
     pcall(function() if SA.NearestWindowDispose then SA.NearestWindowDispose() end end)
+    pcall(function() if SA.ArmorConsoleDispose then SA.ArmorConsoleDispose() end end)
     pcall(function() if SA.DisposePerfOverlay then SA.DisposePerfOverlay() end end)
     pcall(function() if SA.DisposeManipPopup then SA.DisposeManipPopup() end end)
     pcall(function() if SA.DisposePlayerWarning then SA.DisposePlayerWarning() end end)
@@ -638,6 +639,7 @@ function SA.FullUnload(reason)
     _G.__saEspObjects, _G.__saNpcObjects, _G.__saCrateObjects = nil, nil, nil
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
     _G.__saNearestWindowPos = nil
+    _G.__saArmorConsole, _G.__saArmorConsolePos = nil, nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saWhiteColorFix, _G.__saFovFix = nil, nil
     _G.__saFustBow, _G.__saGunMods = nil, nil

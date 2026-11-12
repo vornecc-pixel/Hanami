@@ -949,6 +949,17 @@ local SA_CFG_SHIPPED = {
     nearestTopN = 1, nearestShowHealth = false, nearestShowState = false,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
+    -- ARMOR CONSOLE (Fust gear HUD). Off by default like every feature.
+    armorConsole       = false,
+    armorConsoleFov    = false,
+    armorConsoleShowTotals = false,
+    armorConsoleMaxDist = 0,
+    armorConsoleScanSec = 0.5,
+    armorConsoleSort   = "Nearest",
+    armorConsoleCorner = "Top Left",
+    armorConsoleScale  = 1,
+    armorConsoleTransparency = 12,
+    armorConsoleMaxPlayers = 3,
     showManipPopup = false, showPlayerWarning = false,
     forceHead = false, triggerbot = false, autoFire = false,
     triggerHeadOnly = false, triggerRandomPart = false,
@@ -1089,6 +1100,11 @@ for k, v in pairs({
     nearestTopN = 1, nearestShowHealth = false, nearestShowState = false,
     nearestShowTeam = false, nearestCorner = "Top Left", nearestScale = 1,
     nearestTransparency = 12, showNoTargetReason = false,
+    armorConsole = false, armorConsoleFov = false,
+    armorConsoleShowTotals = false, armorConsoleMaxDist = 0,
+    armorConsoleScanSec = 0.5, armorConsoleSort = "Nearest",
+    armorConsoleCorner = "Top Left", armorConsoleScale = 1,
+    armorConsoleTransparency = 12, armorConsoleMaxPlayers = 3,
     showManipPopup = false, showPlayerWarning = false,
     forceHead = false, triggerbot = false, autoFire = false,
     triggerHeadOnly = false, triggerRandomPart = false,
@@ -1207,6 +1223,23 @@ CFG.nearestCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
                          })[CFG.nearestCorner] and CFG.nearestCorner or "Top Left"
 CFG.nearestScale       = saClampNum(CFG.nearestScale, 0.6, 1.8, 1)
 CFG.nearestTransparency= saClampNum(CFG.nearestTransparency, 0, 80, 12)
+
+-- ARMOR CONSOLE
+CFG.armorConsole            = CFG.armorConsole == true
+CFG.armorConsoleFov         = CFG.armorConsoleFov == true
+CFG.armorConsoleShowTotals  = CFG.armorConsoleShowTotals == true
+CFG.armorConsoleMaxDist     = saClampNum(CFG.armorConsoleMaxDist, 0, 5000, 0)
+CFG.armorConsoleScanSec     = saClampNum(CFG.armorConsoleScanSec, 0.25, 5, 0.5)
+CFG.armorConsoleSort        = ({ Nearest=true, Distance=true, Name=true,
+                                 ["Most Armor"]=true })[CFG.armorConsoleSort]
+                              and CFG.armorConsoleSort or "Nearest"
+CFG.armorConsoleCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
+                                 ["Bottom Left"]=true, ["Bottom Right"]=true,
+                               })[CFG.armorConsoleCorner]
+                              and CFG.armorConsoleCorner or "Top Left"
+CFG.armorConsoleScale       = saClampNum(CFG.armorConsoleScale, 0.6, 1.8, 1)
+CFG.armorConsoleTransparency= saClampNum(CFG.armorConsoleTransparency, 0, 80, 12)
+CFG.armorConsoleMaxPlayers  = saClampNum(CFG.armorConsoleMaxPlayers, 1, 5, 3)
 CFG.showNoTargetReason = CFG.showNoTargetReason == true
 CFG.showManipPopup    = CFG.showManipPopup == true
 CFG.espCleanMode      = CFG.espCleanMode == true

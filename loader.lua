@@ -69,6 +69,8 @@ local PARTS = {
     "23_ui_gunmods.lua",
     "24_ui_visual.lua",
     "25_ui_misc.lua",
+    "26_armor_console.lua",
+    "26_armor_console_ui.lua",
     "26_banner.lua",
 }
 
