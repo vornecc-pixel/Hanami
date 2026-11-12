@@ -198,6 +198,10 @@ function SA.ArmorAnalyze(character)
                     id = displayId, region = region, prot = prot,
                     known = entry ~= nil,
                     abbr = SA.ArmorIconAbbr(displayId),
+                    -- Kept so the HUD can clone the real mesh into its
+                    -- ViewportFrame; the icon is the game's own model,
+                    -- not a redrawn approximation.
+                    source = part,
                 }
             end
         end

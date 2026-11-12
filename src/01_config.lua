@@ -960,6 +960,8 @@ local SA_CFG_SHIPPED = {
     armorConsoleScale  = 1,
     armorConsoleTransparency = 12,
     armorConsoleMaxPlayers = 3,
+    armorConsoleWidth  = 300,
+    armorConsoleHeight = 560,
     showManipPopup = false, showPlayerWarning = false,
     forceHead = false, triggerbot = false, autoFire = false,
     triggerHeadOnly = false, triggerRandomPart = false,
@@ -1105,6 +1107,7 @@ for k, v in pairs({
     armorConsoleScanSec = 0.5, armorConsoleSort = "Nearest",
     armorConsoleCorner = "Top Left", armorConsoleScale = 1,
     armorConsoleTransparency = 12, armorConsoleMaxPlayers = 3,
+    armorConsoleWidth = 300, armorConsoleHeight = 560,
     showManipPopup = false, showPlayerWarning = false,
     forceHead = false, triggerbot = false, autoFire = false,
     triggerHeadOnly = false, triggerRandomPart = false,
@@ -1240,6 +1243,8 @@ CFG.armorConsoleCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
 CFG.armorConsoleScale       = saClampNum(CFG.armorConsoleScale, 0.6, 1.8, 1)
 CFG.armorConsoleTransparency= saClampNum(CFG.armorConsoleTransparency, 0, 80, 12)
 CFG.armorConsoleMaxPlayers  = saClampNum(CFG.armorConsoleMaxPlayers, 1, 5, 3)
+CFG.armorConsoleWidth       = saClampNum(CFG.armorConsoleWidth, 220, 520, 300)
+CFG.armorConsoleHeight      = saClampNum(CFG.armorConsoleHeight, 200, 1200, 560)
 CFG.showNoTargetReason = CFG.showNoTargetReason == true
 CFG.showManipPopup    = CFG.showManipPopup == true
 CFG.espCleanMode      = CFG.espCleanMode == true

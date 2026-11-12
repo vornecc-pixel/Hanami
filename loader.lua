@@ -70,6 +70,7 @@ local PARTS = {
     "24_ui_visual.lua",
     "25_ui_misc.lua",
     "26_armor_console.lua",
+    "26_armor_console_cards.lua",
     "26_armor_console_ui.lua",
     "26_banner.lua",
 }

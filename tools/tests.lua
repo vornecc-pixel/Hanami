@@ -4598,6 +4598,49 @@ function saArmorConsoleRegression()
     eq(SA.ArmorConsoleState().visible, false,
         "armor console: disabled toggle hides the panel")
 
+    -- ── the card layout (one separate card per armour piece) ──
+    local stc = SA.ArmorConsoleState()
+    ok(stc.cards >= 1, "armor console: at least one armour card is shown")
+    eq(stc.rows, stc.cards, "armor console: row and card counts agree")
+    ok(stc.pooled >= 20, "armor console: a full 5x4 card pool is built")
+    ok(stc.groups >= 5, "armor console: player group headers are pooled")
+    -- One card per item, not one row per player.
+    local expectedCards = 0
+    for i = 1, math.min(#targets, 3) do
+        expectedCards = expectedCards + #(targets[i].worn or {})
+    end
+    eq(stc.cards, expectedCards, "armor console: one card per armour piece")
+
+    -- The source mesh must be retained so the 3D icon can clone it.
+    local sourceOk = true
+    for _, target in ipairs(targets) do
+        for _, item in ipairs(target.worn or {}) do
+            if item.source == nil then sourceOk = false end
+        end
+    end
+    ok(sourceOk, "armor console: every worn item keeps its source mesh for the icon")
+
+    -- The panel is a NARROW vertical column, not a wide square block.
+    ok((stc.width or 0) < (stc.height or 0),
+        "armor console: panel is taller than it is wide")
+    ok((stc.width or 0) <= 520, "armor console: panel width stays narrow")
+
+    -- Size is adjustable and clamped.
+    CFG.armorConsoleWidth, CFG.armorConsoleHeight = 420, 320
+    _G.__saArmorConsole.layoutKey = nil
+    frameTimes(2)
+    eq(SA.ArmorConsoleState().width, 420, "armor console: width is adjustable")
+    eq(SA.ArmorConsoleState().height, 320, "armor console: height is adjustable")
+    CFG.armorConsoleWidth, CFG.armorConsoleHeight = 99999, -50
+    _G.__saArmorConsole.layoutKey = nil
+    frameTimes(2)
+    local clamped = SA.ArmorConsoleState()
+    ok(clamped.width <= 520 and clamped.width >= 220,
+        "armor console: width is clamped")
+    ok(clamped.height >= 200, "armor console: height is clamped")
+    CFG.armorConsoleWidth, CFG.armorConsoleHeight = 300, 560
+    _G.__saArmorConsole.layoutKey = nil
+
     -- Toggle ON again repopulates without waiting out the interval.
     setFlags({ armorConsole = true, armorConsoleMaxPlayers = 3 })
     frameTimes(2)

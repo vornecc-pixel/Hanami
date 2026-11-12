@@ -121,7 +121,7 @@ end)
 local armorSec = hudCol:section({ name = "Armor Console" })
 bindToggle(armorSec, "Armor Console HUD", "armorConsole",
     "Shows each awake player's Fust gear and per-region protection while the menu is hidden")
-armorSec:label({ name = "Drag the header to move it · reads the FustWear folder the game already replicates" })
+armorSec:label({ name = "Drag the header to move it · drag the // grip to resize · one card per armour piece with the real 3D icon" })
 bindToggle(armorSec, "Only Players In FOV", "armorConsoleFov",
     "List only players inside the aim circle (same reference the circle draws with)")
 bindToggle(armorSec, "Show Protection Totals", "armorConsoleShowTotals",
@@ -135,6 +135,8 @@ bindDropdown(armorSec, "Corner", "armorConsoleCorner", {
     "Top Left", "Top Right", "Bottom Left", "Bottom Right",
 })
 bindSlider(armorSec, "HUD Scale", "armorConsoleScale", 0.6, 1.8, 0.1, "x")
+bindSlider(armorSec, "Panel Width", "armorConsoleWidth", 220, 520, 10, " px")
+bindSlider(armorSec, "Panel Height", "armorConsoleHeight", 200, 900, 10, " px")
 bindSlider(armorSec, "HUD Transparency (%)", "armorConsoleTransparency", 0, 80, 1, "%")
 addButton(armorSec, "Refresh Armor Console", function()
     pcall(SA.ArmorConsoleRefresh)
