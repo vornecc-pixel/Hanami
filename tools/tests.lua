@@ -4347,6 +4347,132 @@ function saSnaplineMemoRegression()
 end
 saSnaplineMemoRegression()
 
+-- ── SNAPLINE REWRITE ────────────────────────────────────────────────
+-- Three guarantees the rewritten 11_snapline.lua exists to provide:
+--   1. a shrunk FOV or a turned-away camera clears the line the SAME
+--      frame (the recurring "stuck to the FOV" report)
+--   2. edge jitter at the circle boundary does not blink the line
+--   3. a stationary target costs ZERO draw writes per frame
+function saSnaplineRewriteRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "snapLineEnabled", "showFov", "masterEnabled", "gunEnabled",
+        "fov", "fovMode", "targetPriority", "teamCheck", "wallCheck",
+        "prediction", "snapShowLead" }) do
+        savedFlags[k] = CFG[k]
+    end
+    setFlags({ perfMode = false, espEnabled = false, npcEspEnabled = false,
+        crateEnabled = false, snapLineEnabled = true, showFov = true,
+        masterEnabled = false, gunEnabled = false, fov = 400,
+        fovMode = "Pixels", targetPriority = "Crosshair",
+        teamCheck = false, wallCheck = false, prediction = false,
+        snapShowLead = false })
+    MOCK_REAL_PROJECTION = true
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    MOCK_CAMERA.FieldOfView = 70
+    mock_cam_clear_look(MOCK_CAMERA)
+    local savedMouse = UserInputService.GetMouseLocation
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    frameTimes(4)
+
+    ok(SA.SnaplineState().sticky == true, "snapline: draws a target on a player")
+
+    -- (3) A stationary target must cost no draw writes at all.
+    local writes = 0
+    for _ = 1, 20 do
+        mock_frame(0.016)
+        writes = writes + (SA.SnaplineState().writes or 0)
+    end
+    eq(writes, 0, "snapline: a stationary target costs zero draw writes")
+
+    -- (1) Shrinking the FOV must clear the line on the NEXT frame.
+    --
+    -- The discriminating case is a MEMO LOSS with the circle still
+    -- overlapping the target: the memo returns nil for one frame while
+    -- the retained target is still close. The held-over path may use the
+    -- 1.18x release ring, but the line must still be gone once the
+    -- configured circle no longer contains it. `fov = 20` excludes the
+    -- ~25 px target outright, so this also pins that a fresh pick is
+    -- judged against the configured radius and nothing wider.
+    CFG.fov = 20
+    mock_frame(0.016)
+    eq(SA.SnaplineState().sticky, false,
+        "snapline: shrinking the FOV clears the line the same frame")
+    eq(SA.Target.screen, nil, "snapline: clearing resets the target pixel")
+    eq(SA.Target.model, nil, "snapline: clearing resets the target model")
+
+    CFG.fov = 400
+    frameTimes(2)
+    eq(SA.SnaplineState().sticky, true, "snapline: widening restores the line")
+
+    -- (1b) Turning the camera away clears it too.
+    mock_cam_look(MOCK_CAMERA, Vector3.new(-10, 1, 0))
+    frameTimes(2)
+    eq(SA.SnaplineState().sticky, false,
+        "snapline: turning the camera away clears the line")
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+    frameTimes(2)
+
+    -- (2) Edge jitter must not blink the line.
+    CFG.fov = 30
+    frameTimes(3)
+    if SA.SnaplineState().sticky then
+        local drops = 0
+        for i = 1, 20 do
+            local dx = (i % 2 == 0) and 6 or -6
+            UserInputService.GetMouseLocation = function()
+                return Vector2.new(640 + dx, 360)
+            end
+            mock_frame(0.016)
+            if not SA.SnaplineState().sticky then drops = drops + 1 end
+        end
+        eq(drops, 0, "snapline: edge jitter does not blink the line")
+    end
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    CFG.fov = 400
+    frameTimes(2)
+
+    -- Toggling off must hide everything and stop all writes.
+    CFG.snapLineEnabled = false
+    local offWrites = 0
+    for _ = 1, 20 do
+        mock_frame(0.016)
+        offWrites = offWrites + (SA.SnaplineState().writes or 0)
+    end
+    eq(offWrites, 0, "snapline: disabled costs zero draw writes")
+    eq(SA.SnaplineState().sticky, false, "snapline: disabled clears the target")
+    eq(SA.Target.screen, nil, "snapline: disabled clears the target pixel")
+
+    -- Ownership: with the snapline OFF and Gun Silent Aim ARMED, the
+    -- model must be published by silent aim's own refresh, not wiped by
+    -- the snapline's hide path. (Writing a sentinel and expecting it to
+    -- survive is wrong: saRefreshAimTarget legitimately republishes every
+    -- gate, so the assertion is that a model is still present, i.e. the
+    -- snapline did not clear it to nil.)
+    CFG.snapLineEnabled = false
+    mock_frame(0.016)
+    setFlags({ masterEnabled = true, gunEnabled = true })
+    frameTimes(6)
+    ok(SA.Target.model ~= nil,
+        "snapline: does not wipe a model owned by Gun Silent Aim")
+    SA.Target.model = nil
+    setFlags({ masterEnabled = false, gunEnabled = false })
+
+    UserInputService.GetMouseLocation = savedMouse
+    MOCK_REAL_PROJECTION = false
+    mock_cam_clear_look(MOCK_CAMERA)
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saSnaplineRewriteRegression()
+
+
 
 -- ── CONFIG SAVE / LOAD: the "nothing loads" regressions ─────────────
 -- Three separate ways a saved config failed to come back:

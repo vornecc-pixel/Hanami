@@ -10,16 +10,71 @@
 -- would pick. GREEN = line of sight clear, RED = wall/blocked. The
 -- snapline toggle works on its own; no Silent Aim master / gun gate.
 --
--- FIX: the old init block wrote ~14 native Drawing properties OUTSIDE a
--- pcall. On executors with a partial Drawing API the very first bad write
--- aborted the entire joined chunk at load time -> "the script doesn't
--- load". Every write is now individually guarded, and a missing draw
--- object no longer stops SA.Target from being refreshed.
+-- ── REWRITE NOTES ───────────────────────────────────────────────────
+-- The previous version re-derived EVERYTHING from the shared preview
+-- memo on every render frame and wrote ~8 native Drawing properties per
+-- frame whether or not anything had moved. That was the source of the
+-- recurring "stuck to the FOV" reports, for three separate reasons:
+--
+--   1. ONE-FRAME-LATE PROJECTION. This part binds its own RenderStepped
+--      (loader order: this file comes before 19_render_loop), so the
+--      memo it reads was filled on the PREVIOUS frame, and the camera
+--      can have moved since. The line was drawn to last frame's pixel.
+--      Fix: re-project the memo's WORLD position with the camera as it
+--      is RIGHT NOW, and use the memo only to choose WHICH model. A
+--      target that moved or a camera that turned is corrected this
+--      frame instead of one frame later.
+--
+--   2. NO HYSTERESIS. A candidate sitting on the edge of the circle
+--      flickered in and out as the pixel crossed the radius, which reads
+--      as the line "sticking" then snapping. Fix: STAICKY retention.
+--      Once a model is being drawn it keeps being drawn while it is
+--      inside a slightly WIDER release radius (RELEASE = 1.18x), so
+--      edge jitter cannot flip it. It is still hard-cleared the moment
+--      it leaves the outer circle, dies, or the camera turns away.
+--
+--   3. WRITE CHURN. Every frame rewrote From / To / Color / Thickness /
+--      Visible on four draws. Each write dirties the drawing proxy and
+--      costs a ScreenGui sync. Fix: every property goes through a
+--      last-value cache and is only written when it actually changed.
+--      A stationary target costs ZERO writes per frame.
+--
+-- The shared memo (02_shared.lua) is the single source of truth for
+-- WHO the target is; this file never picks its own target and never
+-- resets the memo. It also never clears SA.Target.model while Gun Silent
+-- Aim owns it -- that ownership confusion was the original freeze.
 -- ────────────────────────────────────────────────────────────────────
 
 local function drawSet(d, prop, v)
     if not d then return end
     pcall(function() d[prop] = v end)
+end
+
+-- Write a property only when it differs from the last value we wrote.
+-- Returns true when a write actually happened.
+local function drawSetIf(d, cache, prop, v)
+    if not d then return end
+    local prev = cache[prop]
+    if prev ~= nil then
+        if prev == v then return false end
+        -- Vectors / colours are value types in Roblox, but the Fengari
+        -- mock hands out plain tables: compare them component-wise so a
+        -- "same" vector is not treated as a change and re-synced.
+        local ta, tb = type(prev), type(v)
+        if ta == "table" and tb == "table" then
+            local same = true
+            for k, pv in pairs(prev) do
+                if v[k] ~= pv then same = false break end
+            end
+            for k in pairs(v) do
+                if prev[k] == nil then same = false break end
+            end
+            if same then return false end
+        end
+    end
+    pcall(function() d[prop] = v end)
+    cache[prop] = v
+    return true
 end
 
 local function initDraw(kind, props)
@@ -36,51 +91,47 @@ local leadLine = initDraw("Line", { Thickness = 3, Transparency = 0.35, Visible 
 local leadDot  = initDraw("Circle", { Radius = 7, Filled = false, NumSides = 24,
                                       Transparency = 0.35, Visible = false })
 
+-- Last value written to each draw, so an unchanged frame writes nothing.
+local snapCache, dotCache = {}, {}
+local leadLCache, leadDCache = {}, {}
+
 -- Set once the snapline has actually drawn; lets the disabled path skip
 -- all work on a cold start (the draws begin hidden) while still running
 -- exactly one hide when the user turns the feature off.
 local snapWasOn = false
 
+-- Sticky retention: the model currently being drawn and the world
+-- position it was last seen at. Guarded by the release radius below.
+local stickyModel, stickyPos = nil, nil
+-- How much wider than the configured circle the retention ring is. A
+-- target already being drawn keeps the line until it is 18% outside.
+local RELEASE_SCALE = 1.18
+
 local function clearSnapTarget()
     if not SA.Target then return end
     -- Keep the silent-aim fields (pred / lastShot / lastShotAt) intact.
-    -- While the snapline is ON it owns SA.Target.model, so a target that
-    -- leaves the FOV must clear the ESP highlight immediately. With the
-    -- snapline OFF and Gun Silent Aim ON, saRefreshAimTarget() owns the
-    -- model; with BOTH OFF there is no owner, so clear it here too.
     SA.Target.visible, SA.Target.screen, SA.Target.t = nil, nil, nil
-    if CFG.snapLineEnabled == true
-        or not (CFG.masterEnabled == true and CFG.gunEnabled == true) then
+    -- ONLY clear the model when nothing else owns it. Gun Silent Aim
+    -- writes SA.Target.model when it is armed; stomping it here is what
+    -- made the ESP highlight and the nearest-set flicker. With the
+    -- snapline ON we own it; with Gun Silent Aim armed IT owns it.
+    local silentOwns = CFG.masterEnabled == true and CFG.gunEnabled == true
+    if CFG.snapLineEnabled == true or not silentOwns then
         SA.Target.model, SA.Target.pos = nil, nil
     end
 end
 
 local function hideSnap()
-    drawSet(snapLine, "Visible", false)
-    drawSet(snapDot,  "Visible", false)
-    drawSet(leadLine, "Visible", false)
-    drawSet(leadDot,  "Visible", false)
-    -- The snapline must hide ITS OWN four draws and nothing else.
-    --
-    -- This used to also call SA.PreviewTargetReset(), which threw away the
-    -- shared per-frame preview memo owned by 02_shared.lua. That memo is
-    -- what the ESP target highlight and the nearest-set read; destroying
-    -- it here had two consequences:
-    --
-    --   1. With the toggle OFF, updateSnapLine() runs every render frame
-    --      and takes this branch (see below), so the memo was wiped 60x
-    --      per second FOREVER — the ESP target highlight and the
-    --      nearest-set slot flickered on and off permanently even though
-    --      the snapline was disabled.
-    --   2. With the toggle ON, ANY frame whose pick failed (a target
-    --      crossing the circle edge, one rollHit miss) wiped the memo, so
-    --      the target jumped nil -> player -> nil while the circle sat on
-    --      a player. That is the reported "everything gets stuck while
-    --      the FOV is on a player, normal again once it is off".
-    --
-    -- Clearing the shared memo is not the snapline's job: it only owns
-    -- its own line / dot. SA.Target is cleared by clearSnapTarget()
-    -- below, which is the contract every other consumer already expects.
+    -- Only write Visible = false when it is not already false, so a
+    -- disabled snapline costs zero writes per frame.
+    drawSetIf(snapLine, snapCache, "Visible", false)
+    drawSetIf(snapDot,  dotCache,  "Visible", false)
+    drawSetIf(leadLine, leadLCache, "Visible", false)
+    drawSetIf(leadDot,  leadDCache, "Visible", false)
+    -- Clearing the shared preview memo is NOT this file's job (it owns
+    -- only its own four draws). Doing it here wiped the ESP highlight and
+    -- the nearest-set 60x per second and was the original freeze.
+    stickyModel, stickyPos = nil, nil
     clearSnapTarget()
 end
 
@@ -91,6 +142,8 @@ function SA.SnaplineDispose()
     end
     one(snapLine); one(snapDot); one(leadLine); one(leadDot)
     snapLine, snapDot, leadLine, leadDot = nil, nil, nil, nil
+    snapCache, dotCache, leadLCache, leadDCache = {}, {}, {}, {}
+    stickyModel, stickyPos = nil, nil
     CFG.snapLineEnabled = false
     clearSnapTarget()
     return n
@@ -107,7 +160,6 @@ local function snapSize()
 end
 
 function SA.SnaplineState()
-    local ref = SA.AimPoint()
     return {
         enabled = CFG.snapLineEnabled == true,
         master = CFG.masterEnabled == true and CFG.gunEnabled == true,
@@ -115,8 +167,12 @@ function SA.SnaplineState()
         gate = "snapline toggle only",
         thickness = snapSize(),
         origin = "FOV Reference",
-        reference = ref,
+        reference = SA.AimPoint(),
         target = SA.Target and SA.Target.screen or nil,
+        -- Rewrite diagnostics: how many draw writes this frame, and
+        -- whether a sticky model is being retained.
+        writes = SA.SnaplineWrites or 0,
+        sticky = stickyModel ~= nil,
     }
 end
 
@@ -129,17 +185,27 @@ local function snapProject(cam, v3, ok)
     return Vector2.new(v3.X, v3.Y), inView
 end
 
+-- Pixel distance from the aim point, and whether a world position is
+-- inside a circle of `radius` (with the sticky floor applied).
+-- `floor` is the minimum radius treated as "inside". It is ONLY passed
+-- for the sticky/held case, where a crosshair sitting exactly on a
+-- player must not flicker out over a few pixels of jitter. A radius the
+-- user actually configured is always honoured exactly -- applying the
+-- floor to every check made a 10 px circle still match a target 25 px
+-- away, which is exactly the "snapline stuck to the FOV" symptom.
+local function snapInside(cam, worldPos, aim, radius, floor)
+    local sp, ok = cam:WorldToViewportPoint(worldPos)
+    if not ok or (tonumber(sp.Z) or 0) <= 0 then return false, nil end
+    local px = Vector2.new(sp.X, sp.Y)
+    local d = (px - aim).Magnitude
+    if d <= math.max(radius, tonumber(floor) or 0) then return true, px end
+    return false, px
+end
+
 local function updateSnapLine()
-    -- Works with JUST the Visual -> Snapline toggle ON. Gun Silent Aim is
-    -- no longer a prerequisite; the line is an aim preview, not a shot.
-    --
-    -- EARLY EXIT BEFORE ANY WORK. This callback is bound at load time and
-    -- runs on every render frame whether or not the user ever enables the
-    -- snapline, so the disabled path must be as cheap as possible and
-    -- must not touch shared state. The four draws are created Visible =
-    -- false and are only ever made visible below, so there is nothing to
-    -- hide the first time: skip the whole function, and only run the
-    -- (idempotent) hide once after the toggle has actually been used.
+    -- EARLY EXIT BEFORE ANY WORK. Runs on every render frame whether or
+    -- not the feature was ever enabled, so the disabled path must not
+    -- touch shared state and must not write draws.
     if not CFG.snapLineEnabled then
         if snapWasOn then
             snapWasOn = false
@@ -151,76 +217,135 @@ local function updateSnapLine()
     local cam = ws.CurrentCamera
     if not cam then hideSnap(); return end
 
-    -- ONE reference point: the centre of the drawn FOV circle.
-    -- ONE target: the shared per-frame preview memo (02_shared.lua). The
-    -- snapline used to run its own pickBestTarget() every frame while
-    -- saRefreshAimTarget() ran another one, so two FULL candidate scans
-    -- (all players + all NPCs, one WorldToViewportPoint each) hit the
-    -- render thread every frame and the two owners disagreed about
-    -- SA.Target.model. That mismatch is what made the ESP appear stuck /
-    -- jittery while the snapline or Gun Silent Aim was ON.
+    local aim = snapOrigin()
+    local radius = SA.FovRadius()
+    -- The shared per-frame memo decides WHICH model. It is the same answer
+    -- Gun Silent Aim and the manipulation probe read, so the three can
+    -- never disagree about the target.
     local best = SA.PreviewTarget and SA.PreviewTarget() or nil
-    if not best then hideSnap(); return end
-    local sp, w2vOk = cam:WorldToViewportPoint(best.pos)
+
+    -- ── STICKY RETENTION ────────────────────────────────────────────
+    -- If the memo changed its mind this frame, only switch when the new
+    -- pick is clearly inside; otherwise hold the model already drawn
+    -- while it is still inside the wider release ring. This is what
+    -- stops an edge-of-circle candidate from flickering the line off.
+    local targetModel, targetPos = nil, nil
+    if best and best.model and best.pos then
+        targetModel, targetPos = best.model, best.pos
+    elseif stickyModel and stickyPos then
+        -- Memo lost the target (edge jitter, one failed pick). Keep the
+        -- line only while the held model is still inside the release
+        -- ring; anything further out hard-clears below.
+        local stillThere = snapInside(cam, stickyPos, aim,
+            radius * RELEASE_SCALE)
+        if stillThere and stickyModel.Parent then
+            targetModel, targetPos = stickyModel, stickyPos
+        end
+    end
+
+    if not targetModel or not targetPos then
+        stickyModel, stickyPos = nil, nil
+        hideSnap()
+        return
+    end
+
+    -- ── FRESH PROJECTION ────────────────────────────────────────────
+    -- Re-project the WORLD position against the camera as it is NOW.
+    -- The memo's pixel would be one frame stale because this callback
+    -- runs before the FX pass that filled it; the world position is not.
+    local sp, w2vOk = cam:WorldToViewportPoint(targetPos)
     local toPx, onScreen = snapProject(cam, sp, w2vOk)
-    if not onScreen then hideSnap(); return end
+    if not onScreen then
+        stickyModel, stickyPos = nil, nil
+        hideSnap()
+        return
+    end
+    -- Hysteresis applies ONLY to a retained (held-over) target. A model
+    -- the memo picked THIS frame is authoritative and is judged against
+    -- the configured circle exactly, so shrinking the FOV or turning away
+    -- must clear the line immediately -- an over-eager release ring here
+    -- would keep drawing to a target that is no longer selected.
+    local held = stickyModel == targetModel
+    -- A retained target gets the wider release ring (edge-jitter
+    -- tolerance); a fresh pick is judged against the configured circle.
+    -- Neither path widens beyond that, so shrinking the FOV or turning
+    -- away always clears the line on the same frame.
+    local inside = snapInside(cam, targetPos, aim,
+        held and radius * RELEASE_SCALE or radius)
+    if not inside then
+        stickyModel, stickyPos = nil, nil
+        hideSnap()
+        return
+    end
+    if stickyModel ~= targetModel then
+        -- Switching models is a deliberate change: reset the caches so
+        -- the next writes are not suppressed by the old model's values.
+        snapCache, dotCache, leadLCache, leadDCache = {}, {}, {}, {}
+    end
+    stickyModel, stickyPos = targetModel, targetPos
+
     -- The LOS result is already cached inside SA.IsVisible(); reuse the
-    -- same value the ESP box uses for this frame so the line colour and
-    -- the VIS / WALL tag can never disagree.
-    local visible = SA.IsVisible(best.model, best.pos)
+    -- same value the ESP box uses so the line colour and the VIS / WALL
+    -- tag can never disagree.
+    local visible = SA.IsVisible(targetModel, targetPos)
     local col = visible and ESP_COLORS.snapVisible or ESP_COLORS.snapHidden
 
-    -- Keep SA.Target fresh even if this executor has no working draws.
-    -- Only write a field that actually changed: the FX pass reads this
-    -- table every frame, and unconditional writes churned the ESP
-    -- highlight state for no reason.
+    -- Keep SA.Target fresh even on an executor with no working draws.
     local t = SA.Target
-    if t.model ~= best.model then t.model = best.model end
-    if t.pos ~= best.pos then t.pos = best.pos end
+    if t.model ~= targetModel then t.model = targetModel end
+    if t.pos ~= targetPos then t.pos = targetPos end
     if t.visible ~= visible then t.visible = visible end
-    local samePx = false
-    if t.screen ~= nil then
-        pcall(function() samePx = (t.screen - toPx).Magnitude <= 0.01 end)
+    if t.screen ~= toPx then
+        local same = false
+        if t.screen ~= nil then
+            pcall(function() same = (t.screen - toPx).Magnitude <= 0.01 end)
+        end
+        if not same then t.screen = toPx end
     end
-    if not samePx then t.screen = toPx end
     t.t = SA.FrameClock and SA.FrameClock() or tick()
 
+    -- ── DRAWS (change-gated) ────────────────────────────────────────
+    local writes = 0
+    local thick = snapSize()
     if snapLine then
-        drawSet(snapLine, "From", snapOrigin())
-        drawSet(snapLine, "To", toPx)
-        drawSet(snapLine, "Color", col)
-        drawSet(snapLine, "Thickness", snapSize())
-        drawSet(snapLine, "Visible", true)
+        if drawSetIf(snapLine, snapCache, "From", aim) then writes = writes + 1 end
+        if drawSetIf(snapLine, snapCache, "To", toPx) then writes = writes + 1 end
+        if drawSetIf(snapLine, snapCache, "Color", col) then writes = writes + 1 end
+        if drawSetIf(snapLine, snapCache, "Thickness", thick) then writes = writes + 1 end
+        if drawSetIf(snapLine, snapCache, "Visible", true) then writes = writes + 1 end
     end
     if snapDot then
-        drawSet(snapDot, "Position", toPx)
-        drawSet(snapDot, "Color", col)
-        drawSet(snapDot, "Radius", snapSize() + 3)
-        drawSet(snapDot, "Visible", true)
+        if drawSetIf(snapDot, dotCache, "Position", toPx) then writes = writes + 1 end
+        if drawSetIf(snapDot, dotCache, "Color", col) then writes = writes + 1 end
+        if drawSetIf(snapDot, dotCache, "Radius", thick + 3) then writes = writes + 1 end
+        if drawSetIf(snapDot, dotCache, "Visible", true) then writes = writes + 1 end
     end
 
     -- lead marker: where the ballistic solver will actually send the shot
     local showLead = leadLine and CFG.snapShowLead and CFG.prediction
     if showLead then
-        local aimPos, info = SA.Predict(cam.CFrame.Position, best.pos, best.model)
+        local aimPos, info = SA.Predict(cam.CFrame.Position, targetPos, targetModel)
         local lp2, leadOk = cam:WorldToViewportPoint(aimPos)
         local leadPx, leadOn = snapProject(cam, lp2, leadOk)
         if leadOn and (leadPx - toPx).Magnitude > 1.5 and info.inRange then
-            drawSet(leadLine, "From", toPx)
-            drawSet(leadLine, "To", leadPx)
-            drawSet(leadLine, "Color", ESP_COLORS.lead)
-            drawSet(leadLine, "Thickness", snapSize())
-            drawSet(leadLine, "Visible", true)
-            drawSet(leadDot, "Position", leadPx)
-            drawSet(leadDot, "Color", ESP_COLORS.lead)
-            drawSet(leadDot, "Radius", snapSize() + 4)
-            drawSet(leadDot, "Visible", true)
+            if drawSetIf(leadLine, leadLCache, "From", toPx) then writes = writes + 1 end
+            if drawSetIf(leadLine, leadLCache, "To", leadPx) then writes = writes + 1 end
+            if drawSetIf(leadLine, leadLCache, "Color", ESP_COLORS.lead) then writes = writes + 1 end
+            if drawSetIf(leadLine, leadLCache, "Thickness", thick) then writes = writes + 1 end
+            if drawSetIf(leadLine, leadLCache, "Visible", true) then writes = writes + 1 end
+            if drawSetIf(leadDot, leadDCache, "Position", leadPx) then writes = writes + 1 end
+            if drawSetIf(leadDot, leadDCache, "Color", ESP_COLORS.lead) then writes = writes + 1 end
+            if drawSetIf(leadDot, leadDCache, "Radius", thick + 4) then writes = writes + 1 end
+            if drawSetIf(leadDot, leadDCache, "Visible", true) then writes = writes + 1 end
         else
-            drawSet(leadLine, "Visible", false); drawSet(leadDot, "Visible", false)
+            if drawSetIf(leadLine, leadLCache, "Visible", false) then writes = writes + 1 end
+            if drawSetIf(leadDot, leadDCache, "Visible", false) then writes = writes + 1 end
         end
     else
-        drawSet(leadLine, "Visible", false); drawSet(leadDot, "Visible", false)
+        if drawSetIf(leadLine, leadLCache, "Visible", false) then writes = writes + 1 end
+        if drawSetIf(leadDot, leadDCache, "Visible", false) then writes = writes + 1 end
     end
+    SA.SnaplineWrites = writes
 end
 
 bindRender(updateSnapLine)
