@@ -36,6 +36,11 @@ local leadLine = initDraw("Line", { Thickness = 3, Transparency = 0.35, Visible 
 local leadDot  = initDraw("Circle", { Radius = 7, Filled = false, NumSides = 24,
                                       Transparency = 0.35, Visible = false })
 
+-- Set once the snapline has actually drawn; lets the disabled path skip
+-- all work on a cold start (the draws begin hidden) while still running
+-- exactly one hide when the user turns the feature off.
+local snapWasOn = false
+
 local function clearSnapTarget()
     if not SA.Target then return end
     -- Keep the silent-aim fields (pred / lastShot / lastShotAt) intact.
@@ -55,10 +60,27 @@ local function hideSnap()
     drawSet(snapDot,  "Visible", false)
     drawSet(leadLine, "Visible", false)
     drawSet(leadDot,  "Visible", false)
-    -- No target this frame: drop the shared memo too, so the very next
-    -- consumer (Gun Silent Aim's aim highlight, the ESP target colour)
-    -- cannot keep drawing a target the snapline already gave up on.
-    if SA.PreviewTargetReset then pcall(SA.PreviewTargetReset) end
+    -- The snapline must hide ITS OWN four draws and nothing else.
+    --
+    -- This used to also call SA.PreviewTargetReset(), which threw away the
+    -- shared per-frame preview memo owned by 02_shared.lua. That memo is
+    -- what the ESP target highlight and the nearest-set read; destroying
+    -- it here had two consequences:
+    --
+    --   1. With the toggle OFF, updateSnapLine() runs every render frame
+    --      and takes this branch (see below), so the memo was wiped 60x
+    --      per second FOREVER — the ESP target highlight and the
+    --      nearest-set slot flickered on and off permanently even though
+    --      the snapline was disabled.
+    --   2. With the toggle ON, ANY frame whose pick failed (a target
+    --      crossing the circle edge, one rollHit miss) wiped the memo, so
+    --      the target jumped nil -> player -> nil while the circle sat on
+    --      a player. That is the reported "everything gets stuck while
+    --      the FOV is on a player, normal again once it is off".
+    --
+    -- Clearing the shared memo is not the snapline's job: it only owns
+    -- its own line / dot. SA.Target is cleared by clearSnapTarget()
+    -- below, which is the contract every other consumer already expects.
     clearSnapTarget()
 end
 
@@ -110,9 +132,22 @@ end
 local function updateSnapLine()
     -- Works with JUST the Visual -> Snapline toggle ON. Gun Silent Aim is
     -- no longer a prerequisite; the line is an aim preview, not a shot.
+    --
+    -- EARLY EXIT BEFORE ANY WORK. This callback is bound at load time and
+    -- runs on every render frame whether or not the user ever enables the
+    -- snapline, so the disabled path must be as cheap as possible and
+    -- must not touch shared state. The four draws are created Visible =
+    -- false and are only ever made visible below, so there is nothing to
+    -- hide the first time: skip the whole function, and only run the
+    -- (idempotent) hide once after the toggle has actually been used.
     if not CFG.snapLineEnabled then
-        hideSnap(); return
+        if snapWasOn then
+            snapWasOn = false
+            hideSnap()
+        end
+        return
     end
+    snapWasOn = true
     local cam = ws.CurrentCamera
     if not cam then hideSnap(); return end
 

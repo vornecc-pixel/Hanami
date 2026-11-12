@@ -311,6 +311,26 @@ assert(allSource.includes('if (tonumber(sp.Z) or 0) <= 0 then return false end')
 assert(allSource.includes('if zHead ~= nil and zHead <= 0 then spHead = nil end'),
   'src/02_shared.lua: FovSegmentInside must reject behind-camera endpoints');
 
+// The snapline owns its own four draws and nothing else. It used to call
+// SA.PreviewTargetReset() from hideSnap(), which runs every render frame
+// while the toggle is OFF — wiping the shared preview memo 60x/second and
+// making the ESP target highlight / nearest-set flicker permanently.
+{
+  const snapSrc = read('src/11_snapline.lua');
+  const hideStart = snapSrc.indexOf('local function hideSnap()');
+  const hideEnd = snapSrc.indexOf('function SA.SnaplineDispose()');
+  assert(hideStart > 0 && hideEnd > hideStart,
+    'src/11_snapline.lua: hideSnap not found');
+  // Comments stripped, so the explanatory note above cannot satisfy or
+  // defeat this check — only a real call would.
+  const hideBody = snapSrc.slice(hideStart, hideEnd)
+    .replace(/--[^\n]*/g, '');
+  assert(!hideBody.includes('PreviewTargetReset'),
+    'src/11_snapline.lua: hideSnap must not clear the shared preview memo');
+}
+assert(read('src/11_snapline.lua').includes('snapWasOn'),
+  'src/11_snapline.lua: disabled path must early-exit without doing work');
+
 // FOV circle is the sole non-ESP startup exception: ON, solid, visible,
 // mouse reference, with a separate 1-10 snapline size control.
 const fovStart = config.indexOf('SA.FOV_STARTUP = {');
@@ -867,7 +887,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,489 assertions',
+  '6,513 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',

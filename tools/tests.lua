@@ -4261,6 +4261,93 @@ function saEspBehindCameraRegression()
 end
 saEspBehindCameraRegression()
 
+-- ── The snapline must not destroy the SHARED preview memo ───────────
+-- Report: "when FOV is pointed at a player, everything gets stuck and
+-- only goes normal once I don't point the FOV at the player any more."
+--
+-- Root cause: updateSnapLine() is bound at load time and ran on every
+-- render frame. With the toggle OFF it took hideSnap(), and hideSnap()
+-- called SA.PreviewTargetReset() — throwing away the shared per-frame
+-- preview memo in 02_shared.lua that the ESP target highlight and the
+-- nearest-set both read. So the memo was wiped 60x/second permanently,
+-- and with the toggle ON every failed pick (a target crossing the circle
+-- edge, one rollHit miss) wiped it again — the target flipped
+-- nil -> player -> nil while the circle sat on a player.
+--
+-- The snapline owns four draws. It must not own (or clear) shared state.
+function saSnaplineMemoRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "snapLineEnabled", "showFov", "masterEnabled", "gunEnabled",
+        "espShowBox", "espShowName", "espShowDist", "espMaxDist",
+        "perfMode", "espHighlightTarget", "fov", "prediction" }) do
+        savedFlags[k] = CFG[k]
+    end
+    for _, snap in ipairs({ false, true }) do
+        for _, onPlayer in ipairs({ false, true }) do
+            setFlags({ perfMode = false, espEnabled = true,
+                npcEspEnabled = false, crateEnabled = false,
+                espShowBox = true, espShowName = true, espShowDist = true,
+                espMaxDist = 5000, showFov = true, masterEnabled = false,
+                gunEnabled = false, snapLineEnabled = snap,
+                prediction = false, fov = 400,
+                espVisibleCheck = false, espHighlightTarget = true,
+                fovMode = "Pixels", targetPriority = "Crosshair",
+                teamCheck = false, wallCheck = false, fovHitbox = false })
+            MOCK_REAL_PROJECTION = true
+            MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+            MOCK_CAMERA.FieldOfView = 70
+            mock_cam_clear_look(MOCK_CAMERA)
+            local savedMouse = UserInputService.GetMouseLocation
+            UserInputService.GetMouseLocation = function()
+                return Vector2.new(640, 360)
+            end
+            mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+            SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+            frameTimes(14)
+            local o
+            for pl, ob in pairs(espObjects) do
+                if pl.Name == "NearestGuy" then o = ob end
+            end
+            ok(o ~= nil, "snapline memo: player built")
+            local resets = 0
+            local realReset = SA.PreviewTargetReset
+            SA.PreviewTargetReset = function(...)
+                resets = resets + 1
+                return realReset(...)
+            end
+            for i = 1, 20 do
+                local a = 0.20 + i * 0.012
+                mock_cam_look(MOCK_CAMERA, Vector3.new(
+                    math.cos(a) * 12, 1, math.sin(a) * 12))
+                if onPlayer and o then
+                    local vv = MOCK_CAMERA:WorldToViewportPoint(o.root.Position)
+                    UserInputService.GetMouseLocation = function()
+                        return Vector2.new(vv.X, vv.Y)
+                    end
+                else
+                    UserInputService.GetMouseLocation = function()
+                        return Vector2.new(50, 690)
+                    end
+                end
+                mock_frame(0.016)
+            end
+            SA.PreviewTargetReset = realReset
+            local label = "snapline " .. (snap and "ON" or "OFF")
+                .. (onPlayer and ", circle on player" or ", circle off")
+            eq(resets, 0, "shared preview memo survives " .. label)
+            UserInputService.GetMouseLocation = savedMouse
+            setFlags({ espEnabled = false, snapLineEnabled = false })
+            SA.EspGeomInvalidate()
+        end
+    end
+    MOCK_REAL_PROJECTION = false
+    mock_cam_clear_look(MOCK_CAMERA)
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saSnaplineMemoRegression()
+
+
 
 -- ── A turning camera must carry every tag with it ───────────────────
 -- The "ESP gets stuck when the camera turns too much" report: whatever a
