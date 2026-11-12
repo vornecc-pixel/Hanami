@@ -88,6 +88,25 @@ do
     for plr in pairs(espObjects) do clearESP(plr) end
 end
 
+-- A HUD/ESP re-execute can leave a world-anchored BillboardGui from an
+-- older chunk that is no longer present in espObjects. Purge those named
+-- ghosts before attaching the fresh one; otherwise a second green name tag
+-- can appear when the target enters the FOV circle.
+local function purgeGhostEsp(char, head)
+    for _, root in ipairs({ char, head }) do
+        if root then
+            pcall(function()
+                for _, c in ipairs(root:GetChildren()) do
+                    if c and (c.Name == "HanamiPlayerGui"
+                        or c.Name == "HanamiPlayerHighlight") then
+                        pcall(function() c:Destroy() end)
+                    end
+                end
+            end)
+        end
+    end
+end
+
 local function buildESP(plr)
     if plr == lp then return false end
     local char = plr.Character
@@ -98,6 +117,7 @@ local function buildESP(plr)
     local hrp, head, hum = SA.PlayerRig(char)
     if not hrp or not head or not hum then return false end
     clearESP(plr)
+    purgeGhostEsp(char, head)
 
     -- Held outside the pcall so a partial failure can be cleaned up
     -- instead of leaking orphaned Instances into the character.

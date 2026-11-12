@@ -140,6 +140,7 @@ local function drawEntityInner(cam, o, opt)
         o.espFovState = stateKey
         SA.EspFovTransitions = (SA.EspFovTransitions or 0) + 1
         pcall(hideFx, o)
+        pcall(SA.EspHideDuplicateOverlays, o, opt.model)
         startFxFrame(o)
         -- Keep the projection object for state probes, but force ONE fresh
         -- SA.EspGeom() next frame so a sliced entity cannot reuse it.

@@ -66,7 +66,12 @@ local function refreshOnePlayer(plr, o, cam)
     local col = CFG.espVisibleCheck
         and (visible and ESP_COLORS.playerVisible or ESP_COLORS.playerHidden) or ESP_COLORS.playerFlat
 
-    o.bb.Enabled = true; o.highlight.Enabled = true
+    -- The unified screen-space FX pass owns every name / distance / tag.
+    -- Keep the legacy BillboardGui OFF even during the throttled refresh,
+    -- so a partial failure or stale executor cache cannot reveal a second
+    -- world-anchored name on FOV entry.
+    o.bb.Enabled = type(SA.HideEspBillboard) ~= "function"
+    o.highlight.Enabled = true
     o.highlight.FillColor = col
     o.nameLbl.Visible = CFG.espShowName
     o.nameLbl.Text = plr.Name

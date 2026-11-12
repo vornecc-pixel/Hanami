@@ -536,6 +536,7 @@ function SA.FullUnload()
     _G.__saShared, _G.__saCFG = nil, nil
     _G.__saEspObjects, _G.__saNpcObjects, _G.__saCrateObjects = nil, nil, nil
     _G.__saEspPreview, _G.__saNearestWindow = nil, nil
+    _G.__saNearestWindowPos = nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saWhiteColorFix, _G.__saFovFix = nil, nil
     _G.__saFustBow = nil

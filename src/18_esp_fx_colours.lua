@@ -104,37 +104,89 @@ end
 
 -- The world-anchored BillboardGui is a legacy text source. The screen-space
 -- FX pass writes its own name/distance/tags, so every legacy label and the
--- BillboardGui itself must be hidden. This also fixes stuck duplicate name
--- tags when a target leaves the viewport or its ESP is disabled.
+-- BillboardGui itself must be hidden. Verify the LIVE property after the
+-- cached write: the throttled refresh can set Visible/Enabled directly, and
+-- an executor that rejects one cached write must not leave a duplicate
+-- world-anchored name tag behind.
+local function hideInstVisible(cache, inst, prop)
+    if not inst then return end
+    pcall(function()
+        if SA.ApplyInstProp then SA.ApplyInstProp(cache, inst, prop, false) end
+        if inst[prop] ~= false then inst[prop] = false end
+    end)
+end
+
 local function hideEspBillboard(o)
     if not o then return end
     local cache = instCache(o)
     local labels = { o.nameLbl, o.distLbl, o.infoLbl, o.stateLbl }
     for _, lbl in ipairs(labels) do
-        if lbl then
-            if SA.ApplyInstProp then
-                pcall(SA.ApplyInstProp, cache, lbl, "Visible", false)
-            else
-                pcall(function() lbl.Visible = false end)
-            end
-        end
+        hideInstVisible(cache, lbl, "Visible")
     end
     if o.bb then
-        if SA.ApplyInstProp then
-            pcall(SA.ApplyInstProp, cache, o.bb, "Enabled", false)
-            pcall(SA.ApplyInstProp, cache, o.bb, "Size", UDim2.fromOffset(220, 1))
-            pcall(SA.ApplyInstProp, cache, o.bb, "StudsOffset",
-                Vector3.new(0, 0, 0))
-        else
-            pcall(function()
-                o.bb.Enabled = false
+        hideInstVisible(cache, o.bb, "Enabled")
+        pcall(function()
+            if SA.ApplyInstProp then
+                SA.ApplyInstProp(cache, o.bb, "Size", UDim2.fromOffset(220, 1))
+                SA.ApplyInstProp(cache, o.bb, "StudsOffset", Vector3.new(0, 0, 0))
+            else
                 o.bb.Size = UDim2.fromOffset(220, 1)
                 o.bb.StudsOffset = Vector3.new(0, 0, 0)
-            end)
-        end
+            end
+        end)
     end
 end
 SA.HideEspBillboard = hideEspBillboard
+
+-- Called ONCE on a FOV / viewport / draw-signature transition, not every
+-- frame. A stale duplicate espObjects slot or a ghost HanamiPlayerGui from
+-- an older chunk can otherwise keep a second label pinned to the FOV edge
+-- while the live target is already inside the circle.
+SA.EspDuplicateCleanup = SA.EspDuplicateCleanup or {
+    objects = 0, ghosts = 0, labels = 0,
+}
+function SA.EspHideDuplicateOverlays(current, model)
+    if not model then return end
+    local st = SA.EspDuplicateCleanup
+    pcall(hideEspBillboard, current)
+    for _, o in pairs(espObjects or {}) do
+        if o and o ~= current and o.char == model then
+            pcall(hideFx, o)
+            st.objects = st.objects + 1
+        end
+    end
+    local roots = { model }
+    pcall(function()
+        local head = model:FindFirstChild("Head") or model:FindFirstChild("HeadPart")
+        if head then roots[#roots + 1] = head end
+    end)
+    for _, root in ipairs(roots) do
+        pcall(function()
+            for _, c in ipairs(root:GetChildren()) do
+                if c and c.Name == "HanamiPlayerGui"
+                    and c:IsA("BillboardGui") then
+                    pcall(function() c.Enabled = false end)
+                    st.ghosts = st.ghosts + 1
+                    pcall(function()
+                        for _, lbl in ipairs(c:GetChildren()) do
+                            if lbl:IsA("TextLabel") and lbl.Visible ~= false then
+                                lbl.Visible = false
+                                st.labels = st.labels + 1
+                            end
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+end
+function SA.EspDuplicateCleanupState()
+    local st = SA.EspDuplicateCleanup or {}
+    return {
+        objects = st.objects or 0, ghosts = st.ghosts or 0,
+        labels = st.labels or 0,
+    }
+end
 
 local function hideLegacyFx(o)
     if not o then return end

@@ -16,6 +16,13 @@ local TOOL_ATTRS  = { "ItemId", "Weapon", "WeaponId", "HeldItem", "Item", "Gun",
 local STATE_ATTRS = { "State", "Status", "AliveState", "Knocked", "Downed",
                       "IsDown", "Dead", "IsDead", "Ragdolled", "Stunned", "IsStunned" }
 local TOOL_CHILDREN = { "Weapon", "Item", "HeldItem", "CurrentWeapon", "Tool", "Gun" }
+local EQUIP_ATTRS = { "Equipped", "IsEquipped", "WeaponEquipped", "GunEquipped",
+                      "WeaponOut", "HasWeaponOut" }
+local HOLSTER_ATTRS = { "Holstered", "IsHolstered", "WeaponHolstered",
+                        "GunHolstered", "HolsteredWeapon", "HolsteredItem",
+                        "WeaponState", "GunState" }
+local HOLSTER_CHILDREN = { "Holster", "HolsteredWeapon", "HolsteredItem",
+                           "SheathedWeapon", "BackWeapon", "GunHolster" }
 
 local function firstAttr(inst, names)
     for _, n in ipairs(names) do
@@ -45,6 +52,56 @@ function SA.GetTool(model)
         end
     end
     return firstAttr(model, TOOL_ATTRS) or "None"
+end
+
+-- The nearest-player profile card shows BOTH the resolved weapon name and
+-- a separate Equipped / Holstered / Unknown state. A Tool child means the
+-- game has an actually equipped tool; common game attributes and holster
+-- containers classify the remaining cases without guessing from thin air.
+function SA.GetWeaponStatus(model)
+    local tool = SA.GetTool(model)
+    local hasTool, equippedAttr, holster = false, nil, nil
+    pcall(function()
+        if model:FindFirstChildOfClass("Tool") then hasTool = true end
+        if not hasTool then
+            for _, c in ipairs(model:GetChildren()) do
+                if c:IsA("Tool") then hasTool = true; break end
+            end
+        end
+    end)
+    pcall(function() equippedAttr = firstAttr(model, EQUIP_ATTRS) end)
+    pcall(function()
+        for _, n in ipairs(HOLSTER_ATTRS) do
+            local v = model:GetAttribute(n)
+            if v ~= nil and v ~= false and v ~= "" then
+                if type(v) == "string" or type(v) == "number" then
+                    holster = tostring(v)
+                else
+                    holster = n
+                end
+                return
+            end
+        end
+        for _, n in ipairs(HOLSTER_CHILDREN) do
+            local c = model:FindFirstChild(n)
+            if c then
+                local ok, v = pcall(function() return c.Value end)
+                holster = (ok and v ~= nil and v ~= "") and tostring(v) or n
+                return
+            end
+        end
+    end)
+    local state = "Unknown"
+    if hasTool or equippedAttr or (tool ~= "None" and not holster) then
+        state = "Equipped"
+    elseif holster then
+        state = "Holstered"
+    end
+    return {
+        tool = tostring(tool), state = state, holster = holster,
+        label = state .. ": " .. tostring(tool),
+        chip = string.upper(state),
+    }
 end
 
 function SA.GetState(model, hum)

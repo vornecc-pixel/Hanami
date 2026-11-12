@@ -1719,6 +1719,86 @@ contains(nearestWindow.label.Text, "2. ", "second HUD row")
 contains(nearestWindow.label.Text, "aim:", "why-no-target line")
 contains(nearestWindow.label.Text, "fps", "FPS line")
 
+function saNearestProfileRegression()
+    local savedSync, savedFail = MOCK_TASK_SPAWN_SYNC, MOCK_THUMBNAIL_FAIL
+    MOCK_TASK_SPAWN_SYNC, MOCK_THUMBNAIL_FAIL = true, false
+    quiet(function() SA.NearestWindowRefresh() end)
+    MOCK_TASK_SPAWN_SYNC = false
+    local hud = SA.NearestWindowState()
+    eq(hud.enabled, true, "profile HUD enabled")
+    eq(hud.built, true, "profile HUD built")
+    eq(hud.visible, true, "profile HUD visible while menu hidden")
+    contains(hud.profile, "NearestGuyDisplay", "profile display name")
+    contains(hud.username, "NearestGuy", "profile account name")
+    eq(hud.userId, 2, "profile Roblox UserId")
+    eq(hud.weapon, "AssaultRifle", "profile weapon name")
+    eq(hud.weaponState, "Equipped", "profile weapon state")
+    eq(hud.weaponChip, "EQUIPPED", "profile state chip")
+    eq(hud.avatarState, "loaded", "Roblox headshot loaded")
+    contains(hud.avatar, "rbxthumb://headshot-2", "profile headshot asset")
+    eq(hud.avatarFallback, false, "headshot is not the initials fallback")
+    eq(hud.dragHandle, true, "profile card has a drag handle")
+    eq(hud.dragConnected, true, "profile drag events connected")
+    eq(hud.dragged, false, "profile card starts at its corner")
+    near(hud.position.x, 12, 0.001, "profile card starts at left margin")
+    near(hud.position.y, 12, 0.001, "profile card starts at top margin")
+    local nw = _G.__saNearestWindow
+    eq(nw.stateLbl.Text, "EQUIPPED", "equipped state chip rendered")
+    contains(nw.weaponLbl.Text, "AssaultRifle", "weapon name rendered")
+    eq(nw.initials.Visible, false, "initials hidden behind headshot")
+    contains(nw.label.Text, "2. ", "top-N rows still rendered")
+    quiet(function()
+        local mouse = Enum.UserInputType.MouseButton1
+        nw.header.InputBegan:Fire({ UserInputType = mouse,
+            Position = Vector2.new(20, 20) })
+        UserInputService.InputChanged:Fire({
+            UserInputType = Enum.UserInputType.MouseMovement,
+            Position = Vector2.new(120, 90) })
+        UserInputService.InputEnded:Fire({ UserInputType = mouse,
+            Position = Vector2.new(120, 90) })
+        SA.NearestWindowRefresh()
+    end)
+    local dragged = SA.NearestWindowState()
+    eq(dragged.dragged, true, "header drag marks custom position")
+    near(dragged.position.x, 112, 0.001, "drag moves card horizontally")
+    near(dragged.position.y, 82, 0.001, "drag moves card vertically")
+    ok(_G.__saNearestWindowPos ~= nil, "drag position persists in session")
+    eq(nw.frame.Position.X.Offset, 112, "drag writes real frame position")
+    quiet(function() SA.NearestWindowResetPosition() end)
+    local reset = SA.NearestWindowState()
+    eq(reset.dragged, false, "reset restores corner anchoring")
+    eq(_G.__saNearestWindowPos, nil, "reset clears saved drag position")
+    near(reset.position.x, 12, 0.001, "reset restores left margin")
+    near(reset.position.y, 12, 0.001, "reset restores top margin")
+    MOCK_TASK_SPAWN_SYNC, MOCK_THUMBNAIL_FAIL = true, true
+    quiet(function() SA.NearestWindowRefresh() end)
+    local fallback = SA.NearestWindowState()
+    eq(fallback.avatarState, "fallback", "failed headshot uses initials")
+    eq(fallback.avatarFallback, true, "failed headshot fallback reported")
+    eq(nw.initials.Visible, true, "initials avatar visible on failure")
+    eq(nw.avatar.Image, "", "failed headshot clears stale image")
+    eq(fallback.avatarInitials, "NE", "initials come from display name")
+    MOCK_TASK_SPAWN_SYNC, MOCK_THUMBNAIL_FAIL = true, false
+    quiet(function() SA.NearestWindowRefresh() end)
+    MOCK_TASK_SPAWN_SYNC, MOCK_THUMBNAIL_FAIL = savedSync, savedFail
+    local tmp = Instance.new("Model")
+    local tool = Instance.new("Tool")
+    tool.Name = "Pistol"
+    tool.Parent = tmp
+    local equipped = SA.GetWeaponStatus(tmp)
+    eq(equipped.state, "Equipped", "Tool child means Equipped")
+    eq(equipped.tool, "Pistol", "equipped weapon name resolved")
+    tool:Destroy()
+    tmp:SetAttribute("Holstered", true)
+    local holstered = SA.GetWeaponStatus(tmp)
+    eq(holstered.state, "Holstered", "holster attribute means Holstered")
+    tmp:SetAttribute("Holstered", nil)
+    local unknown = SA.GetWeaponStatus(tmp)
+    eq(unknown.state, "Unknown", "no tool or holster marker means Unknown")
+    tmp:Destroy()
+end
+saNearestProfileRegression()
+
 setFlags({ perfMode = true })
 frameTimes(40)
 local perfGui = gethui():FindFirstChild("HanamiPerfOverlay")
@@ -2230,6 +2310,64 @@ saEspStaleOverlayRegression()
 -- instead of staying clamped to the old FOV edge (or waiting for the user
 -- to turn away again). WorldToViewportPoint is overridden only here so the
 -- transition is deterministic while Z stays positive throughout.
+function saCountVisibleNamesForChar(model)
+    local n = 0
+    for _, obj in pairs(espObjects) do
+        if obj.char == model and obj.fx and obj.fx.txName
+            and obj.fx.txName.Visible == true then
+            n = n + 1
+        end
+    end
+    return n
+end
+
+-- A ghost BillboardGui from an older chunk and a second espObjects slot for
+-- the same character reproduce the screenshot's duplicate green name + stale
+-- FOV-edge white label. One transition cleanup must hide both.
+function saEspFovDuplicateRegression(fovObj)
+    local ghostGui = Instance.new("BillboardGui")
+    ghostGui.Name = "HanamiPlayerGui"
+    ghostGui.Enabled = true
+    ghostGui.Parent = fovObj.head
+    local ghostLbl = Instance.new("TextLabel")
+    ghostLbl.Name = "GhostName"
+    ghostLbl.Text = "GHOST GREEN NAME"
+    ghostLbl.Visible = true
+    ghostLbl.Parent = ghostGui
+    local fakeKey = {}
+    local duplicate = {
+        char = fovObj.char,
+        bb = Instance.new("BillboardGui"),
+        nameLbl = Instance.new("TextLabel"),
+        fx = {
+            txName = { Visible = true, Text = "STALE EDGE NAME",
+                Position = Vector2.new(740, 336) },
+            txDist = { Visible = true, Text = "225m",
+                Position = Vector2.new(740, 350) },
+        },
+    }
+    local staleName = duplicate.fx.txName
+    duplicate.bb.Enabled = true
+    duplicate.nameLbl.Visible = true
+    duplicate.nameLbl.Text = "STALE LEGACY NAME"
+    espObjects[fakeKey] = duplicate
+    local before = SA.EspDuplicateCleanupState()
+    quiet(function() SA.EspHideDuplicateOverlays(fovObj, fovObj.char) end)
+    local after = SA.EspDuplicateCleanupState()
+    ok(after.objects > before.objects, "duplicate ESP slot cleanup counted")
+    ok(after.ghosts > before.ghosts, "orphan BillboardGui cleanup counted")
+    ok(after.labels > before.labels, "orphan duplicate name label hidden")
+    eq(staleName.Visible, false, "stale duplicate screen-space name hidden")
+    eq(duplicate.nameLbl.Visible, false, "stale duplicate legacy name hidden")
+    eq(duplicate.bb.Enabled, false, "duplicate BillboardGui disabled")
+    eq(ghostGui.Enabled, false, "orphan BillboardGui disabled")
+    eq(ghostLbl.Visible, false, "orphan green name hidden")
+    espObjects[fakeKey] = nil
+    ghostGui.Enabled = true
+    ghostLbl.Visible = true
+    return ghostGui, ghostLbl
+end
+
 function saEspFovTransitionRegression()
     quiet(function() SA.ResetToDefaults() end)
     setFlags({
@@ -2302,6 +2440,8 @@ function saEspFovTransitionRegression()
     end
     eq(fovObj.bb.Enabled, false, "outside FOV: BillboardGui hidden")
     eq(fovObj.nameLbl.Visible, false, "outside FOV: duplicate name hidden")
+    local ghostGui, ghostLbl = saEspFovDuplicateRegression(fovObj)
+    local cleanupBeforeEnter = SA.EspDuplicateCleanupState().ghosts
 
     -- Seed a stale edge overlay, then TURN THE CAMERA so the same target
     -- enters the FOV circle. Everything must update on that frame.
@@ -2336,6 +2476,12 @@ function saEspFovTransitionRegression()
     end
     eq(fovObj.bb.Enabled, false, "inside FOV: BillboardGui stays hidden")
     eq(fovObj.nameLbl.Visible, false, "inside FOV: duplicate name hidden")
+    eq(ghostGui.Enabled, false, "FOV enter hides orphan BillboardGui")
+    eq(ghostLbl.Visible, false, "FOV enter hides orphan green name")
+    ok(SA.EspDuplicateCleanupState().ghosts > cleanupBeforeEnter,
+        "FOV enter runs duplicate-overlay cleanup")
+    eq(saCountVisibleNamesForChar(fovObj.char), 1,
+        "FOV enter leaves exactly one on-player name")
 
     -- Leaving the circle again must not leave the main overlay at center.
     turnCamera(-6)
@@ -2361,6 +2507,7 @@ function saEspFovTransitionRegression()
     eq(SA.Target.model, nil,
         "outside FOV with snapline ON clears stale highlight target")
     setFlags({ masterEnabled = false, gunEnabled = false, snapLineEnabled = false })
+    pcall(function() ghostGui:Destroy() end)
 
     fovObj.root.Position = savedRoot
     fovObj.head.Position = savedHead
@@ -2603,6 +2750,7 @@ local buttonNames = {
     "Load Profile", "Lock Nearest as Aim Target", "Pin Nearest Player",
     "Rebind Selected", "Rebuild Character", "Rebuild ESP Preview",
     "Rebuild Player ESP", "Refresh Manip Popup", "Refresh Nearest HUD",
+    "Reset HUD Position",
     "Refresh Player Warning", "Rescan Attachments", "Rescan Characters",
     "Rescan Crates", "Rescan NPCs", "Reset ESP Colours", "Reset to Defaults",
     "Restore Bow Timings", "Restore Hitboxes", "Retry Tap Hooks",
@@ -2658,6 +2806,8 @@ local keptStateAPIs = {
     "EspColorFromText", "EspColorHex", "EspColorFromHex",
     "EspJson",
     "ApplyBestEsp", "ApplyCleanEsp", "BestEspState", "HideEspBillboard",
+    "GetWeaponStatus", "EspHideDuplicateOverlays", "EspDuplicateCleanupState",
+    "NearestWindowResetPosition",
     "ManipPopupState", "NearestWindowState", "EspPassStats", "DrawPoolStats",
     "PerfState", "GunDiff", "ApplyGunOverrides", "SyncGunDefs",
     "TestConfigRoundTrip", "EspPreviewRefresh",
@@ -2998,6 +3148,7 @@ else
     eq(_G.__saCFG, nil, "CFG cleared")
     eq(_G.__saEspPreview, nil, "preview state cleared")
     eq(_G.__saNearestWindow, nil, "HUD state cleared")
+    eq(_G.__saNearestWindowPos, nil, "HUD drag position cleared")
     eq(count(SA.AllKeybinds), 0, "keybind registry cleared")
     eq(SA.PinnedTarget, nil, "pinned target cleared")
     ok(SA.FullUnload() == false, "unload is one-shot")

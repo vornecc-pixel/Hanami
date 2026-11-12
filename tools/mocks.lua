@@ -61,12 +61,23 @@ function mock_esp_reset()
 end
 
 mock_spawned, mock_deferred = {}, {}
+MOCK_TASK_SPAWN_SYNC = false
 task = {
     wait = function(seconds) return seconds or 0.016 end,
     -- Roblox yields here; Fengari cannot. Record the tasks so tests can
-    -- assert they were installed, but never run their infinite loops.
+    -- assert they were installed, but never run their infinite loops. A
+    -- test can opt into running short callbacks synchronously.
     defer = function(fn) mock_deferred[#mock_deferred + 1] = fn end,
-    spawn = function(fn) mock_spawned[#mock_spawned + 1] = fn end,
+    spawn = function(fn)
+        mock_spawned[#mock_spawned + 1] = fn
+        if MOCK_TASK_SPAWN_SYNC then
+            local ok, err = pcall(fn)
+            if not ok then
+                callback_errors = callback_errors + 1
+                print("[mock] callback error: " .. tostring(err))
+            end
+        end
+    end,
 }
 function wait(seconds) return seconds or 0.016 end
 
@@ -563,6 +574,7 @@ local ISA = {
     Model = { Model = true }, Humanoid = { Humanoid = true },
     Tool = { Tool = true }, Accessory = { Accessory = true },
     TextLabel = { TextLabel = true },
+    ImageLabel = { ImageLabel = true },
     TextButton = { TextButton = true, TextLabel = true },
     TextBox = { TextBox = true, TextLabel = true },
     Frame = { Frame = true }, ScreenGui = { ScreenGui = true },
@@ -867,7 +879,8 @@ function Instance.new(class)
     }, INST_META)
     o._props = { Size = UDim2.new(0, 0, 0, 0) }
     for _, ev in ipairs({ "MouseButton2Click", "MouseButton1Down", "MouseButton1Click",
-                          "InputBegan", "InputEnded", "Activated", "CharacterAdded",
+                          "InputBegan", "InputChanged", "InputEnded", "Activated",
+                          "CharacterAdded",
                           "ChildAdded", "ChildRemoved", "DescendantAdded",
                           "DescendantRemoving", "PlayerAdded", "PlayerRemoving",
                           "RenderStepped", "Heartbeat", "AncestryChanged" }) do
@@ -1242,6 +1255,13 @@ Players.LocalPlayer = localPlayer
 function Players:GetPlayers()
     MOCK_GETPLAYERS_CALLS = (MOCK_GETPLAYERS_CALLS or 0) + 1
     return { localPlayer, otherPlayer, farPlayer }
+end
+MOCK_THUMBNAIL_CALLS = 0
+MOCK_THUMBNAIL_FAIL = false
+function Players:GetUserThumbnailAsync(userId, thumbType, thumbSize)
+    MOCK_THUMBNAIL_CALLS = MOCK_THUMBNAIL_CALLS + 1
+    if MOCK_THUMBNAIL_FAIL then error("mock thumbnail failed") end
+    return "rbxthumb://headshot-" .. tostring(userId or 0), true
 end
 function Players:GetPlayerFromCharacter(char)
     if char == myChar then return localPlayer end

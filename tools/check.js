@@ -81,6 +81,9 @@ const requiredDist = [
   'SA.SetAllKeybindModes', 'SA.KeybindConflicts',
   'SA.StartRebind', 'SA.ClearSelectedKeybind', 'SA.DisposePerfOverlay',
   'HanamiPerfOverlay', 'SA.NearestWindowState',
+  'SA.GetWeaponStatus', 'SA.EspHideDuplicateOverlays',
+  'SA.EspDuplicateCleanupState', 'SA.NearestWindowResetPosition',
+  'SA.NearestDisplay',
   'SA.EspPassAllowed', 'SA.EspPassStats', 'SA.PerfEffectiveRebuildMs',
   'SA.PerfEffectiveEntityCap', 'SA.DrawPoolStats', 'SA.DrawWriteFailures',
   'SA.GunDiff', 'SA.ApplyGunOverrides', 'SA.SyncGunDefs',
@@ -318,6 +321,30 @@ assert(read('src/25_ui_misc.lua').includes('_G.__saFovFix = nil'),
   'FullUnload must clear the FOV migration marker');
 assert(read('src/24_ui_visual.lua').includes('Works with just this toggle ON'),
   'snapline tooltip must document the independent toggle');
+// FOV duplicate-overlay cleanup + draggable nearest-player profile card.
+assert(read('src/04_entity_info.lua').includes('function SA.GetWeaponStatus(model)'),
+  'shared Equipped / Holstered / Unknown weapon status missing');
+assert(read('src/12_esp_players.lua').includes('purgeGhostEsp'),
+  'named ghost BillboardGui / Highlight purge missing');
+assert(read('src/13_esp_players_refresh.lua').includes(
+  'o.bb.Enabled = type(SA.HideEspBillboard)'),
+  'legacy BillboardGui must stay OFF during the FX-mode refresh');
+assert(read('src/18_esp_fx_colours.lua').includes(
+  'function SA.EspHideDuplicateOverlays('),
+  'FOV duplicate / ghost overlay cleanup missing');
+assert(read('src/18_esp_fx_draw.lua').includes('SA.EspHideDuplicateOverlays'),
+  'FOV transition must call duplicate-overlay cleanup');
+assert(read('src/03_entity_scan.lua').includes('GetUserThumbnailAsync'),
+  'nearest-player Roblox headshot missing');
+assert(read('src/03_entity_scan.lua').includes('UserInputService.InputChanged'),
+  'nearest-player real pointer drag missing');
+assert(read('src/03_entity_scan.lua').includes(
+  'function SA.NearestWindowResetPosition()'),
+  'nearest-player drag reset missing');
+assert(read('src/03_entity_scan.lua').includes('SA.NearestDisplay ='),
+  'shared nearest display-name formatter missing');
+assert(read('src/25_ui_misc.lua').includes('_G.__saNearestWindowPos = nil'),
+  'FullUnload must clear the session drag position');
 const frameSrc = read('src/18_esp_fx_frame.lua');
 for (const needle of [
   'tostring(CFG.masterEnabled)', 'tostring(CFG.gunEnabled)',
@@ -451,6 +478,10 @@ for (const name of files) {
     `README ${name} says ${row.lines} lines, actual ${lineCounts.get(name)}`);
 }
 const requiredDescriptions = {
+  'src/04_entity_info.lua': ['equipped', 'holstered', 'weapon status',
+    'tool child fallback', 'shared metres'],
+  'src/12_esp_players.lua': ['player esp', 'ghost billboardgui', 'purge',
+    're-execution'],
   'src/01_config.lua': ['themes', 'fonts', 'white', 'startup off',
     'esp-only best startup', 'fov startup', 'snapline size', 'mouse reference',
     'inline colours', 'profiles', 'self-check', 'perf', 'clean',
@@ -458,7 +489,9 @@ const requiredDescriptions = {
     'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching',
     'per-property'],
-  'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list'],
+  'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list',
+    'profile card', 'avatar', 'headshot', 'draggable', 'weapon state',
+    'reset hud position'],
   'src/02_shared.lua': ['fov', 'mouse reference', 'pinned', 'npc classifier', 'force head',
     'trigger bone', 'vis', 'wall check'],
   'src/05_manipulation.lua': ['popup', 'probe', 'npc', 'fire-assist'],
@@ -472,15 +505,16 @@ const requiredDescriptions = {
   'src/11_snapline.lua': ['independent', 'fov reference',
     'thick 3px', 'snapline size'],
   'src/13_esp_players_refresh.lua': ['per-player', 'cached player rig', 'vis',
-    'shared projection cache', 'geometry cache'],
+    'legacy billboardgui off', 'shared projection cache', 'geometry cache'],
   'src/14_esp_npcs.lua': ['npc esp', 'cached rig'],
   'src/15_esp_npcs_refresh.lua': ['npc esp', 'cached rig', 'vis',
     'shared projection cache', 'geometry cache'],
   'src/16_esp_crates_registry.lua': ['crate registry', 'raw list'],
   'src/18_esp_fx_colours.lua': ['palette', 'fov snapshot', 'raw projection',
-    'legacy line', 'usage marks', 'geometry cache', 'rainbow clock'],
+    'live visibility', 'duplicate overlay', 'legacy line', 'usage marks',
+    'geometry cache', 'rainbow clock'],
   'src/18_esp_fx_draw.lua': ['clean', 'outline', 'crate fov', 'off-screen',
-    'fov enter/leave', 'transition cleanup',
+    'fov enter/leave', 'transition cleanup', 'duplicate overlay',
     'legacy line', 'hoisted helpers', 'usage marks', 'direct segments'],
   'src/18_esp_fx_frame.lua': ['per-frame', 'crate fov', 'team map',
     'fov enter/leave', 'fov transition', 'gun silent aim toggle cleanup',
@@ -502,12 +536,13 @@ const requiredDescriptions = {
     'esp-only best startup',
     'inline', 'no colour mini-tabs'],
   'src/24_ui_visual.lua': ['fov reference', 'independent', 'thick snapline',
-    'snapline size', 'theme', 'font',
+    'snapline size', 'theme', 'font', 'profile card', 'avatar', 'headshot',
+    'draggable', 'weapon state', 'reset hud position',
     'top-n', 'performance', 'keybind', 'popup',
     'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
     'utilities'],
   'src/25_ui_misc.lua': ['theme', 'font', 'profile', 'colour profiles',
-    'self-check', 'full unload',
+    'self-check', 'full unload', 'drag position',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
     'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget',
     'fust bow'],
@@ -573,7 +608,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '5,436 assertions',
+  '5,609 assertions',
   'all 75 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -600,6 +635,18 @@ const requiredDocs = [
   'shared aim target',
   'just its own toggle ON',
   'saved colour pickers',
+  'One on-player label on FOV entry',
+  'one on-player label',
+  'Draggable nearest-player profile card',
+  'Roblox headshot',
+  'Equipped / Holstered / Unknown',
+  'Reset HUD Position',
+  'SA.GetWeaponStatus()',
+  'SA.EspHideDuplicateOverlays()',
+  'SA.EspDuplicateCleanupState()',
+  'SA.NearestWindowResetPosition()',
+  'FOV duplicate-overlay regressions',
+  'nearest-player profile regressions',
   'SA.FOV_STARTUP',
   'SA.EspFovSnapshot()',
   'SA.EspFovState()',
