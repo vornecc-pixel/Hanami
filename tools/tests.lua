@@ -3158,16 +3158,36 @@ function saDetectorRegression()
         "character attribute fallback read")
     farPlr.Character:SetAttribute("AdminESP", nil)
 
-    -- Snapshot counts other players only.
+    -- Snapshot counts other players only. It reports CONFIRMED roles, so
+    -- a single read is no longer enough: 3 consecutive scans are required.
+    mock_staff_reset()
+    SA.StaffWatchReset()
     local empty = SA.StaffDetectState()
     eq(empty.staff, 0, "clean server has no staff")
     ok(empty.players >= 2, "staff snapshot counts other players")
     otherPlr:SetAttribute("AdminGod", true)
+    local first = SA.StaffDetectState()
+    eq(first.staff, 0, "one positive scan does not flag staff yet")
+    eq(first.confirmScans, 3, "staff watch requires three scans")
+    ok(first.pending >= 1, "unconfirmed staff sample is pending")
+    SA.StaffDetectState()
     local snap = SA.StaffDetectState()
-    eq(snap.staff, 1, "snapshot finds one staff member")
+    eq(snap.staff, 1, "three consecutive scans confirm staff")
     eq(snap.admins, 1, "AdminGod is an admin")
     eq(snap.adminNames[1], otherPlr.Name, "admin snapshot name")
     mock_staff_reset()
+    -- A clean read resets the streak immediately.
+    otherPlr:SetAttribute("AdminGod", true)
+    SA.StaffDetectState()
+    otherPlr:SetAttribute("AdminGod", nil)
+    eq(SA.StaffDetectState().staff, 0, "clean scan clears the staff streak")
+    otherPlr:SetAttribute("AdminGod", true)
+    eq(SA.StaffDetectState().staff, 0,
+        "streak restarts from zero after a clean scan")
+    SA.StaffDetectState()
+    eq(SA.StaffDetectState().staff, 1, "three fresh scans re-confirm")
+    mock_staff_reset()
+    SA.StaffWatchReset()
 
     -- Aim / gun state must be untouched by either detector.
     local aimBefore = SA.Target and SA.Target.model or nil
@@ -3300,6 +3320,312 @@ function saDetectorRegression()
     eq(SA.UnknownHumanoidState().count, 0, "destroyed unknown rig drops out")
 end
 saDetectorRegression()
+
+-- ── shared per-frame aim target + stable draw signature ─────────────
+-- Silent aim / snapline regression: the preview target is resolved ONCE
+-- per frame (one candidate scan), not once per consumer, and it is never
+-- part of the per-entity FOV transition key.
+function saSharedAimTargetRegression()
+    local savedFlags = {}
+    for _, key in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "espVisibleCheck", "espShowBox", "espShowName", "espShowDist",
+        "espShowOffscreen", "espShowTracer", "espOnlyNearest",
+        "espOnlyAimTarget", "espTeamMode", "espMaxDist", "espDataRefreshMs",
+        "perfMode", "fov", "fovCenterMode", "masterEnabled", "gunEnabled",
+        "snapLineEnabled", "showManipPopup", "targetNpcs", "espShowFill",
+        "npcMaxDist" }) do
+        savedFlags[key] = CFG[key]
+    end
+    setFlags({
+        espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+        espVisibleCheck = false, espShowBox = true, espShowName = true,
+        espShowDist = true, espShowOffscreen = false, espShowTracer = false,
+        espOnlyNearest = false, espOnlyAimTarget = false,
+        espTeamMode = "All", espMaxDist = 5000, espDataRefreshMs = 16,
+        perfMode = false, fov = 400, fovCenterMode = "Mouse",
+        masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
+        showManipPopup = false, targetNpcs = false, espShowFill = false,
+        npcMaxDist = 5000,
+    })
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    SA.EspFrameBudgetReset()
+    SA.EspGeomInvalidate()
+    pcall(SA.PreviewTargetReset)
+    frameTimes(8)
+    ok(SA.PreviewTarget ~= nil, "preview target API exists")
+    ok(SA.PreviewTargetReset ~= nil, "preview target reset API exists")
+    -- Deterministic mock clock: a second call in the same tick is free.
+    SA.PreviewTargetReset()
+    mock_esp_reset()
+    local first = SA.PreviewTarget(true)
+    local cached = SA.PreviewTarget()
+    eq(cached, first, "second preview lookup reuses the per-frame pick")
+    ok(MOCK_W2V_CALLS > 0, "preview lookup projects candidates once")
+    ok(SA.PreviewTargetState().ttl <= 0.05,
+        "preview target memo is shorter than a frame budget")
+
+    -- With silent aim + snapline ON, an unchanged frame must run NO
+    -- per-entity FOV transition (the old signature churn did).
+    setFlags({ snapLineEnabled = true, masterEnabled = true, gunEnabled = true })
+    frameTimes(4)
+    local before = SA.EspFovState().transitions
+    frameTimes(1)
+    eq(SA.EspFovState().transitions, before,
+        "an unchanged frame runs no per-entity FOV transition")
+
+    -- The FLICKER case: a live target appearing / disappearing must never
+    -- change the shared draw signature.
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    local sigWithTarget = SA.EspFovState().signature
+    local saved = SA.Target.model
+    SA.Target.model = nil
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(SA.EspFovState().signature, sigWithTarget,
+        "target appear/disappear never changes the draw signature")
+    eq(SA.EspFovState().transitions, before,
+        "target flicker runs no cleanup sweep")
+    SA.Target.model = saved
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(SA.EspFovState().signature, sigWithTarget,
+        "signature stays stable with the target restored")
+
+    -- A REAL style toggle still sweeps exactly ONCE (not once per entity).
+    local sweepBefore = SA.EspPerf.styleSweeps or 0
+    setFlags({ espShowFill = true })
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq((SA.EspPerf.styleSweeps or 0) - sweepBefore, 1,
+        "one style toggle runs exactly one sweep")
+    ok((SA.EspPerf.styleSweepObjects or 0) >= 1,
+        "the style sweep visits the ESP objects")
+
+    setFlags({ espShowFill = false, snapLineEnabled = false,
+        masterEnabled = false, gunEnabled = false })
+    pcall(SA.PreviewTargetReset)
+    for key, value in pairs(savedFlags) do CFG[key] = value end
+end
+saSharedAimTargetRegression()
+
+-- Ghost / stale drawing regression: dead, teleported and streamed-out
+-- players must lose every drawing in the SAME frame.
+function saGhostDrawingRegression()
+    local savedFlags = {}
+    for _, key in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "espVisibleCheck", "espShowBox", "espShowName", "espShowDist",
+        "espShowOffscreen", "espShowTracer", "espOnlyNearest",
+        "espOnlyAimTarget", "espTeamMode", "espMaxDist", "espDataRefreshMs",
+        "perfMode", "fov", "fovCenterMode", "masterEnabled", "gunEnabled",
+        "snapLineEnabled", "showManipPopup" }) do
+        savedFlags[key] = CFG[key]
+    end
+    setFlags({
+        espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+        espVisibleCheck = false, espShowBox = true, espShowName = true,
+        espShowDist = true, espShowOffscreen = false, espShowTracer = false,
+        espOnlyNearest = false, espOnlyAimTarget = false,
+        espTeamMode = "All", espMaxDist = 5000, espDataRefreshMs = 16,
+        perfMode = false, fov = 400, fovCenterMode = "Mouse",
+        masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
+        showManipPopup = false,
+    })
+    UserInputService.GetMouseLocation = function() return Vector2.new(640, 360) end
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    SA.EspFrameBudgetReset()
+    SA.EspGeomInvalidate()
+    pcall(SA.PreviewTargetReset)
+    frameTimes(8)
+    local target = nil
+    for _, obj in pairs(espObjects) do target = obj; break end
+    ok(target ~= nil, "ESP object built for ghost regression")
+    ok(target.fx and target.fx.txName and target.fx.txName.Visible == true,
+        "ghost regression object has a visible name")
+
+    -- DEAD: Health 0 must hide the box / name on the next FX frame.
+    local hum = target.char:FindFirstChildOfClass("Humanoid")
+    ok(hum ~= nil, "ghost regression rig has a humanoid")
+    hum.Health = 0
+    local ghostBefore = SA.EspGhostCleanup.hidden
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(target.fx.txName.Visible, false, "dead player name is hidden")
+    eq(target.lines.top.Visible, false, "dead player box is hidden")
+    ok(SA.EspGhostCleanup.hidden > ghostBefore,
+        "dead-player cleanup is counted")
+    ok(SA.EspGhostCleanup.lastReason ~= nil, "cleanup records a reason")
+    hum.Health = 100
+    target.vis, target.geomKey, target.geomCache = nil, nil, nil
+    target.espFovState = nil
+    frameTimes(2)
+    ok(target.fx and target.fx.txName and target.fx.txName.Visible == true,
+        "respawned player is drawn again")
+
+    -- STREAMED OUT: the character losing its Parent must hide at once.
+    local charModel = target.char
+    local savedParent = charModel.Parent
+    charModel.Parent = nil
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(target.fx.txName.Visible, false, "streamed-out player name is hidden")
+    eq(target.lines.top.Visible, false, "streamed-out player box is hidden")
+    charModel.Parent = savedParent
+    target.espFovState = nil
+    frameTimes(2)
+
+    -- TELEPORTED out of range: no frozen box at the old position.
+    local savedPos = target.root.Position
+    target.root.Position = Vector3.new(6000, savedPos.Y, savedPos.Z)
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(target.fx.txName.Visible, false, "teleported player name is hidden")
+    eq(target.lines.top.Visible, false, "teleported player box is hidden")
+    target.root.Position = savedPos
+    target.espFovState = nil
+    SA.EspGeomInvalidate()
+    frameTimes(2)
+
+    -- ESP OFF must hide every object, INCLUDING one that shows up AFTER
+    -- the first hidden pass (the old hideAllOnce() early-out kept it).
+    setFlags({ espEnabled = false })
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(SA.EspHiddenPass.players, true, "ESP OFF records a hidden pass")
+    local lateKey = {}
+    local lateDraw = SA.NewDraw("Text")
+    lateDraw.Text = "LATE GHOST"
+    lateDraw.Visible = true
+    local lateLine = SA.NewDraw("Line")
+    lateLine.Visible = true
+    espObjects[lateKey] = { fx = { txName = lateDraw },
+        lines = { top = lateLine }, char = nil }
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(lateDraw.Visible, false,
+        "a late object is hidden after the first hidden pass")
+    eq(lateLine.Visible, false, "a late object's box line is hidden too")
+    espObjects[lateKey] = nil
+    for key, value in pairs(savedFlags) do CFG[key] = value end
+end
+saGhostDrawingRegression()
+
+-- Staff watch: 3 consecutive scans, streaming-safe, still read-only.
+function saStaffWatchRegression()
+    local savedFlags = {}
+    for _, key in ipairs({ "espStaffDetect", "espEnabled", "espShowName",
+        "espMaxDist", "espOnlyNearest", "espOnlyAimTarget",
+        "espVisibleCheck", "espDataRefreshMs" }) do
+        savedFlags[key] = CFG[key]
+    end
+    mock_staff_reset()
+    SA.StaffWatchReset()
+    eq(SA.STAFF_CONFIRM_SCANS, 3, "staff watch requires three scans")
+    local otherPlr = nil
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp then otherPlr = plr; break end
+    end
+    ok(otherPlr ~= nil, "staff watch has a remote player")
+
+    -- StreamingEnabled: a rig without a Humanoid cannot confirm anything.
+    otherPlr:SetAttribute("AdminGod", true)
+    local char = otherPlr.Character
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    hum.Parent = nil
+    local streamed = SA.GetStaffRoleConfirmed(otherPlr, char)
+    eq(streamed.role, "NONE", "streaming rig cannot be tagged staff")
+    eq(streamed.streak, 0, "streaming rig resets the streak")
+    hum.Parent = char
+
+    -- One or two scans are NOT enough; the third confirms.
+    local one = SA.GetStaffRoleConfirmed(otherPlr, char)
+    eq(one.role, "NONE", "one positive scan is not enough")
+    eq(one.streak, 1, "first positive scan counted")
+    local two = SA.GetStaffRoleConfirmed(otherPlr, char)
+    eq(two.role, "NONE", "two positive scans are not enough")
+    eq(two.streak, 2, "second positive scan counted")
+    local three = SA.GetStaffRoleConfirmed(otherPlr, char)
+    eq(three.role, "ADMIN", "three consecutive scans confirm the role")
+    eq(three.confirmed, true, "third scan confirms")
+
+    -- A clean scan resets the streak immediately.
+    otherPlr:SetAttribute("AdminGod", nil)
+    local clean = SA.GetStaffRoleConfirmed(otherPlr, char)
+    eq(clean.role, "NONE", "clean scan clears the role")
+    eq(clean.streak, 0, "clean scan resets the streak")
+
+    -- An unknown sample never contributes a positive sample.
+    eq(SA.StaffScanOne(otherPlr, nil, false), nil,
+        "unknown sample never returns a role")
+
+    -- Watch state exposes raw vs confirmed, never warns, never writes.
+    otherPlr:SetAttribute("AdminGod", true)
+    local watch = SA.StaffWatchState()
+    eq(watch.scans, 3, "watch state reports the confirmation count")
+    ok(watch.raw >= 1, "watch state reports the raw detector")
+    eq(watch.confirmed, 0, "watch state keeps unconfirmed players out")
+    local savedWarn = warn
+    local consoleHits = 0
+    warn = function() consoleHits = consoleHits + 1 end
+    SA.StaffWatchState()
+    SA.GetStaffRoleConfirmed(otherPlr, char)
+    warn = savedWarn
+    eq(consoleHits, 0, "staff watch never warns")
+    eq(otherPlr:GetAttribute("AdminGod"), true,
+        "staff watch never writes the attribute it reads")
+    mock_staff_reset()
+    SA.StaffWatchReset()
+    for key, value in pairs(savedFlags) do CFG[key] = value end
+end
+saStaffWatchRegression()
+
+-- NPC ESP smoothing: the expensive tag/text rebuild is throttled while
+-- the cheap visibility branch keeps running every refresh.
+function saNpcRefreshThrottleRegression()
+    local savedFlags = {}
+    for _, key in ipairs({ "espEnabled", "npcEspEnabled", "crateEnabled",
+        "npcVisibleCheck", "npcMaxDist", "npcShowName", "npcShowDist",
+        "npcShowState", "npcShowTool", "espShowHealthText", "espShowBox",
+        "espShowName", "espShowOffscreen", "espShowTracer", "espOnlyNearest",
+        "espOnlyAimTarget", "espTeamMode", "espDataRefreshMs", "perfMode",
+        "fov", "fovCenterMode", "masterEnabled", "gunEnabled",
+        "snapLineEnabled", "showManipPopup" }) do
+        savedFlags[key] = CFG[key]
+    end
+    setFlags({
+        espEnabled = false, npcEspEnabled = true, crateEnabled = false,
+        npcVisibleCheck = false, npcMaxDist = 5000,
+        npcShowName = true, npcShowDist = true, npcShowState = true,
+        npcShowTool = true, espShowHealthText = true,
+        espShowBox = true, espShowName = true, espShowOffscreen = false,
+        espShowTracer = false, espOnlyNearest = false,
+        espOnlyAimTarget = false, espTeamMode = "All",
+        espDataRefreshMs = 100, perfMode = false, fov = 400,
+        fovCenterMode = "Mouse", masterEnabled = false, gunEnabled = false,
+        snapLineEnabled = false, showManipPopup = false,
+    })
+    UserInputService.GetMouseLocation = function() return Vector2.new(640, 360) end
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    SA.EspFrameBudgetReset()
+    SA.EspGeomInvalidate()
+    frameTimes(10)
+    local npcObj = nil
+    for _, obj in pairs(npcObjects) do npcObj = obj; break end
+    ok(npcObj ~= nil, "NPC ESP object built for throttle regression")
+    ok(npcObj.tx ~= nil, "NPC text table exists")
+    -- The tag text survives a throttle window without a rescan.
+    setFlags({ espDataRefreshMs = 500 })
+    frameTimes(3)
+    ok(npcObj.tx ~= nil, "NPC text is not dropped while throttled")
+    eq(npcObj.bb.Enabled, false, "NPC legacy BillboardGui stays hidden")
+    -- An NPC out of range drops its cached projection (no ghost label).
+    local savedPos = npcObj.root.Position
+    npcObj.root.Position = Vector3.new(6000, savedPos.Y, savedPos.Z)
+    npcObj.geomForceFresh = true
+    quiet(function() SA.ApplyEspFx(MOCK_CAMERA) end)
+    eq(npcObj.geomCache, nil, "out-of-range NPC drops its cached geometry")
+    eq(npcObj.fx and npcObj.fx.txName and npcObj.fx.txName.Visible, false,
+        "out-of-range NPC name is hidden")
+    npcObj.root.Position = savedPos
+    SA.EspGeomInvalidate()
+    frameTimes(2)
+    for key, value in pairs(savedFlags) do CFG[key] = value end
+end
+saNpcRefreshThrottleRegression()
 
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then

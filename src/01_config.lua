@@ -36,6 +36,43 @@ SA.LastUnload = nil
 -- in favour of the two-argument math.atan(y, x). One shared alias keeps
 -- the GUI drawing fallback working in both runtimes.
 SA.Atan2 = math.atan2 or math.atan
+
+-- ── ONE per-frame clock ──────────────────────────────────────────────
+-- Every ESP / aim / snapline tick must agree on "now". Calling tick()
+-- inside each per-entity branch (SA.IsVisible, SA.ScanEntity, the FX
+-- pass, the snapline, saRefreshAimTarget) made the SAME frame look like a
+-- different tick() to every consumer: the 20 Hz aim refresh, the 120 ms
+-- LOS cache and the 250 ms scan cache each expired at a different point
+-- inside one frame, so a target could be "fresh" for the box and "stale"
+-- for the name in the same pass. A single stamp per RenderStepped frame
+-- removes that jitter and is strictly increasing, so `now - last` can
+-- never go negative (which used to re-pick the target twice per frame).
+-- SA.FrameClock() returns the cached stamp; SA.FrameClockTick() advances
+-- it (once per render callback through bindRender()).
+local saFrameClock, saFrameClockStamp = nil, nil
+function SA.FrameClock()
+    if saFrameClock == nil then saFrameClock = tick() end
+    return saFrameClock
+end
+function SA.FrameClockTick()
+    local real = tick()
+    if saFrameClockStamp == nil or real <= saFrameClockStamp then
+        -- The clock did not advance (same millisecond, or a fixed mock
+        -- clock): keep a strictly increasing stamp so every TTL test
+        -- behaves like a real frame instead of dividing by zero time.
+        if saFrameClockStamp == nil then saFrameClockStamp = real
+        else saFrameClockStamp = saFrameClockStamp + 0.0001 end
+    else
+        saFrameClockStamp = real
+    end
+    saFrameClock = saFrameClockStamp
+    return saFrameClock
+end
+function SA.FrameClockReset()
+    saFrameClock, saFrameClockStamp = nil, nil
+    return true
+end
+
 -- The ESP labels and the nearest-player HUD both convert Roblox studs to
 -- metres with the same factor (1 m ≈ 3.571 studs).
 SA.STUDS_PER_METER = 3.571
@@ -96,6 +133,12 @@ local function bindRender(fn)
             pcall(function() conn:Disconnect() end)
             return
         end
+        -- ONE clock stamp for every consumer in this frame (aim refresh,
+        -- LOS cache, scan cache, FOV snapshot, snapline). Without it the
+        -- same frame produced several different tick() values, so the
+        -- throttled caches expired mid-pass and target picking ran more
+        -- than once per frame.
+        SA.FrameClockTick()
         fn(...)
         -- Coalesce all ScreenGui proxy writes made by this render callback
         -- into ONE sync per dirty draw (02_drawing.lua). The native

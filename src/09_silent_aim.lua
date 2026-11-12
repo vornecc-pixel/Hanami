@@ -111,27 +111,48 @@ end
 -- snapline toggle is OFF. Snapline owns SA.Target.model while it is ON;
 -- otherwise refresh the FOV pick here at 20 Hz (no extra render listener).
 local saAimTargetLast = 0
+local saAimTargetGate = nil
+local function saSetAimTarget(model, pos)
+    local t = SA.Target
+    if not t then return end
+    if t.model ~= model then t.model = model end
+    if t.pos ~= pos then t.pos = pos end
+end
 local function saRefreshAimTarget()
     if CFG.snapLineEnabled == true then return end
-    local now = tick()
+    -- One clock stamp per frame (01_config.lua). tick() inside this
+    -- callback used to advance between the snapline bind and this bind,
+    -- so the 50 ms gate expired at a different moment each frame and the
+    -- target was re-picked several times per frame.
+    local now = SA.FrameClock and SA.FrameClock() or tick()
+    local armed = CFG.masterEnabled == true and CFG.gunEnabled == true
+    if not armed then
+        saAimTargetLast = now
+        if saAimTargetGate ~= false then
+            saAimTargetGate = false
+            saSetAimTarget(nil, nil)
+        end
+        return
+    end
+    if saAimTargetGate ~= true then
+        -- Just armed: publish immediately instead of waiting one gate.
+        saAimTargetGate = true
+        saAimTargetLast = 0
+    end
     if now - saAimTargetLast < 0.05 then return end
     saAimTargetLast = now
-    if not (CFG.masterEnabled == true and CFG.gunEnabled == true) then
-        SA.Target.model, SA.Target.pos = nil, nil
-        return
-    end
     local camera = ws.CurrentCamera
     if not camera then
-        SA.Target.model, SA.Target.pos = nil, nil
+        saSetAimTarget(nil, nil)
         return
     end
-    local ok, best = pcall(function()
-        return pickBestTarget(camera, SA.AimPoint(), camera.CFrame.Position, true)
-    end)
-    if ok and best then
-        SA.Target.model, SA.Target.pos = best.model, best.pos
+    -- SHARED pick: the snapline and this refresh read the same memo
+    -- (02_shared.lua), so one frame never runs two full candidate scans.
+    local best = SA.PreviewTarget and SA.PreviewTarget() or nil
+    if best then
+        saSetAimTarget(best.model, best.pos)
     else
-        SA.Target.model, SA.Target.pos = nil, nil
+        saSetAimTarget(nil, nil)
     end
 end
 

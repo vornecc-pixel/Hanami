@@ -17,9 +17,36 @@ local function npcRefreshRig(o, model)
     return hum, hrp, head
 end
 
+-- Split the per-NPC work in two, like the player pipeline:
+--   * the CHEAP branch (every refresh): rig validity, distance, LOS colour,
+--     legacy line / BillboardGui visibility and the visibility flag;
+--   * the EXPENSIVE branch (throttled to the ESP data interval): the
+--     SA.ScanEntity tag read (tool + state + attributes) and the full
+--     screen-space text rebuild.
+-- refreshNpcESP() used to run BOTH for every NPC on every data refresh,
+-- and then the FX pass re-drew the same NPC again on the same frame. That
+-- duplicate work is the "NPC ESP is not smooth" report: with a dozen
+-- guards the scan/text rebuild dominated the frame while the player ESP
+-- only paid it once per interval.
+local lastNpcFullRefresh = -1
+local function npcFullDue()
+    local frame = SA.EspFxFrame or 0
+    local interval = 6
+    if type(SA.EspDataIntervalFrames) == "function" then
+        interval = math.max(SA.EspDataIntervalFrames(), 1)
+    end
+    if frame < (lastNpcFullRefresh or 0) then lastNpcFullRefresh = -1 end
+    if (frame - (lastNpcFullRefresh or -1)) >= interval then
+        lastNpcFullRefresh = frame
+        return true
+    end
+    return false
+end
+
 local function refreshNpcESP()
     local cam = ws.CurrentCamera
     if not cam then return end
+    local full = npcFullDue()
     for model, o in pairs(npcObjects) do
         local hum, hrp, head = npcRefreshRig(o, model)
         if not (model.Parent and hum and hum.Health > 0 and hrp and head) then
@@ -32,6 +59,8 @@ local function refreshNpcESP()
             if dist > CFG.npcMaxDist then
                 o.bb.Enabled = false; o.highlight.Enabled = false
                 for _, l in pairs(o.lines) do l.Visible = false end
+                o.linesUsed = nil
+                o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
             else
                 -- GREEN = clear line of sight, RED = behind a wall
                 local visible = CFG.npcVisibleCheck and SA.IsVisible(model, hrp.Position)
@@ -49,6 +78,12 @@ local function refreshNpcESP()
                     o.distLbl.Text = string.format("[%dm]", math.floor(dist / (SA.STUDS_PER_METER or 3.571)))
                 else o.distLbl.Visible = false end
 
+                -- Cheap branch ends here every frame: the FX pass owns
+                -- the actual drawing, and the legacy lines above are
+                -- hidden by it. Only the throttled pass rebuilds text.
+                if not full and o.tx then
+                    o.txVis = visible
+                else
                 -- Structured text shared with the player layout: weapon
                 -- below the box, VIS/WALL + state + HP at the corner.
                 local info = SA.ScanEntity(model, hum)
@@ -82,6 +117,7 @@ local function refreshNpcESP()
                 o.infoLbl.TextColor3 = col
                 o.infoLbl.Visible = #bits > 0
 
+                end
                 local g = SA.EspGeom(o, cam, hrp.Position, head.Position, "npc")
                 if g and g.onScreen then
                     local x, y, w, h = g.x, g.y, g.w, g.h

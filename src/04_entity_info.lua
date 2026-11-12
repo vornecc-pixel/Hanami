@@ -264,22 +264,174 @@ function SA.GetStaffRole(plr, model)
     return out
 end
 
+-- ────────────────────────────────────────────────────────────────────
+-- 3-CONSECUTIVE-SCAN CONFIRMATION (StreamingEnabled false-positive fix)
+-- The role tag used to be drawn from ONE read of the replicated data. With
+-- StreamingEnabled a character streams in part by part: for a few frames
+-- the rig can be missing a Humanoid / Head, or the attributes are simply
+-- not replicated yet, and a single unlucky read produced a bogus STAFF
+-- tag on an ordinary player ("INVIS" in the reported build). The exact
+-- same replicated evidence is now required on THREE consecutive scans
+-- before the watch flags anyone; any missing / negative / plain read
+-- resets the streak to zero. Nothing is written, warned or notified — the
+-- detector still only READS, it just refuses to answer from one sample.
+-- ────────────────────────────────────────────────────────────────────
+SA.STAFF_CONFIRM_SCANS = 3
+local staffStreak = _G.__saStaffStreak or setmetatable({}, { __mode = "k" })
+_G.__saStaffStreak = staffStreak
+local staffScanPass = 0
+
+-- true when the rig is fully streamed in and can be classified at all.
+local function staffRigReady(plr, model)
+    if not plr or not plr.Parent then return false end
+    local char = model or plr.Character
+    if not char or not char.Parent then return false end
+    local ok, ready = pcall(function()
+        if not char:FindFirstChildOfClass("Humanoid") then return false end
+        return (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))
+            ~= nil
+    end)
+    return ok and ready == true
+end
+
+-- One confirmation sample for ONE player. Returns the confirmed role
+-- table (role STAFF / ADMIN) or nil while the evidence is not yet
+-- confirmed. `sample == false` records an unknown sample instead.
+function SA.StaffScanOne(plr, model, sample)
+    if not plr then return nil end
+    local st = staffStreak[plr]
+    if not st then
+        st = { streak = 0, scans = 0, role = "NONE", reason = nil,
+            admin = false, adminFlag = nil }
+        staffStreak[plr] = st
+    end
+    if sample == false or not staffRigReady(plr, model) then
+        -- Character still streaming in / respawning / gone: this sample
+        -- answers nothing, so it can never ADD to a streak.
+        if st.streak ~= 0 then st.streak = 0 end
+        st.role, st.reason, st.admin, st.adminFlag = "NONE", nil, false, nil
+        st.pending = true
+        return nil
+    end
+    local ok, info = pcall(SA.GetStaffRole, plr, model or plr.Character)
+    if not ok or not info then
+        if st.streak ~= 0 then st.streak = 0 end
+        st.pending = true
+        return nil
+    end
+    st.scans = (st.scans or 0) + 1
+    if info.staff then
+        st.streak = (st.streak or 0) + 1
+        st.role, st.reason = info.role, info.reason
+        st.admin, st.adminFlag = info.admin == true, info.adminFlag
+        -- Evidence seen but not yet confirmed on 3 scans = pending. The
+        -- tag says "SCAN n/3" instead of claiming STAFF.
+        st.pending = (st.streak or 0) < SA.STAFF_CONFIRM_SCANS
+    else
+        -- A clean read of an ordinary player is a REAL negative sample:
+        -- it resets the streak immediately, so one glitched frame can
+        -- never accumulate towards a tag.
+        st.streak = 0
+        st.role, st.reason, st.admin, st.adminFlag = "NONE", nil, false, nil
+        st.pending = false
+    end
+    st.staff = info.staff == true
+    st.lastScan = tick()
+    if (st.streak or 0) >= SA.STAFF_CONFIRM_SCANS then
+        return {
+            staff = true, admin = st.admin == true, role = st.role,
+            reason = st.reason, adminFlag = st.adminFlag,
+            confirmed = true, streak = st.streak, scans = st.scans,
+        }
+    end
+    return nil
+end
+
+-- Role used by the ESP tag. Unconfirmed / ordinary players are NONE, so a
+-- player who was staff in a PREVIOUS round cannot keep a stale tag after
+-- respawn either: the streak is per player and resets on any clean read.
+function SA.GetStaffRoleConfirmed(plr, model)
+    local out = { staff = false, admin = false, role = "NONE",
+        reason = nil, adminFlag = nil, confirmed = false, streak = 0,
+        scans = 0, pending = false }
+    if not plr then return out end
+    local confirmed = SA.StaffScanOne(plr, model)
+    local st = staffStreak[plr]
+    if st then
+        out.streak = st.streak or 0
+        out.scans = st.scans or 0
+        out.pending = st.pending == true
+        if not confirmed then
+            out.role = "NONE"
+            return out
+        end
+        out.staff, out.admin = true, confirmed.admin == true
+        out.role = confirmed.role
+        out.reason, out.adminFlag = confirmed.reason, confirmed.adminFlag
+        out.confirmed = true
+    end
+    return out
+end
+
+-- Confirmation state for the watch readout. `raw` is what a single scan
+-- would say, `confirmed` needs all three consecutive samples.
+function SA.StaffWatchState()
+    local out = { scans = SA.STAFF_CONFIRM_SCANS, pass = staffScanPass,
+        confirmed = 0, pending = 0, raw = 0, names = {}, pendingNames = {},
+        adminNames = {} }
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp then
+            local role = SA.GetStaffRole(plr, plr.Character)
+            if role and role.staff then out.raw = out.raw + 1 end
+            local st = staffStreak[plr]
+            if st and (st.streak or 0) >= SA.STAFF_CONFIRM_SCANS then
+                out.confirmed = out.confirmed + 1
+                out.names[#out.names + 1] = plr.Name
+                if st.admin then
+                    out.adminNames[#out.adminNames + 1] = plr.Name
+                end
+            elseif st and st.pending then
+                out.pending = out.pending + 1
+                out.pendingNames[#out.pendingNames + 1] = plr.Name
+            end
+        end
+    end
+    return out
+end
+
+function SA.StaffWatchReset()
+    for plr in pairs(staffStreak) do staffStreak[plr] = nil end
+    staffScanPass = 0
+    return true
+end
+
 -- Detector snapshot for the ESP tab / tests. It reads the live player list,
 -- so nothing the UI shows can go stale.
 function SA.StaffDetectState()
+    -- The tab readout counts CONFIRMED roles only (3 consecutive scans),
+    -- so a player streaming in cannot make "staff 1" flash for one second.
+    staffScanPass = staffScanPass + 1
     local out = { players = 0, staff = 0, admins = 0,
-        names = {}, adminNames = {} }
+        names = {}, adminNames = {},
+        confirmScans = SA.STAFF_CONFIRM_SCANS, pass = staffScanPass,
+        pending = 0 }
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= lp then
             out.players = out.players + 1
-            local ok, info = pcall(SA.GetStaffRole, plr, plr.Character)
-            if ok and info and info.staff then
+            local ok, info = pcall(SA.GetStaffRoleConfirmed, plr,
+                plr.Character)
+            if not ok or not info then
+                info = { staff = false, admin = false }
+            end
+            if info.staff then
                 out.staff = out.staff + 1
                 out.names[#out.names + 1] = plr.Name
                 if info.admin then
                     out.admins = out.admins + 1
                     out.adminNames[#out.adminNames + 1] = plr.Name
                 end
+            elseif info.pending then
+                out.pending = out.pending + 1
             end
         end
     end

@@ -306,8 +306,14 @@ assert(allSource.includes('function SA.EspFovState()'),
   'ESP FOV state API missing');
 assert(allSource.includes('function SA.SnaplineState()'),
   'snapline state API missing');
-assert(allSource.includes('SA.EspDrawSignature = table.concat'),
-  'per-frame FOV / draw signature missing');
+assert(allSource.includes('local drawSig = table.concat'),
+  'per-frame draw signature missing');
+assert(allSource.includes('SA.EspDrawSignature = drawSig'),
+  'draw signature must be stored once per real change');
+assert(allSource.includes('SA.EspStyleSweep'),
+  'one-shot ESP style sweep missing');
+assert(!allSource.includes('tostring(targetModel ~= nil)'),
+  'the live aim target must NEVER be part of the draw signature');
 assert(allSource.includes('SA.EspFovTransitions'),
   'FOV transition counter missing');
 assert(read('src/10_fov_circle.lua').includes('CFG.fovTransparency or 1'),
@@ -337,7 +343,7 @@ assert(read('src/04_entity_info.lua').includes('function SA.GetWeaponStatus(mode
 assert(read('src/12_esp_players.lua').includes('purgeGhostEsp'),
   'named ghost BillboardGui / Highlight purge missing');
 assert(read('src/13_esp_players_refresh.lua').includes(
-  'o.bb.Enabled = type(SA.HideEspBillboard)'),
+  'o.bb.Enabled = not screenSpace'),
   'legacy BillboardGui must stay OFF during the FX-mode refresh');
 assert(read('src/18_esp_fx_colours.lua').includes(
   'function SA.EspHideDuplicateOverlays('),
@@ -359,11 +365,55 @@ const frameSrc = read('src/18_esp_fx_frame.lua');
 for (const needle of [
   'tostring(CFG.masterEnabled)', 'tostring(CFG.gunEnabled)',
   'tostring(CFG.snapLineEnabled)', 'tostring(CFG.showFov)',
-  'tostring(targetModel ~= nil)',
 ]) {
   assert(frameSrc.includes(needle),
     `ESP draw signature must include ${needle}`);
 }
+// The stutter fix: per-entity FOV state keys on the entity's own
+// viewport / FOV membership only, never on the shared draw signature.
+const drawSrc = read('src/18_esp_fx_draw.lua');
+assert(drawSrc.includes('local stateKey = tostring(p) .. "|" .. tostring(fov.onScreen)'),
+  'per-entity FOV state key must not include the draw signature');
+assert(!drawSrc.includes('SA.EspDrawSignature or ""'),
+  'per-entity FOV state key must not fold in the draw signature');
+assert(frameSrc.includes('local function playerFxStale('),
+  'dead / teleported / streamed-out player cleanup missing');
+assert(frameSrc.includes('stalePlayerCleanup(o, "dead")'),
+  'dead-player ESP cleanup branch missing');
+assert(frameSrc.includes('stalePlayerCleanup(o, "out of range")'),
+  'teleported / out-of-range ESP cleanup branch missing');
+assert(frameSrc.includes('SA.EspGhostCleanup'),
+  'ghost cleanup counters missing');
+// NPC smoothing: the expensive tag / text rebuild is throttled.
+assert(read('src/15_esp_npcs_refresh.lua').includes('local function npcFullDue()'),
+  'NPC text refresh throttle missing');
+assert(read('src/15_esp_npcs_refresh.lua').includes('if not full and o.tx then'),
+  'NPC cheap visibility branch missing');
+// Shared per-frame target: one candidate scan per frame, not per consumer.
+assert(read('src/02_shared.lua').includes('function SA.PreviewTarget(refresh)'),
+  'shared per-frame preview target missing');
+assert(read('src/02_shared.lua').includes('function SA.PreviewTargetReset()'),
+  'shared preview target reset missing');
+assert(read('src/11_snapline.lua').includes('SA.PreviewTarget and SA.PreviewTarget()'),
+  'snapline must read the shared preview target');
+assert(read('src/09_silent_aim.lua').includes('SA.PreviewTarget and SA.PreviewTarget()'),
+  'Gun Silent Aim must read the same shared preview target');
+assert(read('src/01_config.lua').includes('function SA.FrameClockTick()'),
+  'one per-frame clock missing');
+// Staff watch: 3 consecutive scans before a role is shown.
+assert(read('src/04_entity_info.lua').includes('SA.STAFF_CONFIRM_SCANS = 3'),
+  'staff watch must require three consecutive scans');
+assert(read('src/04_entity_info.lua').includes(
+  'function SA.GetStaffRoleConfirmed(plr, model)'),
+  'confirmed staff role API missing');
+assert(read('src/04_entity_info.lua').includes('function SA.StaffWatchState()'),
+  'staff watch state API missing');
+assert(read('src/13_esp_players_refresh.lua').includes(
+  'SA.GetStaffRoleConfirmed'),
+  'the ESP role tag must use the confirmed classifier');
+// Draw pool reuse must reset styling so a recycled draw cannot go stale.
+assert(read('src/02_drawing.lua').includes('local function poolReset(d, kind)'),
+  'draw-pool styling reset missing');
 assert(read('src/24_ui_visual.lua').includes('"snapLineThickness", 1, 10'),
   'customizable snapline size slider missing');
 
@@ -740,7 +790,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '5,973 assertions',
+  '6,141 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -778,6 +828,18 @@ const requiredDocs = [
   'SA.EspDuplicateCleanupState()',
   'SA.NearestWindowResetPosition()',
   'FOV duplicate-overlay regressions',
+  'SA.PreviewTarget()',
+  'SA.PreviewTargetReset()',
+  'one candidate scan per frame',
+  'SA.EspStyleSweep()',
+  'never part of the draw signature',
+  'ghost / stale drawing cleanup',
+  'SA.EspGhostCleanup',
+  'streamed out',
+  '3 consecutive scans',
+  'SA.StaffWatchState()',
+  'SA.GetStaffRoleConfirmed()',
+  'NPC refresh throttle',
   'nearest-player profile regressions',
   'SA.FOV_STARTUP',
   'SA.EspFovSnapshot()',

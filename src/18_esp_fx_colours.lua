@@ -72,7 +72,13 @@ local function markHighlight(o)
 end
 
 local function startFxFrame(o)
-    if o then o.fxFrame = fxFrame() end
+    if o then
+        o.fxFrame = fxFrame()
+        -- Drawn this pass: re-arm the one-shot hidden pass so an object
+        -- that leaves the draw set later (toggle OFF / out of range) is
+        -- hidden immediately instead of keeping its last frame.
+        o.fxHidden = false
+    end
 end
 
 local function getDraw(o, key, kind)
@@ -250,7 +256,12 @@ local function hideUnusedFx(o)
 end
 
 function SA.DisposeEspFx(o)
-    if not o or not o.fx then return end
+    if not o then return end
+    -- A dispose must leave NOTHING visible, even for an object whose fx
+    -- table was already dropped: hide the legacy lines / chams / labels
+    -- first, then recycle the pooled draws with their styling reset.
+    pcall(hideLegacyFx, o)
+    if not o.fx then return end
     for _, d in pairs(o.fx) do
         if SA.RecycleDraw then pcall(SA.RecycleDraw, d) else removeDrawing(d) end
     end
@@ -263,6 +274,11 @@ function SA.DisposeEspFx(o)
     o.geomKey = nil
     o.geomCache = nil
     o.geomAnchor = nil
+    o.espFovState, o.fovKey = nil, nil
+    o.vis = nil
+    if SA.EspGhostCleanup then
+        SA.EspGhostCleanup.disposed = (SA.EspGhostCleanup.disposed or 0) + 1
+    end
 end
 
 local function findPart(model, names)

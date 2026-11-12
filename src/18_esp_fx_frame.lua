@@ -29,6 +29,11 @@ end
 SA.EspPerf = SA.EspPerf or { fxPasses = 0, dataRefreshes = 0, dataSkips = 0 }
 SA.EspFxFrame = SA.EspFxFrame or 0
 SA.EspHiddenPass = { players = false, npcs = false, crates = false }
+-- Ghost / stale-drawing cleanup counters (dead, teleported, streamed out,
+-- character swapped). Read-only diagnostics, never drawn.
+SA.EspGhostCleanup = SA.EspGhostCleanup or {
+    hidden = 0, lastReason = nil, disposed = 0,
+}
 SA.EspGeomStats = SA.EspGeomStats or { cacheHits = 0, cacheMisses = 0,
     w2vCalls = 0, cameraKeyBuilds = 0 }
 
@@ -187,7 +192,7 @@ end
 SA.EspVisibleCount = { players = 0, npcs = 0, crates = 0 }
 SA.CrateFovCount = { inside = 0, outside = 0, dots = 0, highlights = 0 }
 local espNearestSet = {}
-local espNearestBuilt, espNearestCount, espNearestFrame = false, nil, -1
+local espNearBuilt, espNearCount, espNearFrame = false, nil, -1
 local espTeamSetMode, espTeamSetFrame = nil, -1
 local espTeamMateByChar = {}
 
@@ -239,8 +244,8 @@ local function refreshNearestSet(myPos, aimModel)
         return
     end
     local frame = SA.EspFxFrame or 0
-    if espNearestBuilt and espNearestCount == CFG.espNearestCount
-        and (frame - espNearestFrame) < espDataInterval() then
+    if espNearBuilt and espNearCount == CFG.espNearestCount
+        and (frame - espNearFrame) < espDataInterval() then
         addAimToNearest(aimModel)
         return
     end
@@ -262,7 +267,7 @@ local function refreshNearestSet(myPos, aimModel)
     table.sort(list, function(a, b) return a.d < b.d end)
     local n = math.min(math.floor(CFG.espNearestCount or 5), #list)
     for i = 1, n do espNearestSet[list[i].model] = true end
-    espNearestBuilt, espNearestCount, espNearestFrame = true, CFG.espNearestCount, frame
+    espNearBuilt, espNearCount, espNearFrame = true, CFG.espNearestCount, frame
 end
 
 -- Build ONE character -> teammate map per DATA INTERVAL. The old code
@@ -287,7 +292,12 @@ end
 
 function SA.EspPassAllowed(kind, model, dist, targetModel)
     if kind ~= "player" then return true end
-    if targetModel and targetModel == model then espNearestSet[model] = true end
+    -- NOTE: the aim target is NOT injected into the nearest set here.
+    -- addAimToNearest() already gives it a guaranteed slot, and mutating
+    -- the set from a predicate that runs for every player made the set
+    -- depend on pairs() order (a different member looked "nearest" on
+    -- every frame, which defeated geometry slicing while silent aim /
+    -- snapline were ON).
     if CFG.espOnlyAimTarget then
         if not targetModel or targetModel ~= model then return false end
     end
@@ -338,13 +348,70 @@ function SA.EspPassStats()
     }
 end
 
+-- Ghost / stale-ESP cleanup for ONE player object. Returns true when the
+-- entity must not be drawn at all this frame.
+--
+-- Symptom it fixes: a player died, was teleported out of range or STREAMED
+-- OUT, and their box / name / tracer stayed frozen on screen (frequently
+-- at the old position) because the FX pass had no dead / teleport /
+-- stream-out branch — drawPlayerFx only hid when the character CHANGED or
+-- the rig vanished. Everything below hides the entity's own drawings AND
+-- drops a pooled instance cache that belonged to the old character.
+local function playerFxStale(plr, o, char)
+    if not plr or not plr.Parent then return true end
+    if not char or not char.Parent then return true end
+    if o.char and o.char ~= char then return true end
+    -- A character that is mid-removal (streaming out / respawn) can keep
+    -- its parts parented for a frame while its Humanoid is gone. Never
+    -- draw from that state: it is exactly the "ghost box" case.
+    if not char:FindFirstChildOfClass("Humanoid") then return true end
+    return false
+end
+
+local function stalePlayerCleanup(o, why)
+    if not o then return end
+    pcall(hideFx, o)
+    -- The pooled draws / legacy lines belonged to the OLD character, so
+    -- reusing them on the respawned rig kept stale colours / thickness.
+    o.fxUsed, o.linesUsed, o.instApplied = nil, nil, nil
+    o.espFovState, o.fovKey = nil, nil
+    o.geomKey, o.geomCache, o.geomAnchor, o.geomForceFresh = nil, nil, nil, nil
+    o.vis = nil
+    local st = SA.EspGhostCleanup
+    if st then
+        st.hidden = st.hidden + 1
+        st.lastReason = tostring(why or "stale")
+    end
+    return true
+end
+
 local function drawPlayerFx(plr, o, cam, myPos, targetModel, origin, fovC, fovR,
                             seed, cachedGeom)
     local char = plr.Character
-    if not char or (o.char and o.char ~= char) then hideFx(o); return end
+    if playerFxStale(plr, o, char) then
+        stalePlayerCleanup(o, char and "character changed" or "no character")
+        return
+    end
     local hrp, head, hum = fxPlayerRig(o, char)
-    if not (hum and hrp and head) then hideFx(o); return end
+    if not (hum and hrp and head) then
+        stalePlayerCleanup(o, "incomplete rig")
+        return
+    end
+    -- DEAD: the body can stay parented for several seconds after a kill.
+    -- Hide immediately instead of leaving a frozen box on the corpse.
+    if (tonumber(hum.Health) or 0) <= 0 then
+        stalePlayerCleanup(o, "dead")
+        return
+    end
     local dist = (myPos - hrp.Position).Magnitude
+    -- TELEPORT / STREAM-OUT: a player who is suddenly thousands of studs
+    -- away (or whose root part teleports) must lose every drawing in the
+    -- same frame. Without this the last projected box stayed on screen and
+    -- "followed" the player only after the next throttled data refresh.
+    if dist > (tonumber(CFG.espMaxDist) or 5000) then
+        stalePlayerCleanup(o, "out of range")
+        return
+    end
     -- The throttled refresh owns LOS; between refreshes reuse o.vis so the
     -- FX pass does not call SA.IsVisible() a second time every frame.
     local vis = false
@@ -359,7 +426,7 @@ local function drawPlayerFx(plr, o, cam, myPos, targetModel, origin, fovC, fovR,
         and (vis and espC("playerVisible") or espC("playerHidden"))
         or espC("playerVisDot")
     local g = cachedGeom or SA.EspGeom(o, cam, hrp.Position, head.Position, "player")
-    if not g then hideFx(o); return end
+    if not g then stalePlayerCleanup(o, "no projection"); return end
     safeDrawEntity(cam, o, {
         enabled = dist <= CFG.espMaxDist, pal = "player",
         base = base, visColor = dot, seed = seed,
@@ -376,7 +443,11 @@ local function drawNpcFx(model, o, cam, myPos, targetModel, origin,
                          fovC, fovR, seed, cachedGeom)
     local hum, hrp, head = fxNpcRig(o, model)
     if not (model.Parent and hum and hum.Health > 0 and hrp and head) then
+        -- Dead / streamed-out / half-replicated NPC: hide and drop the
+        -- stale cache so a recycled rig cannot inherit old colours.
         pcall(hideFx, o)
+        o.fxUsed, o.linesUsed, o.instApplied = nil, nil, nil
+        o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
         return false
     end
     local dist = (myPos - hrp.Position).Magnitude
@@ -398,6 +469,14 @@ local function drawNpcFx(model, o, cam, myPos, targetModel, origin,
     local dot = CFG.npcVisibleCheck
         and (vis and espC("npcVisible") or espC("npcHidden"))
         or espC("npcFlat")
+    -- Out of range: hide and drop the cached projection in the SAME frame
+    -- (a sliced entity would otherwise reuse the last screen position).
+    if dist > (tonumber(CFG.npcMaxDist) or 2000) then
+        pcall(hideFx, o)
+        o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+        o.geomForceFresh = true
+        return false
+    end
     local g = cachedGeom or SA.EspGeom(o, cam, hrp.Position, head.Position, "npc")
     if not g then pcall(hideFx, o); return false end
     safeDrawEntity(cam, o, {
@@ -431,19 +510,83 @@ local function drawCrateFx(o, cam, origin, fovC, fovR, seed, cachedGeom)
     })
 end
 
+-- One hidden pass per object, not one per kind. The old version bailed out
+-- as soon as SA.EspHiddenPass[kind] was true, so an object that appeared
+-- AFTER the first pass (a build finishing late, a rig that streamed in, a
+-- pooled draw re-used by another feature) kept its last Visible = true and
+-- stayed on screen with ESP OFF — the classic ghost drawing. Each object
+-- now records the frame it was hidden and only pays for hiding once.
 local function hideAllOnce(kind, objects)
-    if SA.EspHiddenPass[kind] then return 0 end
     local n = 0
     if type(hideFx) == "function" then
         for _, o in pairs(objects) do
-            pcall(hideFx, o)
-            n = n + 1
+            -- o.fxHidden is cleared by startFxFrame() on every drawn pass,
+            -- so an object that shows up later is still hidden exactly
+            -- once. Steady-state cost is one boolean read per object.
+            if o and not o.fxHidden then
+                pcall(hideFx, o)
+                o.fxHidden = true
+                n = n + 1
+            end
         end
     end
+    if n > 0 then
+        SA.EspPerf.geometryHiddenPasses =
+            (SA.EspPerf.geometryHiddenPasses or 0) + n
+    end
     SA.EspHiddenPass[kind] = true
-    SA.EspPerf.geometryHiddenPasses = (SA.EspPerf.geometryHiddenPasses or 0) + n
     return n
 end
+
+-- ONE sweep for a real style change (draw flag / circle radius / viewport
+-- mode). It replaces the old behaviour where every entity noticed the
+-- changed signature BY ITSELF and each ran hideFx + overlay cleanup +
+-- geomForceFresh on the same frame. Same visible result (stale pooled
+-- draws and legacy labels are erased, then redrawn from fresh geometry),
+-- but the cleanup cost is paid once per toggle instead of once per
+-- entity per frame — the stutter while silent aim / snapline were ON.
+function SA.EspStyleSweep(reason)
+    local n = 0
+    local lists = { espObjects or {}, npcObjects or {}, crateObjects or {} }
+    for _, list in ipairs(lists) do
+        for _, o in pairs(list) do
+            if o then
+                pcall(function()
+                    o.espFovState = nil
+                    o.fovKey = nil
+                    if type(hideFx) == "function" then hideFx(o) end
+                    if SA.EspHideDuplicateOverlays then
+                        SA.EspHideDuplicateOverlays(o, o.char)
+                    end
+                    startFxFrame(o)
+                end)
+                o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
+                o.geomForceFresh = true
+                n = n + 1
+            end
+        end
+    end
+    SA.EspPerf.styleSweeps = (SA.EspPerf.styleSweeps or 0) + 1
+    SA.EspPerf.styleSweepObjects = (SA.EspPerf.styleSweepObjects or 0) + n
+    SA.EspLastStyleSweep = { reason = tostring(reason or "style"),
+        objects = n, frame = SA.EspFxFrame or 0 }
+    return n
+end
+
+local function espStyleSweep()
+    return SA.EspStyleSweep("style")
+end
+
+-- The style sweep runs ONCE, at the top of the frame and BEFORE any
+-- entity is drawn, so the frame that reacts to a toggle is already
+-- complete: every stale draw is erased first, then every entity is
+-- redrawn from fresh geometry in the same pass.
+local pendingStyleSweep = nil
+
+-- FOV / viewport transitions are handled PER ENTITY by the state key in
+-- 18_esp_fx_draw.lua, and style changes by the one-shot SA.EspStyleSweep.
+-- Nothing here invalidates every geometry cache: doing that per entity is
+-- exactly what used to thrash the whole pass while silent aim was ON.
 
 local function countCrateFovFromCache(cam, o, fovC, fovR)
     if CFG.crateFovAware == false then return end
@@ -497,17 +640,27 @@ function SA.ApplyEspFx(cam)
     local fovC = SA.AimPoint()
     local fovR = SA.FovRadius()
     SA.EspFovTransitions = SA.EspFovTransitions or 0
-    -- Changing the circle radius or any ESP draw flag invalidates the
-    -- per-entity FOV state once; ordinary mouse movement does NOT, because
-    -- arrows/tracers are repositioned from the current fovC every frame.
-    SA.EspDrawSignature = table.concat({
+    -- ── DRAW SIGNATURE (toggles only, NEVER the live target) ─────────
+    -- Changing the circle radius or a draw style flag needs ONE cleanup
+    -- pass; ordinary mouse movement does NOT, because arrows/tracers are
+    -- repositioned from the current fovC every frame.
+    --
+    -- BUG FIX (ESP stuck / stuttering with Gun Silent Aim or Snapline ON):
+    -- this signature used to contain the live-target boolean. The
+    -- aim target appears / disappears many times per second (enter-leave
+    -- the FOV, hit-chance roll, pickBestTarget returning nil for one
+    -- frame), so that flag flipped constantly. Every flip changed
+    -- SA.EspDrawSignature, which is folded into each entity's state key
+    -- in 18_esp_fx_draw.lua — so EVERY entity ran a full
+    -- hideFx + duplicate-overlay cleanup + fresh-geometry rebuild, every
+    -- frame or two, while silent aim / snapline were ON. That was the
+    -- freeze. The target is now handled per entity (highlight colour and
+    -- usage marks) instead of through a global transition.
+    local drawSig = table.concat({
         tostring(CFG.fov), espNum(fovR),
-        -- Toggling Gun Silent Aim, snapline or the visible circle changes
-        -- the aim target / reference state. Force ONE cleanup + fresh
-        -- geometry pass so no box/name/arrow stays pinned to the old edge.
         tostring(CFG.masterEnabled), tostring(CFG.gunEnabled),
         tostring(CFG.snapLineEnabled), tostring(CFG.showFov),
-        tostring(CFG.fovFilled), tostring(targetModel ~= nil),
+        tostring(CFG.fovFilled),
         tostring(CFG.espShowOffscreen), tostring(CFG.espArrowFOV),
         tostring(CFG.espShowTracer), tostring(CFG.espTracerOrigin),
         tostring(CFG.espShowBox), tostring(CFG.espCornerBox),
@@ -520,6 +673,22 @@ function SA.ApplyEspFx(cam)
         tostring(CFG.espTagSide), tostring(CFG.espHighlightTarget),
         tostring(CFG.crateFovAware), tostring(CFG.crateHighlight),
     }, "|")
+    if SA.EspDrawSignature ~= drawSig then
+        -- ONE sweep over the whole ESP set for a real toggle change, not
+        -- one sweep per entity (the old per-entity transition storm).
+        SA.EspDrawSignature = drawSig
+        SA.EspFovTransitions = SA.EspFovTransitions + 1
+        pendingStyleSweep = "draw signature"
+    end
+    -- ONE cleanup for the whole frame (before the entity loops below).
+    -- The old code folded the same signature into EVERY entity's state
+    -- key, so a single toggle — or the live aim target appearing in the
+    -- signature — rebuilt every entity separately, every frame.
+    if pendingStyleSweep then
+        local why = pendingStyleSweep
+        pendingStyleSweep = nil
+        pcall(SA.EspStyleSweep, why)
+    end
     local geomBudget = SA.EspGeometryBudget and SA.EspGeometryBudget()
         or { stride = 1, bucket = 0 }
     -- Cached screen coordinates are only valid while the camera is static.
@@ -532,15 +701,25 @@ function SA.ApplyEspFx(cam)
     -- Aim target and nearest-N entities stay on the full-rate path even
     -- when slicing is active. Only the remaining entities rotate buckets,
     -- so the entity the user is actually aiming at never waits 4 frames.
+    --
+    -- Slicing no longer depends on WHO the aim target is this frame. The
+    -- old code also treated every espNearestSet member as priority, and
+    -- addAimToNearest() inserted the aim target into that set — so with
+    -- silent aim / snapline ON the highlighted entity changed buckets
+    -- constantly and the stride pattern became useless (every entity
+    -- looked "priority" on a rotating basis, i.e. no slicing at all,
+    -- which is the stutter reported with those features ON).
     local function dueGeometry(model, isTarget, o)
         if o and o.geomForceFresh then
             o.geomForceFresh = false
             return true
         end
         if stride <= 1 or isTarget then return true end
-        if model and espNearestSet[model] then return true end
         if not o or not o.geomCache then return true end
         geomIndex = geomIndex + 1
+        -- Nearest-N members are sliced like everyone else, but they are
+        -- still guaranteed a refresh inside the stride window because the
+        -- bucket rotates with SA.EspFxFrame.
         return (geomIndex % stride) == bucket
     end
 
@@ -619,4 +798,5 @@ function SA.ApplyEspFx(cam)
             end
         end
     end
+
 end

@@ -597,13 +597,47 @@ end
 SA.DrawPool = SA.DrawPool or {}
 local DRAW_POOL_CAP = 64
 
+-- Reset every property a pooled proxy can carry. Without this a pooled
+-- draw handed to a NEW entity inherited the previous owner's Color /
+-- Thickness / Transparency / Filled, which is exactly how a stale red
+-- box or an old 3px line survived a respawn / FOV transition.
+local POOL_DEFAULTS = {
+    Line     = { Color = Color3.new(1, 1, 1), Transparency = 0,
+                 Thickness = 1, From = Vector2.new(0, 0),
+                 To = Vector2.new(0, 0) },
+    Circle   = { Color = Color3.new(1, 1, 1), Transparency = 0,
+                 Thickness = 1, Filled = false, NumSides = 24,
+                 Radius = 1, Position = Vector2.new(0, 0) },
+    Triangle = { Color = Color3.new(1, 1, 1), Transparency = 0,
+                 Thickness = 1, Filled = true,
+                 PointA = Vector2.new(0, 0), PointB = Vector2.new(0, 0),
+                 PointC = Vector2.new(0, 0) },
+}
+local function poolReset(d, kind)
+    if type(d) ~= "table" then return false end
+    local kindName = kind
+    if not kindName then
+        local okKind, k = pcall(function() return d.__saPoolKind end)
+        kindName = okKind and k or nil
+    end
+    local defaults = POOL_DEFAULTS[kindName]
+    pcall(function() d.Visible = false end)
+    if defaults then
+        for prop, value in pairs(defaults) do
+            pcall(function() d[prop] = value end)
+        end
+    end
+    flushDrawProxy(d)
+    return true
+end
+SA.DrawPoolReset = poolReset
+
 function SA.DrawPoolTake(kind)
     local bucket = SA.DrawPool[kind]
     if not bucket or #bucket == 0 then return nil end
     local d = table.remove(bucket)
     if type(d) ~= "table" then return nil end
-    pcall(function() d.Visible = false end)
-    flushDrawProxy(d)
+    poolReset(d, kind)
     return d
 end
 
@@ -614,8 +648,9 @@ function SA.RecycleDraw(d)
     end
     local kind = d.__saPoolKind
     if not kind then SA.DrawRemove(d); return false end
-    pcall(function() d.Visible = false end)
-    flushDrawProxy(d)
+    -- Clear the old owner's styling BEFORE the proxy can be handed out
+    -- again, so a reused draw never shows a stale colour / thickness.
+    poolReset(d, kind)
     local bucket = SA.DrawPool[kind] or {}
     if #bucket >= DRAW_POOL_CAP then
         SA.DrawRemove(d)

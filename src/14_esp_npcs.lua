@@ -15,6 +15,10 @@ local function clearNpc(model)
     if not o then return end
     if o.lines then for _, d in pairs(o.lines) do removeDrawing(d) end end
     if SA.DisposeEspFx then SA.DisposeEspFx(o) end
+    if SA.EspGhostCleanup then
+        SA.EspGhostCleanup.removed = (SA.EspGhostCleanup.removed or 0) + 1
+        SA.EspGhostCleanup.lastReason = "npc removed"
+    end
     if o.bb then o.bb:Destroy() end
     if o.highlight then o.highlight:Destroy() end
     npcObjects[model] = nil

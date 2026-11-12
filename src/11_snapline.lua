@@ -55,6 +55,10 @@ local function hideSnap()
     drawSet(snapDot,  "Visible", false)
     drawSet(leadLine, "Visible", false)
     drawSet(leadDot,  "Visible", false)
+    -- No target this frame: drop the shared memo too, so the very next
+    -- consumer (Gun Silent Aim's aim highlight, the ESP target colour)
+    -- cannot keep drawing a target the snapline already gave up on.
+    if SA.PreviewTargetReset then pcall(SA.PreviewTargetReset) end
     clearSnapTarget()
 end
 
@@ -113,21 +117,38 @@ local function updateSnapLine()
     if not cam then hideSnap(); return end
 
     -- ONE reference point: the centre of the drawn FOV circle.
-    local aimPx = SA.AimPoint()
-    local best = pickBestTarget(cam, aimPx, cam.CFrame.Position, true)
+    -- ONE target: the shared per-frame preview memo (02_shared.lua). The
+    -- snapline used to run its own pickBestTarget() every frame while
+    -- saRefreshAimTarget() ran another one, so two FULL candidate scans
+    -- (all players + all NPCs, one WorldToViewportPoint each) hit the
+    -- render thread every frame and the two owners disagreed about
+    -- SA.Target.model. That mismatch is what made the ESP appear stuck /
+    -- jittery while the snapline or Gun Silent Aim was ON.
+    local best = SA.PreviewTarget and SA.PreviewTarget() or nil
     if not best then hideSnap(); return end
     local sp, w2vOk = cam:WorldToViewportPoint(best.pos)
     local toPx, onScreen = snapProject(cam, sp, w2vOk)
     if not onScreen then hideSnap(); return end
+    -- The LOS result is already cached inside SA.IsVisible(); reuse the
+    -- same value the ESP box uses for this frame so the line colour and
+    -- the VIS / WALL tag can never disagree.
     local visible = SA.IsVisible(best.model, best.pos)
     local col = visible and ESP_COLORS.snapVisible or ESP_COLORS.snapHidden
 
     -- Keep SA.Target fresh even if this executor has no working draws.
-    SA.Target.model   = best.model
-    SA.Target.pos     = best.pos
-    SA.Target.visible = visible
-    SA.Target.screen  = toPx
-    SA.Target.t       = tick()
+    -- Only write a field that actually changed: the FX pass reads this
+    -- table every frame, and unconditional writes churned the ESP
+    -- highlight state for no reason.
+    local t = SA.Target
+    if t.model ~= best.model then t.model = best.model end
+    if t.pos ~= best.pos then t.pos = best.pos end
+    if t.visible ~= visible then t.visible = visible end
+    local samePx = false
+    if t.screen ~= nil then
+        pcall(function() samePx = (t.screen - toPx).Magnitude <= 0.01 end)
+    end
+    if not samePx then t.screen = toPx end
+    t.t = SA.FrameClock and SA.FrameClock() or tick()
 
     if snapLine then
         drawSet(snapLine, "From", snapOrigin())

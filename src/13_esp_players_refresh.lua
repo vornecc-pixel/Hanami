@@ -48,15 +48,22 @@ local function refreshOnePlayer(plr, o, cam)
     if o.bb and not o.bb.Parent then clearESP(plr); return end
     if o.highlight and not o.highlight.Parent then clearESP(plr); return end
 
+    -- Watch this rig for death / stream-out once (cheap: one guard read).
+    if watchCharacter then watchCharacter(plr, char, o) end
     local hrp, head, hum = refreshPlayerRig(o, char)
     if not (hrp and head and hum) then hidePlayerEsp(o); return end
-    if hum.Health <= 0 then hidePlayerEsp(o); return end
+    -- Dead in any way (Health 0, Died fired, humanoid gone): hide the whole
+    -- overlay immediately instead of leaving a box on the corpse.
+    if (tonumber(hum.Health) or 0) <= 0 then hidePlayerEsp(o); return end
 
     local dist = 0
     local myRoot = SA.PlayerRig(lp.Character)
     if myRoot then dist = (myRoot.Position - hrp.Position).Magnitude end
 
     if dist > CFG.espMaxDist then
+        -- Teleport / stream-out out of range: drop the cached projection
+        -- so a return cannot reuse the old screen position.
+        o.geomKey, o.geomCache, o.geomAnchor = nil, nil, nil
         hidePlayerEsp(o); return
     end
 
@@ -66,20 +73,27 @@ local function refreshOnePlayer(plr, o, cam)
     local col = CFG.espVisibleCheck
         and (visible and ESP_COLORS.playerVisible or ESP_COLORS.playerHidden) or ESP_COLORS.playerFlat
 
-    -- The unified screen-space FX pass owns every name / distance / tag.
-    -- Keep the legacy BillboardGui OFF even during the throttled refresh,
-    -- so a partial failure or stale executor cache cannot reveal a second
-    -- world-anchored name on FOV entry.
-    o.bb.Enabled = type(SA.HideEspBillboard) ~= "function"
-    o.highlight.Enabled = true
-    o.highlight.FillColor = col
-    o.nameLbl.Visible = CFG.espShowName
+    -- The unified screen-space FX pass owns every name / distance / tag AND
+    -- the Highlight. This refresh used to write the same instances again
+    -- (Visible / Enabled / FillColor / 4 box lines) at every data interval,
+    -- so two writers fought over one instance every few frames — a hidden
+    -- legacy label could flash for one frame, and every write was billed
+    -- twice against the per-property instance cache. Text is kept (it is
+    -- the documented fallback when no screen-space draw exists) but the
+    -- legacy labels are never SHOWN while the FX pass is alive.
+    local screenSpace = type(SA.HideEspBillboard) == "function"
+    o.bb.Enabled = not screenSpace
     o.nameLbl.Text = plr.Name
     o.nameLbl.TextColor3 = col
-    if CFG.espShowDist then
-        o.distLbl.Visible = true
-        o.distLbl.Text = string.format("[%dm]", math.floor(dist / (SA.STUDS_PER_METER or 3.571)))
-    else o.distLbl.Visible = false end
+    o.distLbl.Text = string.format("[%dm]",
+        math.floor(dist / (SA.STUDS_PER_METER or 3.571)))
+    if screenSpace then
+        o.nameLbl.Visible = false
+        o.distLbl.Visible = false
+    else
+        o.nameLbl.Visible = CFG.espShowName
+        o.distLbl.Visible = CFG.espShowDist
+    end
 
     -- ── Structured text for the new screen-space Tahoma layout ───────
     -- 18_esp_fx_draw.lua anchors these strings to the box: name above,
@@ -105,10 +119,23 @@ local function refreshOnePlayer(plr, o, cam)
     -- AdminESP suffix is the separate replicated flag. Nothing here warns,
     -- notifies, writes an attribute or touches aim / gun state.
     if CFG.espStaffDetect then
-        local role = SA.GetStaffRole(plr, char)
+        -- THREE consecutive positive scans are required before a role is
+        -- shown (04_entity_info.lua). A character that is still streaming
+        -- in, a half-replicated rig or one unlucky read can no longer tag
+        -- an ordinary player as staff ("INVIS" in the reported build).
+        local role = SA.GetStaffRoleConfirmed
+            and SA.GetStaffRoleConfirmed(plr, char)
+            or SA.GetStaffRole(plr, char)
         local text = role.role
+        if role.role == "NONE" and role.pending then
+            text = "SCAN"
+        elseif role.role == "NONE" and (role.streak or 0) > 0 then
+            text = "SCAN " .. tostring(role.streak) .. "/"
+                .. tostring(SA.STAFF_CONFIRM_SCANS or 3)
+        end
         if role.adminFlag then text = text .. " · ADMINESP" end
-        tags[#tags + 1] = { text = text, kind = "staff", admin = role.admin == true }
+        tags[#tags + 1] = { text = text, kind = "staff",
+            admin = role.admin == true }
     end
     o.tx = {
         name   = CFG.espShowName and plr.Name or nil,
@@ -135,21 +162,10 @@ local function refreshOnePlayer(plr, o, cam)
         o.lines.bottom.From = Vector2.new(x, y + h); o.lines.bottom.To = Vector2.new(x + w, y + h)
         o.lines.left.From = Vector2.new(x, y); o.lines.left.To = Vector2.new(x, y + h)
         o.lines.right.From = Vector2.new(x + w, y); o.lines.right.To = Vector2.new(x + w, y + h)
-        for _, l in pairs({ o.lines.top, o.lines.bottom, o.lines.left, o.lines.right }) do
-            l.Color = col; l.Visible = true
-        end
-        if CFG.espShowHealth then
-            local hx = x - 4
-            local ratio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-            o.lines.hpBg.From = Vector2.new(hx, y); o.lines.hpBg.To = Vector2.new(hx, y + h)
-            o.lines.hpBg.Color = Color3.fromRGB(20, 20, 20); o.lines.hpBg.Visible = true
-            o.lines.hpFill.From = Vector2.new(hx, y + (h - h * ratio))
-            o.lines.hpFill.To = Vector2.new(hx, y + h)
-            o.lines.hpFill.Color = ratio > 0.5 and Color3.fromRGB(60, 255, 100)
-                or Color3.fromRGB(255, 220, 60):Lerp(Color3.fromRGB(255, 60, 60), 1 - ratio * 2)
-            o.lines.hpFill.Visible = true
-        else o.lines.hpBg.Visible = false; o.lines.hpFill.Visible = false end
-    else
+        -- Colours are applied by the FX pass through SA.ApplyInstProp();
+        -- writing them here too would double every legacy-line write.
+        -- The health bar is drawn by the FX pass from the live ratio.
+    elseif o.lines then
         for _, l in pairs(o.lines) do l.Visible = false end
     end
 end
@@ -191,6 +207,51 @@ end
 -- connections across re-executes instead of stacking them.
 local charHooks = _G.__saPlayerCharHooks or setmetatable({}, { __mode = "k" })
 _G.__saPlayerCharHooks = charHooks
+local charRemoveHooks = _G.__saPlayerCharRemoveHooks
+    or setmetatable({}, { __mode = "k" })
+_G.__saPlayerCharRemoveHooks = charRemoveHooks
+
+-- Per-character cleanup. A death / stream-out / rig removal must hide the
+-- drawings IMMEDIATELY, not on the next throttled data refresh: that delay
+-- is what left a ghost box on a corpse or a frozen name where a streamed
+-- player used to be. `hard` also disposes the pooled draws, because they
+-- belong to the character that is going away.
+local function hideCharEsp(p, o, why)
+    if not o then return end
+    pcall(hidePlayerEsp, o)
+    o.fxUsed, o.linesUsed, o.instApplied = nil, nil, nil
+    o.espFovState, o.fovKey = nil, nil
+    o.geomKey, o.geomCache, o.geomAnchor, o.geomFresh = nil, nil, nil, nil
+    o.vis = nil
+    local st = SA.EspGhostCleanup
+    if st then
+        st.hidden = (st.hidden or 0) + 1
+        st.lastReason = tostring(why or "hidden")
+    end
+end
+
+-- Watch ONE character for the three "stale ESP" events: Humanoid death,
+-- the rig losing its Parent (stream-out / CharacterRemoving) and the
+-- Humanoid being destroyed (respawn mid-frame).
+local function watchCharacter(p, char, o)
+    if not char or char == o.watchedChar then return end
+    o.watchedChar = char
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    o.watchedHum = hum
+    if hum then
+        SA.Connect(hum.Died, function()
+            if SA.Alive then hideCharEsp(p, o, "died") end
+        end)
+        SA.Connect(hum.HealthChanged, function(hp)
+            if SA.Alive and (tonumber(hp) or 1) <= 0 then
+                hideCharEsp(p, o, "health 0")
+            end
+        end)
+    end
+    SA.Connect(char.AncestryChanged, function(_, parent)
+        if SA.Alive and parent == nil then hideCharEsp(p, o, "streamed out") end
+    end)
+end
 
 local function hookPlayer(p)
     if p == lp or charHooks[p] then return end
@@ -202,6 +263,17 @@ local function hookPlayer(p)
         end)
     end)
     if ok then charHooks[p] = conn end
+    if not charRemoveHooks[p] then
+        local ok2, conn2 = pcall(function()
+            return SA.Connect(p.CharacterRemoving, function()
+                -- Respawn started: remove the drawings before the rig goes.
+                local o = espObjects[p]
+                if o then hideCharEsp(p, o, "character removing") end
+                if SA.Alive and CFG.espEnabled then clearESP(p) end
+            end)
+        end)
+        if ok2 then charRemoveHooks[p] = conn2 end
+    end
 end
 
 for _, p in ipairs(Players:GetPlayers()) do hookPlayer(p) end
@@ -213,4 +285,5 @@ _G.__saPlayerAddedConn = SA.Connect(Players.PlayerAdded, hookPlayer)
 _G.__saPlayerRemovingConn = SA.Connect(Players.PlayerRemoving, function(p)
     clearESP(p)
     charHooks[p] = nil
+    charRemoveHooks[p] = nil
 end)

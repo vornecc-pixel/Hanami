@@ -293,6 +293,73 @@ local function pickBestTarget(camera, aimPx, originPos, preview, boneFn)
     return best
 end
 
+-- ── ONE shared preview target per frame ─────────────────────────────
+-- The snapline (11_snapline.lua), the Gun Silent Aim ESP highlight
+-- (09_silent_aim.lua) and the manipulation probe (05_manipulation.lua)
+-- each used to call pickBestTarget() themselves on the render thread.
+-- That meant 2-3 full candidate scans (every player + every NPC, one
+-- WorldToViewportPoint per candidate) for ONE frame of visuals, and the
+-- three callers could disagree about who the target was — which showed
+-- up as the ESP "sticking" / flickering while silent aim or the snapline
+-- was ON. This memo runs the preview pick at most once per frame (and at
+-- most once per PREVIEW_TTL), so every consumer reads the same answer.
+local PREVIEW_TTL = 0.02
+local previewStamp, previewFrame = nil, nil
+local previewCache, previewFovKey = nil, nil
+
+function SA.PreviewTarget(refresh)
+    local now = SA.FrameClock and SA.FrameClock() or tick()
+    local frame = SA.EspFxFrame or 0
+    if previewCache ~= nil and previewFrame == frame and not refresh then
+        return previewCache or nil
+    end
+    if not refresh and previewStamp ~= nil and (now - previewStamp) < PREVIEW_TTL
+        and previewFrame ~= nil then
+        -- Same tick (deterministic mock clock): reuse the cached pick.
+        return previewCache or nil
+    end
+    local camera = ws.CurrentCamera
+    if not camera or not lp.Character then
+        previewCache, previewStamp, previewFrame = false, now, frame
+        return nil
+    end
+    local aimPx = SA.AimPoint()
+    local radius = SA.FovRadius()
+    -- A different centre / radius IS a different question; never answer
+    -- it from the previous circle's cache.
+    local fovKey = tostring(math.floor(aimPx.X + 0.5)) .. ","
+        .. tostring(math.floor(aimPx.Y + 0.5)) .. "," .. tostring(radius)
+    if previewFovKey ~= fovKey then
+        previewCache, previewStamp = nil, nil
+        previewFovKey = fovKey
+    end
+    local ok, best = pcall(function()
+        return pickBestTarget(camera, aimPx, camera.CFrame.Position, true)
+    end)
+    if not ok or not best or not best.model then best = false end
+    previewCache, previewStamp, previewFrame = best, now, frame
+    return previewCache or nil
+end
+
+-- Drop the memo (Escape / camera swap / unload / tests that move the
+-- mocked world between two calls inside one tick).
+function SA.PreviewTargetReset()
+    previewCache, previewStamp, previewFrame = nil, nil, nil
+    previewFovKey = nil
+    return true
+end
+
+function SA.PreviewTargetState()
+    return {
+        cached = previewCache ~= nil,
+        hit = previewCache ~= false and previewCache ~= nil,
+        stamp = previewStamp,
+        frame = previewFrame,
+        ttl = PREVIEW_TTL,
+        fovKey = previewFovKey,
+    }
+end
+
 -- ── BETTER: triggerbot / auto-fire hit-part selection ───────────────
 -- R6 + R15 aliases. Random Hit Part wins over Head Only; a specific Hit
 -- Part is used when both toggles are OFF. Silent aim still uses

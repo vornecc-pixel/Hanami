@@ -130,12 +130,21 @@ local function drawEntityInner(cam, o, opt)
         end
     end
 
-    -- A FOV enter/leave, viewport enter/leave or visual-toggle change must
-    -- erase every pooled arrow/tracer/box before the new frame is styled.
-    -- Otherwise a clamped edge draw survives while the entity is already
-    -- inside the circle. Only transitions trigger this, not every frame.
+    -- A FOV enter/leave (or viewport enter/leave) must erase the pooled
+    -- arrow / tracer / box before the new frame is styled. Otherwise a
+    -- clamped edge draw survives while the entity is already inside the
+    -- circle. This is PER ENTITY and keyed on the entity's own state only.
+    --
+    -- BUG FIX (ESP stuck + stutter with Gun Silent Aim / Snapline ON): the
+    -- key used to include SA.EspDrawSignature, and that signature carried
+    -- `targetModel ~= nil`. The live aim target appears / disappears many
+    -- times a second (FOV enter-leave, hit roll, pickBestTarget nil), so
+    -- every entity re-ran hideFx + duplicate cleanup + geomForceFresh
+    -- several times per second. The shared signature is now applied ONCE
+    -- per real toggle change by SA.EspStyleSweep() (18_esp_fx_frame.lua),
+    -- and this per-entity key covers only the real geometry transitions.
     local stateKey = tostring(p) .. "|" .. tostring(fov.onScreen) .. "|"
-        .. tostring(fov.inside) .. "|" .. tostring(SA.EspDrawSignature or "")
+        .. tostring(fov.inside)
     if o.espFovState ~= stateKey then
         o.espFovState = stateKey
         SA.EspFovTransitions = (SA.EspFovTransitions or 0) + 1
