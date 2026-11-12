@@ -236,7 +236,7 @@ local function saInstallInputReorder()
         end
         for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
 
-        UserInputService.InputBegan:Connect(function(input, gp)
+        SA.Connect(UserInputService.InputBegan, function(input, gp)
             if not CFG.saTapReorder then return end
             if not input or input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
             if gp then return end
@@ -252,7 +252,7 @@ local function saInstallInputReorder()
             end
         end)
         for _, fn in ipairs(fns) do
-            UserInputService.InputBegan:Connect(fn)
+            SA.Connect(UserInputService.InputBegan, fn)
         end
         tapInfo.connections = #fns
     end)
@@ -289,7 +289,7 @@ local function saHookToolTap(tool)
     end
     pcall(function() tool:SetAttribute("__saTapHooked", true) end)
     for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
-    tool.Activated:Connect(function()
+    SA.Connect(tool.Activated, function()
         local cf, camera = nil, nil
         if CFG.saTapReorder then cf, camera = SA.TapSnap() end
         for _, fn in ipairs(handlers) do pcall(fn) end
@@ -310,11 +310,11 @@ end
 
 if not _G.__saToolWatchBound then
     _G.__saToolWatchBound = true
-    lp.CharacterAdded:Connect(function()
+    SA.Connect(lp.CharacterAdded, function()
         task.wait(0.4)
         saScanTools()
     end)
-    lp.ChildAdded:Connect(function(c)
+    SA.Connect(lp.ChildAdded, function(c)
         if c:IsA("Tool") then saHookToolTap(c) end
     end)
 end

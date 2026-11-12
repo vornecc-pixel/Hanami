@@ -79,12 +79,12 @@ if _G.__saCrateEvents then
     for _, c in ipairs(_G.__saCrateEvents) do pcall(function() c:Disconnect() end) end
 end
 _G.__saCrateEvents = {
-    Workspace.DescendantAdded:Connect(function(d)
+    SA.Connect(Workspace.DescendantAdded, function(d)
         if CFG.crateEnabled and (d:IsA("Model") or d:IsA("BasePart")) then
             if crateKind(d) then SA.RequestScan() end
         end
     end),
-    Workspace.DescendantRemoving:Connect(function(d)
+    SA.Connect(Workspace.DescendantRemoving, function(d)
         if crateObjects[d] then clearCrate(d) end
     end),
 }

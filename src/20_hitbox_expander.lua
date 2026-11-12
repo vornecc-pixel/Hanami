@@ -143,7 +143,7 @@ local function hbInstallSizeHook(part)
     if not ok or not signal then return end
     local conn
     local okConnect = pcall(function()
-        conn = signal:Connect(function() pcall(hbOnSizeChanged, part) end)
+        conn = SA.Connect(signal, function() pcall(hbOnSizeChanged, part) end)
     end)
     if okConnect and conn then hbSizeConns[part] = conn end
 end
@@ -244,7 +244,7 @@ local function hbWatchChar(owner, char, isNpc)
     hbWatchedChar[owner] = char
     local npcOwner = isNpc and char or nil
     local ok, conn = pcall(function()
-        return char.ChildAdded:Connect(function(child)
+        return SA.Connect(char.ChildAdded, function(child)
             hbSync()
             if not hb.enabled then return end
             if isNpc and not hb.npcs then return end
@@ -364,7 +364,7 @@ end
 local function hbEnsurePlayerRemoving()
     if _G.__saHitboxPlayerRemovingBound then return end
     local ok, conn = pcall(function()
-        return Players.PlayerRemoving:Connect(function(plr)
+        return SA.Connect(Players.PlayerRemoving, function(plr)
             local c = hbCharConns[plr]
             if c then pcall(c.Disconnect, c) end
             hbCharConns[plr] = nil

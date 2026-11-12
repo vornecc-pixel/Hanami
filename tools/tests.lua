@@ -2808,6 +2808,10 @@ local keptStateAPIs = {
     "ApplyBestEsp", "ApplyCleanEsp", "BestEspState", "HideEspBillboard",
     "GetWeaponStatus", "EspHideDuplicateOverlays", "EspDuplicateCleanupState",
     "NearestWindowResetPosition",
+    "Connect", "TrackConnection", "DisconnectConnections", "ConnectionState",
+    "DrawForget", "DrawRemove", "DrawState", "DrawDisposeAll",
+    "DisposeHanamiGuis", "HanamiGuiState", "VisualState",
+    "FovDispose", "SnaplineDispose", "FullUnloadState",
     "ManipPopupState", "NearestWindowState", "EspPassStats", "DrawPoolStats",
     "PerfState", "GunDiff", "ApplyGunOverrides", "SyncGunDefs",
     "TestConfigRoundTrip", "EspPreviewRefresh",
@@ -3109,6 +3113,27 @@ if run == 1 then
     LAST_GENERATION = SA.Generation
 else
     LAST_GENERATION = SA.Generation
+
+    -- A plain menu hide is NOT an unload: ESP, FOV and the nearest HUD
+    -- must stay live so both unload paths have real visuals to remove.
+    setFlags({
+        showFov = true, snapLineEnabled = true, espEnabled = true,
+        npcEspEnabled = true, crateEnabled = true, espPreview = true,
+        nearestWindow = true, perfMode = true, perfShowFps = true,
+        showManipPopup = true, showPlayerWarning = true,
+    })
+    window.set_menu_visibility(false)
+    frameTimes(3)
+    eq(SA.Unloaded, false, "minimising the menu is not an unload")
+    eq(SA.FullUnloadState().trigger, nil,
+        "minimising the menu does not trigger FullUnload")
+    ok(SA.VisualState().visibleDraws > 0,
+        "minimised menu keeps ESP / FOV visuals")
+    ok(SA.VisualState().hanamiGuis > 0,
+        "minimised menu keeps Hanami-owned GUIs")
+    eq(SA.NearestWindowState().visible, true,
+        "nearest HUD visible while menu hidden")
+
     -- Full unload must restore hitboxes even while the toggle is ON.
     quiet(function() SA.HitboxRestore() end)
     mock_hitbox_reset()
@@ -3128,7 +3153,29 @@ else
     SA.FustBowRefresh()
     ok(MOCK_FUST_SHOOT.FireServer ~= fireServerOriginal,
         "full unload: Fust bow hook active before unload")
-    local unloaded, why = SA.FullUnload()
+
+    -- Run 2 exercises the Misc button; run 3 exercises Atlanta's own
+    -- Configurations -> Options -> Unload Menu button. Both must perform
+    -- the exact same complete teardown.
+    local unloaded, why
+    if run == 2 then
+        local button = library.buttons["Unload Everything (FULL)"]
+        ok(type(button) == "function", "Misc full-unload button exists")
+        quiet(button)
+        unloaded = SA.Unloaded == true
+        why = "Misc full-unload button"
+        eq(SA.FullUnloadState().trigger, "Unload Everything (FULL)",
+            "Misc full-unload button trigger")
+    else
+        local button = library.buttons["Unload Menu"]
+        ok(type(button) == "function", "Atlanta built-in Unload Menu exists")
+        quiet(button)
+        unloaded = SA.Unloaded == true
+        why = "Atlanta built-in Unload Menu"
+        eq(SA.FullUnloadState().trigger, "Unload Menu",
+            "Atlanta built-in Unload Menu trigger")
+    end
+
     eq(Players:GetPlayers()[2].Character:FindFirstChild("Head").Size.X, 2,
         "full unload restores hitbox originals")
     eq(MOCK_FUST_SHOOT.FireServer, fireServerOriginal,
@@ -3137,6 +3184,8 @@ else
     eq(_G.__saGunMods, nil, "full unload clears V16.46 gun state")
     eq(game:GetService("Lighting"):FindFirstChild("HanamiLocalBrightness"),
         nil, "full unload destroys local brightness effect")
+    eq(game:GetService("Lighting"):FindFirstChild("HanamiAtlantaBlur"),
+        nil, "full unload destroys Atlanta window blur")
     eq(MOCK_GUN_LIVE.Spread, 1.0,
         "full unload restores live gun spread original")
     eq(MOCK_GUN_CONTROL.Spread, 0.7,
@@ -3149,10 +3198,36 @@ else
     eq(_G.__saEspPreview, nil, "preview state cleared")
     eq(_G.__saNearestWindow, nil, "HUD state cleared")
     eq(_G.__saNearestWindowPos, nil, "HUD drag position cleared")
+    eq(_G.__saConnections, nil, "tracked connection global cleared")
+    eq(_G.__saDrawGui, nil, "draw overlay global cleared")
+    eq(_G.__saPlayerCharHooks, nil, "character hooks cleared")
+    eq(_G.__saPlayerAddedConn, nil, "PlayerAdded hook cleared")
+    eq(_G.__saPlayerRemovingConn, nil, "PlayerRemoving hook cleared")
+    eq(_G.__saCrateEvents, nil, "crate hooks cleared")
+    eq(_G.__saAtlantaBlur, nil, "Atlanta blur global cleared")
     eq(count(SA.AllKeybinds), 0, "keybind registry cleared")
     eq(SA.PinnedTarget, nil, "pinned target cleared")
     ok(SA.FullUnload() == false, "unload is one-shot")
     eq(window.opened, false, "menu hidden by unload")
+
+    -- The screenshot bug: ESP BillboardGuis / Highlights and native
+    -- Drawing objects are outside library.guis, so verify they are gone.
+    local visual = SA.VisualState()
+    eq(visual.draws, 0, "all registered drawings removed")
+    eq(visual.visibleDraws, 0, "no visible drawings remain")
+    eq(visual.pooledDraws, 0, "draw pool emptied by unload")
+    eq(visual.hanamiGuis, 0, "no Hanami GUI remains")
+    eq(visual.guis, "", "unload GUI state is empty")
+    eq(visual.connections, 0, "no tracked connection remains")
+    eq(visual.overlay, false, "draw overlay removed")
+    ok(SA.ConnectionState().disconnected > 0,
+        "direct service / render connections disconnected")
+    eq(SA.DrawPoolStats().total, 0, "draw pool stats empty")
+    eq(SA.FovState().exists, false, "FOV circle disposed")
+    eq(SA.SnaplineState().enabled, false, "snapline toggle forced OFF")
+    eq(SA.FullUnloadState().visuals.draws, 0,
+        "unload report records zero live drawings")
+    eq(gethui():FindFirstChild("HanamiOverlay"), nil, "screen-space overlay destroyed")
     eq(gethui():FindFirstChild("HanamiNearestPlayer"), nil, "HUD destroyed")
     eq(gethui():FindFirstChild("HanamiPerfOverlay"), nil, "FPS overlay destroyed")
     eq(SA.ManipPopupState().built, false, "manip popup disposed by full unload")

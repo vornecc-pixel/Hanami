@@ -56,7 +56,7 @@ local function ensureFov()
         local noop = false
         pcall(function() noop = (fovCircle.Backend == "none") end)
         if noop then
-            pcall(function() if fovCircle.Remove then fovCircle:Remove() end end)
+            SA.DrawRemove(fovCircle)
             fovCircle = nil
             fovBackend = "none"
         end
@@ -102,14 +102,19 @@ function SA.FovState()
     }
 end
 
+function SA.FovDispose()
+    if fovCircle then SA.DrawRemove(fovCircle) end
+    fovCircle, fovBackend = nil, "none"
+    fovNeedRebuild, lastForced = false, nil
+    return true
+end
+
 bindRender(function()
     -- Switching the drawing backend at runtime must recreate the circle,
     -- otherwise the old object (native or GUI) would stay on screen.
     if lastForced ~= CFG.forceGuiDrawing then
         lastForced = CFG.forceGuiDrawing
-        if fovCircle then
-            pcall(function() if fovCircle.Remove then fovCircle:Remove() end end)
-        end
+        if fovCircle then SA.DrawRemove(fovCircle) end
         fovCircle = nil
         fovBackend = "none"
     end
@@ -138,7 +143,7 @@ bindRender(function()
     if (not shown) or fovNeedRebuild then
         -- a native object just proved it cannot be written to. Drop it and
         -- rebuild next frame on the ScreenGui backend.
-        pcall(function() if c.Remove then c:Remove() end end)
+        SA.DrawRemove(c)
         fovCircle = nil
         fovBackend = "none"
         fovNeedRebuild = false

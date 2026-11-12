@@ -109,6 +109,12 @@ do
 
     function library:create(class, props, ...)
         local inst = originalCreate(self, class, props, ...)
+        -- Atlanta's window BlurEffect is parented to Lighting and is NOT in
+        -- library.guis. Name it so the unload sweep can destroy it too.
+        if class == "BlurEffect" then
+            pcall(function() inst.Name = "HanamiAtlantaBlur" end)
+            _G.__saAtlantaBlur = inst
+        end
         if capture and props then
             -- keybind's little TextButton is 24x14 with empty text
             if class == "TextButton" and props.Text == ""
@@ -200,7 +206,7 @@ do
 
         if cap.button then
             pcall(function()
-                cap.button.MouseButton2Click:Connect(function() clearBind() end)
+                SA.Connect(cap.button.MouseButton2Click, function() clearBind() end)
             end)
         end
         if listLbl then
@@ -209,7 +215,7 @@ do
             -- Keybinds panel row to receive mouse input at all.
             pcall(function() listLbl.Active = true end)
             pcall(function()
-                listLbl.InputBegan:Connect(function(input)
+                SA.Connect(listLbl.InputBegan, function(input)
                     if input.UserInputType == Enum.UserInputType.MouseButton2 then
                         clearBind()
                     end
@@ -220,6 +226,34 @@ do
         return cfg
     end
     library.__saKeybindWrapperInstalled = true
+    end
+end
+
+-- Atlanta's Configurations -> Options -> "Unload Menu" only destroys
+-- library.guis / library.connections. Wrap that ONE button so its stock
+-- behaviour still runs and the complete Hanami teardown follows. Resolve
+-- SA through _G at click time: the library wrapper survives re-executes in
+-- the mock runtime and must never call a stale generation's FullUnload.
+do
+    library.__saOriginalButton = library.__saOriginalButton or library.button
+    local originalButton = library.__saOriginalButton
+    if originalButton and not library.__saUnloadWrapperInstalled then
+        function library:button(opts)
+            if opts and (opts.name == "Unload Menu" or opts.text == "Unload Menu") then
+                local stock = opts.callback
+                opts.callback = function()
+                    pcall(function() if stock then stock() end end)
+                    pcall(function()
+                        local shared = _G.__saShared
+                        if shared and type(shared.FullUnload) == "function" then
+                            shared.FullUnload("Unload Menu")
+                        end
+                    end)
+                end
+            end
+            return originalButton(self, opts)
+        end
+        library.__saUnloadWrapperInstalled = true
     end
 end
 

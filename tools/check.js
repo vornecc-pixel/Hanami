@@ -84,6 +84,11 @@ const requiredDist = [
   'SA.GetWeaponStatus', 'SA.EspHideDuplicateOverlays',
   'SA.EspDuplicateCleanupState', 'SA.NearestWindowResetPosition',
   'SA.NearestDisplay',
+  'SA.Connect', 'SA.TrackConnection', 'SA.DisconnectConnections',
+  'SA.ConnectionState', 'SA.DrawForget', 'SA.DrawRemove', 'SA.DrawState',
+  'SA.DrawDisposeAll', 'SA.DisposeHanamiGuis', 'SA.HanamiGuiState',
+  'SA.VisualState', 'SA.FovDispose', 'SA.SnaplineDispose',
+  'SA.FullUnloadState',
   'SA.EspPassAllowed', 'SA.EspPassStats', 'SA.PerfEffectiveRebuildMs',
   'SA.PerfEffectiveEntityCap', 'SA.DrawPoolStats', 'SA.DrawWriteFailures',
   'SA.GunDiff', 'SA.ApplyGunOverrides', 'SA.SyncGunDefs',
@@ -357,6 +362,54 @@ for (const needle of [
 assert(read('src/24_ui_visual.lua').includes('"snapLineThickness", 1, 10'),
   'customizable snapline size slider missing');
 
+// Both unload paths must remove direct connections, live draws, pooled
+// draws, world ESP instances and Hanami-owned GUIs -- not just library.guis.
+assert(read('src/01_config.lua').includes('function SA.Connect(signal, fn)'),
+  'tracked SA.Connect helper missing');
+assert(read('src/01_config.lua').includes('function SA.DisconnectConnections()'),
+  'direct connection disconnect sweep missing');
+assert(read('src/01_config.lua').includes('function SA.ConnectionState()'),
+  'connection state API missing');
+assert(read('src/02_drawing.lua').includes('function SA.DrawRemove(d)'),
+  'registry-aware draw removal missing');
+assert(read('src/02_drawing.lua').includes('function SA.DrawState()'),
+  'live draw state API missing');
+assert(read('src/06_firing_and_guns.lua').includes('function SA.DrawDisposeAll()'),
+  'complete draw disposal missing');
+assert(read('src/06_firing_and_guns.lua').includes(
+  'function SA.DisposeHanamiGuis()'),
+  'Hanami GUI disposal missing');
+assert(read('src/06_firing_and_guns.lua').includes('function SA.VisualState()'),
+  'combined visual state API missing');
+assert(read('src/10_fov_circle.lua').includes('function SA.FovDispose()'),
+  'FOV circle disposal missing');
+assert(read('src/11_snapline.lua').includes('function SA.SnaplineDispose()'),
+  'snapline disposal missing');
+assert(read('src/12_esp_players.lua').includes('SA.DrawRemove(d)'),
+  'player ESP removals must forget registry keys');
+assert(read('src/14_esp_npcs.lua').includes('HanamiNpcGui')
+  && read('src/14_esp_npcs.lua').includes('HanamiNpcHighlight'),
+  'named NPC orphan cleanup missing');
+assert(read('src/21_ui_aiming.lua').includes('library.__saUnloadWrapperInstalled')
+  && read('src/21_ui_aiming.lua').includes('"Unload Menu"'),
+  'Atlanta built-in Unload Menu wrapper missing');
+assert(read('src/21_ui_aiming.lua').includes('HanamiAtlantaBlur'),
+  'Atlanta window blur capture missing');
+assert(read('src/25_ui_misc.lua').includes('function SA.FullUnloadState()'),
+  'unload report state API missing');
+assert(read('src/25_ui_misc.lua').includes('function SA.FullUnload(reason)'),
+  'trigger-aware full unload missing');
+for (const needle of [
+  'SA.DrawDisposeAll', 'SA.DisposeHanamiGuis', 'SA.DisconnectConnections',
+  '_G.__saConnections, _G.__saDrawGui = nil, nil',
+]) {
+  assert(read('src/25_ui_misc.lua').includes(needle),
+    `FullUnload missing ${needle}`);
+}
+assert(read('tools/mocks.lua').includes('function library:button(opts)')
+  && read('tools/mocks.lua').includes('name = "Unload Menu"'),
+  'mock Atlanta built-in Unload Menu button missing');
+
 // Inline colour picks must survive native profile save / load / import.
 for (const needle of [
   'function SA.EspColorSnapshot()', 'function SA.EspColorRestore',
@@ -383,6 +436,18 @@ for (const needle of [
   'Gun Silent Aim toggle changes ESP draw signature',
   'outside FOV with snapline ON clears stale highlight target',
   'saved profile carries ESP colours',
+  'minimising the menu is not an unload',
+  'minimised menu keeps ESP / FOV visuals',
+  'nearest HUD visible while menu hidden',
+  'Misc full-unload button exists',
+  'Atlanta built-in Unload Menu exists',
+  'Misc full-unload button trigger',
+  'Atlanta built-in Unload Menu trigger',
+  'all registered drawings removed',
+  'no Hanami GUI remains',
+  'no tracked connection remains',
+  'FOV circle disposed',
+  'unload report records zero live drawings',
   'import-only colour block restores pickers',
   'inside FOV: stale FOV-edge box replaced',
   'NPC inside FOV: stale FOV-edge box replaced',
@@ -481,14 +546,17 @@ const requiredDescriptions = {
   'src/04_entity_info.lua': ['equipped', 'holstered', 'weapon status',
     'tool child fallback', 'shared metres'],
   'src/12_esp_players.lua': ['player esp', 'ghost billboardgui', 'purge',
-    're-execution'],
+    're-execution', 'registry-aware removal'],
   'src/01_config.lua': ['themes', 'fonts', 'white', 'startup off',
     'esp-only best startup', 'fov startup', 'snapline size', 'mouse reference',
     'inline colours', 'profiles', 'self-check', 'perf', 'clean',
     'npc manipulation', 'trigger', 'wall check', 'warning', 'force head',
-    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow'],
+    'crate fov', 'npc hitbox', 'hitbox', 'esp data refresh', 'fust bow',
+    'direct connection registry', 'unload disconnect'],
   'src/02_drawing.lua': ['capability', 'draw pool', 'sync batching',
-    'per-property'],
+    'per-property', 'live draw registry', 'draw remove'],
+  'src/06_firing_and_guns.lua': ['complete unload sweep',
+    'hanami gui sweep'],
   'src/03_entity_scan.lua': ['npc registry', 'visibility', 'raw list',
     'profile card', 'avatar', 'headshot', 'draggable', 'weapon state',
     'reset hud position'],
@@ -501,12 +569,14 @@ const requiredDescriptions = {
     'tool-first', 'mouse1click', 'dedicated fust bow part'],
   'src/09_z_fust_bow.lua': ['fust bow', 'ballistic', 'hookfunction',
     'shoot.fireserver', 'peek-origin', 'fov', 'bow specs', 'state'],
-  'src/10_fov_circle.lua': ['solid', 'visible', '3px', 'reference point'],
+  'src/10_fov_circle.lua': ['solid', 'visible', '3px', 'reference point',
+    'fov dispose'],
   'src/11_snapline.lua': ['independent', 'fov reference',
-    'thick 3px', 'snapline size'],
+    'thick 3px', 'snapline size', 'snapline dispose'],
   'src/13_esp_players_refresh.lua': ['per-player', 'cached player rig', 'vis',
     'legacy billboardgui off', 'shared projection cache', 'geometry cache'],
-  'src/14_esp_npcs.lua': ['npc esp', 'cached rig'],
+  'src/14_esp_npcs.lua': ['npc esp', 'cached rig',
+    'named orphan cleanup'],
   'src/15_esp_npcs_refresh.lua': ['npc esp', 'cached rig', 'vis',
     'shared projection cache', 'geometry cache'],
   'src/16_esp_crates_registry.lua': ['crate registry', 'raw list'],
@@ -528,7 +598,7 @@ const requiredDescriptions = {
     'trigger', 'auto fire', 'wall check', 'force head',
     'silent-aim independent', 'npc hitbox', 'hitbox', 'fust bow',
     'inline colourpicker', 'atlanta source sanitizer', 'built-in font fallback',
-    'error-page markers'],
+    'error-page markers', 'unload menu wrapper', 'blur capture'],
   'src/20_hitbox_expander.lua': ['hitbox', 'players + npcs', 'r6/r15',
     'npc', 'hrp fallback', 'self-healing', 'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
@@ -542,7 +612,8 @@ const requiredDescriptions = {
     'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
     'utilities'],
   'src/25_ui_misc.lua': ['theme', 'font', 'profile', 'colour profiles',
-    'self-check', 'full unload', 'drag position',
+    'self-check', 'full unload', 'drag position', 'both unload paths',
+    'full unload state', 'draw sweep', 'connection sweep',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
     'hitbox state', 'hitbox', 'draw sync', 'esp perf', 'frame budget',
     'fust bow'],
@@ -558,6 +629,18 @@ const requiredDocs = [
   '## BETTER quality-of-life pass',
   'Native Atlanta config profiles',
   'Real full unload',
+  'both unload paths',
+  'plain menu hide',
+  'Unload Menu',
+  'SA.FullUnloadState()',
+  'SA.VisualState()',
+  'SA.DrawDisposeAll()',
+  'SA.DisconnectConnections()',
+  'SA.DisposeHanamiGuis()',
+  'draw registry',
+  'connection sweep',
+  'unload regressions',
+  'Atlanta built-in Unload Menu',
   'Top-N nearest-player HUD',
   'All-keybind manager',
   'ESP decluttering',
@@ -608,7 +691,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '5,609 assertions',
+  '5,710 assertions',
   'all 75 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',

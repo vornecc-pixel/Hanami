@@ -187,7 +187,7 @@ _G.__saManipPopup = saManipPopup
 
 function SA.DisposeManipPopup()
     if saManipPopup.conn then pcall(function() saManipPopup.conn:Disconnect() end) end
-    if saManipPopup.draw then pcall(function() saManipPopup.draw:Remove() end) end
+    if saManipPopup.draw then SA.DrawRemove(saManipPopup.draw) end
     saManipPopup.draw, saManipPopup.conn = nil, nil
     saManipPopup.built, saManipPopup.visible = false, false
     saManipPopup.reason = "disposed"
@@ -301,7 +301,7 @@ _G.__saPlayerWarning = saPlayerWarning
 
 function SA.DisposePlayerWarning()
     if saPlayerWarning.conn then pcall(function() saPlayerWarning.conn:Disconnect() end) end
-    if saPlayerWarning.draw then pcall(function() saPlayerWarning.draw:Remove() end) end
+    if saPlayerWarning.draw then SA.DrawRemove(saPlayerWarning.draw) end
     saPlayerWarning.draw, saPlayerWarning.conn = nil, nil
     saPlayerWarning.built, saPlayerWarning.visible = false, false
     saPlayerWarning.reason = "disposed"
@@ -480,7 +480,7 @@ function SA.StartRebind(flag)
     pcall(function() if SA.RebindConn then SA.RebindConn:Disconnect() end end)
     SA.RebindFlag = flag
     local conn
-    conn = UserInputService.InputBegan:Connect(function(input, gpe)
+    conn = SA.Connect(UserInputService.InputBegan, function(input, gpe)
         if gpe then return end
         local key = nil
         if input.UserInputType == Enum.UserInputType.Keyboard then

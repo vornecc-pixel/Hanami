@@ -472,24 +472,54 @@ end
 
 
 -- ────────────────────────────────────────────────────────────────────
--- BETTER 3 · REAL UNLOAD
--- Bumping SA.Generation disconnects EVERY bindRender loop (render,
--- preview, HUD, perf overlay, scanners). Previously unload only set
--- SA.Alive = false, so those loops kept ticking forever.
+-- BOTH UNLOAD PATHS USE ONE COMPLETE TEARDOWN
+-- Misc -> Unload Everything (FULL) and Atlanta's built-in "Unload Menu"
+-- both call SA.FullUnload(). A plain RightShift hide does NOT. Atlanta
+-- only destroys library.guis / library.connections, so Hanami additionally
+-- disconnects every direct service / RenderStepped hook, removes native
+-- Drawing objects + GUI proxies + orphan world ESP, and destroys its own
+-- ScreenGuis / blur / brightness effects before clearing shared state.
 -- ────────────────────────────────────────────────────────────────────
 
-function SA.FullUnload()
+function SA.FullUnloadState()
+    return SA.LastUnload or {}
+end
+
+function SA.FullUnload(reason)
     if SA.Unloaded then return false, "already unloaded" end
     SA.Unloaded = true
-    pcall(function() setFlag("showFov", false) end)
-    pcall(function() setFlag("masterEnabled", false) end)
-    pcall(function() setFlag("gmEnabled", false) end)
-    pcall(function() setFlag("hitboxEnabled", false) end)
-    pcall(function() setFlag("bowModsEnabled", false) end)
-    pcall(function() setFlag("bowInstantCharge", false) end)
-    pcall(function() setFlag("bowNoCooldown", false) end)
+    SA.Alive = false
+    SA.Generation = (SA.Generation or 0) + 1
+    local trigger = tostring(reason or "SA.FullUnload()")
+
+    -- Turn every visual / runtime feature OFF through Atlanta when its
+    -- widgets still exist, then hard-reset CFG so a destroyed menu cannot
+    -- let a stale setter rebuild anything after the sweep.
+    for _, key in ipairs({
+        "showFov", "snapLineEnabled", "snapShowLead", "espEnabled",
+        "npcEspEnabled", "crateEnabled", "espPreview", "nearestWindow",
+        "perfMode", "perfShowFps", "showManipPopup", "showPlayerWarning",
+        "showNoTargetReason", "masterEnabled", "gunEnabled", "gmEnabled",
+        "hitboxEnabled", "bowModsEnabled", "bowInstantCharge",
+        "bowNoCooldown", "fustBowEnabled", "displayBrightnessEnabled",
+        "forceHead", "triggerbot", "autoFire",
+    }) do
+        pcall(function() setFlag(key, false) end)
+    end
+    CFG.showFov, CFG.snapLineEnabled, CFG.espEnabled = false, false, false
+    CFG.npcEspEnabled, CFG.crateEnabled, CFG.espPreview = false, false, false
+    CFG.nearestWindow, CFG.perfMode, CFG.perfShowFps = false, false, false
+    CFG.showManipPopup, CFG.showPlayerWarning = false, false
+    CFG.masterEnabled, CFG.gunEnabled, CFG.gmEnabled = false, false, false
+    CFG.hitboxEnabled, CFG.bowModsEnabled = false, false
+    CFG.bowInstantCharge, CFG.bowNoCooldown = false, false
+    CFG.fustBowEnabled, CFG.displayBrightnessEnabled = false, false
+    CFG.forceHead, CFG.triggerbot, CFG.autoFire = false, false, false
+
     pcall(function() if SA.BowModsRestore then SA.BowModsRestore() end end)
     pcall(function() if SA.HitboxRestore then SA.HitboxRestore() end end)
+    pcall(function() if SA.FovDispose then SA.FovDispose() end end)
+    pcall(function() if SA.SnaplineDispose then SA.SnaplineDispose() end end)
     pcall(function() disableESP() end)
     pcall(function() disableNpcESP() end)
     pcall(function() disableCrateESP() end)
@@ -501,13 +531,13 @@ function SA.FullUnload()
     pcall(function() if SA.DisposeFireAssist then SA.DisposeFireAssist() end end)
     pcall(function() if SA.FustBowDispose then SA.FustBowDispose() end end)
     pcall(function() if SA.GunDispose then SA.GunDispose() end end)
-    pcall(function() setFlag("displayBrightnessEnabled", false) end)
+    pcall(function() if SA.DrawDisposeAll then SA.DrawDisposeAll() end end)
+    pcall(function() if SA.DisposeHanamiGuis then SA.DisposeHanamiGuis() end end)
     pcall(function() RunService:UnbindFromRenderStep(snapName) end)
     pcall(function() RunService:UnbindFromRenderStep(restoreName) end)
     pcall(function() SA.TapRestore(_G.__saTapCF, _G.__saTapCam) end)
     pcall(function() saManipRestore() end)
-    SA.Alive = false
-    SA.Generation = (SA.Generation or 0) + 1
+    pcall(function() if SA.DisconnectConnections then SA.DisconnectConnections() end end)
     pcall(function()
         for _, c in ipairs(library.connections or {}) do
             pcall(function() c:Disconnect() end)
@@ -529,6 +559,7 @@ function SA.FullUnload()
         end
     end)
     pcall(function() window.set_menu_visibility(false) end)
+
     SA.PinnedTarget, SA.Target = nil, {}
     SA.DrawPool, SA.EspVisibleCount = {}, { players = 0, npcs = 0, crates = 0 }
     SA.AllKeybinds, SA.FeatureBinds = {}, {}
@@ -539,10 +570,24 @@ function SA.FullUnload()
     _G.__saNearestWindowPos = nil
     _G.__saTapReorder, _G.__saManipFix = nil, nil
     _G.__saWhiteColorFix, _G.__saFovFix = nil, nil
-    _G.__saFustBow = nil
-    _G.__saGunMods = nil
+    _G.__saFustBow, _G.__saGunMods = nil, nil
+    _G.__saConnections, _G.__saDrawGui = nil, nil
+    _G.__saPlayerCharHooks = nil
+    _G.__saPlayerAddedConn, _G.__saPlayerRemovingConn = nil, nil
+    _G.__saCrateEvents, _G.__saEspPreviewCharConn = nil, nil
+    _G.__saAtlantaBlur, _G.__saManipPopup = nil, nil
+    _G.__saPlayerWarning = nil
     pcall(function() if SA.EspFontRegistryReset then SA.EspFontRegistryReset() end end)
-    return true
+
+    local report = {
+        trigger = trigger,
+        visuals = SA.VisualState and SA.VisualState() or {},
+        connections = SA.ConnectionState and SA.ConnectionState() or {},
+        at = tick(),
+    }
+    SA.LastUnload = report
+    _G.__saLastUnload = report
+    return true, report
 end
 
 -- ── MISC : Profile / System UI ────────────────────────────────────
@@ -599,7 +644,7 @@ end)
 
 
 addButton(sysSec, "Unload Everything (FULL)", function()
-    SA.FullUnload()
+    SA.FullUnload("Unload Everything (FULL)")
 end)
 
 -- ── Initialisation (from the Atlanta template) ─────────────────────

@@ -54,10 +54,10 @@ end
 
 if not _G.__saNpcEvents then
     _G.__saNpcEvents = true
-    ws.DescendantAdded:Connect(function(d)
+    SA.Connect(ws.DescendantAdded, function(d)
         if NPC_NAMES[d.Name] then SA.RequestScan() end
     end)
-    ws.DescendantRemoving:Connect(function(d)
+    SA.Connect(ws.DescendantRemoving, function(d)
         if NPC_NAMES[d.Name] then SA.RequestScan() end
     end)
 end
@@ -270,7 +270,7 @@ end
 local function saNearestAttachDrag()
     if not saNearest.header then return end
     pcall(function()
-        saNearest.dragBegan = saNearest.header.InputBegan:Connect(function(input)
+        saNearest.dragBegan = SA.Connect(saNearest.header.InputBegan, function(input)
             if not saNearestDragInput(input) then return end
             local x, y = saNearestInputPoint(input)
             saNearest.dragging = true
@@ -280,7 +280,7 @@ local function saNearestAttachDrag()
         end)
     end)
     pcall(function()
-        saNearest.dragChanged = UserInputService.InputChanged:Connect(function(input)
+        saNearest.dragChanged = SA.Connect(UserInputService.InputChanged, function(input)
             if not saNearest.dragging or not input then return end
             if input.UserInputType ~= Enum.UserInputType.MouseMovement
                 and input.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -296,7 +296,7 @@ local function saNearestAttachDrag()
         end)
     end)
     pcall(function()
-        saNearest.dragEnded = UserInputService.InputEnded:Connect(function(input)
+        saNearest.dragEnded = SA.Connect(UserInputService.InputEnded, function(input)
             if saNearestDragInput(input) then saNearest.dragging = false end
         end)
     end)

@@ -30,6 +30,7 @@ local function buildNpc(model)
     clearNpc(model)
 
     local bb = Instance.new("BillboardGui")
+    bb.Name = "HanamiNpcGui"
     bb.Size = UDim2.fromOffset(220, 56)
     bb.StudsOffset = Vector3.new(0, 2.5, 0)
     bb.AlwaysOnTop = true
@@ -67,6 +68,7 @@ local function buildNpc(model)
     infoLbl.Parent = bb
 
     local hl = Instance.new("Highlight")
+    hl.Name = "HanamiNpcHighlight"
     hl.Adornee = model
     hl.FillTransparency = 0.35
     hl.OutlineTransparency = 1
@@ -100,12 +102,12 @@ local function disableNpcESP()
     for _, m in ipairs(snap) do clearNpc(m) end
 end
 
-Workspace.DescendantAdded:Connect(function(d)
+SA.Connect(Workspace.DescendantAdded, function(d)
     if CFG.npcEspEnabled and d:IsA("Model") and isNpc(d) then
         task.wait(0.1)
         if d.Parent then buildNpc(d) end
     end
 end)
-Workspace.DescendantRemoving:Connect(function(d)
+SA.Connect(Workspace.DescendantRemoving, function(d)
     if npcObjects[d] then clearNpc(d) end
 end)

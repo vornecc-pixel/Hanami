@@ -1465,6 +1465,16 @@ local function widget(extra)
     return setmetatable(extra or {}, { __index = library })
 end
 
+function library:button(opts)
+    opts = opts or {}
+    local cfg = widget({
+        name = opts.name or opts.text or "Button",
+        callback = wrap_callback(opts.callback or function() end),
+    })
+    library.buttons[cfg.name] = cfg.callback
+    return cfg
+end
+
 -- Mock Atlanta's chained colourpicker. Record the owning widget so the
 -- harness can prove every picker is INLINE on its own control row.
 function library:colorpicker(opts)
@@ -1569,10 +1579,7 @@ local function make_section(name)
         return widget({ holder = self.current_holder })
     end
     function sec:button(opts)
-        local cfg = widget({ name = opts.name or "Button",
-                             callback = wrap_callback(opts.callback or function() end) })
-        library.buttons[cfg.name] = cfg.callback
-        return cfg
+        return library.button(self, opts)
     end
     function sec:list(opts)
         return widget({ flag = opts.flag, refresh_options = function() end })
@@ -1614,6 +1621,10 @@ local function libraryWindow(self, opts)
         Name = "HanamiWindow", Parent = CoreGui, Enabled = true,
         DisplayOrder = 100,
     })
+    library:create("BlurEffect", {
+        Name = "HanamiAtlantaBlur", Parent = game:GetService("Lighting"),
+        Enabled = true, Size = 15,
+    })
     local panel = library:create("Frame", {
         Name = "MainPanel", Parent = win.sgui,
         Size = UDim2.new(0, 750, 0, 782), Position = UDim2.new(0, 20, 0, 20),
@@ -1632,6 +1643,26 @@ local function libraryWindow(self, opts)
     end
     function win:tab(opts) return make_tab(opts.name or "Tab") end
     library.window = win   -- MUST exist before the built-in UI Bind
+    -- Atlanta's Configurations -> Options -> "Unload Menu" button. Hanami
+    -- wraps this callback so both unload paths call SA.FullUnload().
+    library.button(win, {
+        name = "Unload Menu",
+        callback = function()
+            if library.old_config ~= nil then
+                pcall(function() library:load_config(library.old_config) end)
+            end
+            for _, g in ipairs(library.guis) do
+                pcall(function() g:Destroy() end)
+            end
+            for _, c in ipairs(library.connections) do
+                pcall(function() c:Disconnect() end)
+            end
+            if _G.__saAtlantaBlur then
+                pcall(function() _G.__saAtlantaBlur:Destroy() end)
+            end
+            win.opened = false
+        end,
+    })
     -- Atlanta's unnamed Insert UI Bind. Hanami rewrites it to RightShift.
     self:keybind({ callback = win.set_menu_visibility, key = Enum.KeyCode.Insert })
     return win

@@ -31,6 +31,7 @@ SA.Alive  = true              -- set false by "Unload Everything" to stop scanne
 -- and any self-check report from the previous generation.
 SA.Unloaded = false
 SA.LastSelfCheck = nil
+SA.LastUnload = nil
 -- Luau keeps math.atan2(y, x); standard Lua 5.3 (and Fengari) removed it
 -- in favour of the two-argument math.atan(y, x). One shared alias keeps
 -- the GUI drawing fallback working in both runtimes.
@@ -42,6 +43,47 @@ SA.STUDS_PER_METER = 3.571
 -- the new chunk starts exactly one replacement loop.
 SA.Generation = (SA.Generation or 0) + 1
 
+-- Direct service / RenderStepped connections are NOT in Atlanta's
+-- library.connections, so the library's "Unload Menu" never stopped them.
+-- Keep a generation-scoped registry and disconnect it on re-execute AND
+-- on either full-unload path below.
+local saConns = _G.__saConnections or {}
+_G.__saConnections = saConns
+SA.TrackedConnections = saConns
+local saDisconnected = 0
+
+function SA.TrackConnection(conn)
+    if conn ~= nil then saConns[#saConns + 1] = conn end
+    return conn
+end
+
+function SA.Connect(signal, fn)
+    local ok, conn = pcall(function() return signal:Connect(fn) end)
+    if not ok then return nil end
+    return SA.TrackConnection(conn)
+end
+
+function SA.DisconnectConnections()
+    local n = 0
+    for i = #saConns, 1, -1 do
+        local c = saConns[i]
+        saConns[i] = nil
+        if c then
+            pcall(function() c:Disconnect() end)
+            n = n + 1
+        end
+    end
+    saDisconnected = saDisconnected + n
+    return n
+end
+
+function SA.ConnectionState()
+    return { tracked = #saConns, disconnected = saDisconnected }
+end
+
+-- A loader re-execute replaces every direct event hook instead of stacking it.
+SA.DisconnectConnections()
+
 -- Every RenderStepped loop binds through this helper. Re-executing the
 -- loader bumps Generation, so loops from the previous run disconnect
 -- themselves instead of piling up duplicate work (a common cause of a
@@ -49,7 +91,7 @@ SA.Generation = (SA.Generation or 0) + 1
 local function bindRender(fn)
     local gen = SA.Generation
     local conn
-    conn = RunService.RenderStepped:Connect(function(...)
+    conn = SA.Connect(RunService.RenderStepped, function(...)
         if (SA.Generation or 0) ~= gen then
             pcall(function() conn:Disconnect() end)
             return

@@ -513,11 +513,11 @@ function GMP.probeSet(enabled)
     GMP.probeSwitchTrial()
     if GMP.probe.enabled and GMP.master() then
         pcall(function()
-            GMP.probe.connection = Workspace.DescendantAdded:Connect(
+            GMP.probe.connection = SA.Connect(Workspace.DescendantAdded,
                 GMP.probeInspect)
         end)
         pcall(function()
-            GMP.probe.inputConnection = UserInputService.InputBegan:Connect(
+            GMP.probe.inputConnection = SA.Connect(UserInputService.InputBegan,
                 function(input)
                     local kind = input and (input.UserInputType or input.KeyCode)
                     if kind and tostring(kind):find("MouseButton1", 1, true) then

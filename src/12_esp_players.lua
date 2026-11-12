@@ -24,6 +24,10 @@ local espObjects = _G.__saEspObjects or {}
 _G.__saEspObjects = espObjects
 
 local function removeDrawing(d)
+    if SA.DrawRemove then
+        SA.DrawRemove(d)
+        return
+    end
     if (typeof(d) == "userdata" or type(d) == "table") and d.Remove then
         pcall(d.Remove, d)
     end

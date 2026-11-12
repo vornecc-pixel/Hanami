@@ -185,7 +185,7 @@ _G.__saPlayerCharHooks = charHooks
 local function hookPlayer(p)
     if p == lp or charHooks[p] then return end
     local ok, conn = pcall(function()
-        return p.CharacterAdded:Connect(function()
+        return SA.Connect(p.CharacterAdded, function()
             -- No fixed delay: just drop the stale object. The render loop
             -- rebuilds as soon as the new character has usable parts.
             if SA.Alive and CFG.espEnabled then clearESP(p) end
@@ -199,8 +199,8 @@ for _, p in ipairs(Players:GetPlayers()) do hookPlayer(p) end
 -- Replace (do not stack) the service-level connections on re-execute.
 if _G.__saPlayerAddedConn then pcall(function() _G.__saPlayerAddedConn:Disconnect() end) end
 if _G.__saPlayerRemovingConn then pcall(function() _G.__saPlayerRemovingConn:Disconnect() end) end
-_G.__saPlayerAddedConn = Players.PlayerAdded:Connect(hookPlayer)
-_G.__saPlayerRemovingConn = Players.PlayerRemoving:Connect(function(p)
+_G.__saPlayerAddedConn = SA.Connect(Players.PlayerAdded, hookPlayer)
+_G.__saPlayerRemovingConn = SA.Connect(Players.PlayerRemoving, function(p)
     clearESP(p)
     charHooks[p] = nil
 end)

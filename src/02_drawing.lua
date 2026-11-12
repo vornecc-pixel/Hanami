@@ -31,6 +31,52 @@ local proxyCount    = 0
 local drawLastError = "none"
 local drawWriteFailures, drawLastWriteError = 0, "none"
 
+-- Strong-keyed registry of EVERY live native Drawing / ScreenGui proxy.
+-- Atlanta's "Unload Menu" only destroys library.guis and disconnects
+-- library.connections; it never sees these objects. SA.DrawDisposeAll()
+-- removes them (including hidden performance-pool objects) in one pass.
+local drawRegistry = {}
+local drawRegistryCreated, drawRegistryDisposed = 0, 0
+
+local function saRememberDraw(d)
+    if d ~= nil and drawRegistry[d] == nil then
+        drawRegistry[d] = true
+        drawRegistryCreated = drawRegistryCreated + 1
+    end
+    return d
+end
+
+function SA.DrawForget(d)
+    if d ~= nil and drawRegistry[d] ~= nil then
+        drawRegistry[d] = nil
+        drawRegistryDisposed = drawRegistryDisposed + 1
+    end
+end
+
+function SA.DrawRemove(d)
+    if d == nil then return false end
+    pcall(function() d.Visible = false end)
+    pcall(function() if d.Remove then d:Remove() end end)
+    SA.DrawForget(d)
+    return true
+end
+
+function SA.DrawState()
+    local live, visible = 0, 0
+    for d in pairs(drawRegistry) do
+        live = live + 1
+        local isVisible = false
+        pcall(function() isVisible = d.Visible == true end)
+        if isVisible then visible = visible + 1 end
+    end
+    local pool = SA.DrawPoolStats and SA.DrawPoolStats().total or 0
+    return {
+        live = live, visible = visible, pool = pool,
+        created = drawRegistryCreated, disposed = drawRegistryDisposed,
+        overlay = drawGui ~= nil and drawGui.Parent ~= nil,
+    }
+end
+
 -- Per-frame GUI sync batching. Setting 10 properties on one proxy used to
 -- call sync() 10 times, and each sync rewrote every TextLabel / Frame
 -- property. ESP styling touches hundreds of those every frame. Property
@@ -563,16 +609,16 @@ end
 
 function SA.RecycleDraw(d)
     if CFG.perfMode ~= true or type(d) ~= "table" then
-        pcall(removeDrawing, d)
+        SA.DrawRemove(d)
         return false
     end
     local kind = d.__saPoolKind
-    if not kind then pcall(removeDrawing, d); return false end
+    if not kind then SA.DrawRemove(d); return false end
     pcall(function() d.Visible = false end)
     flushDrawProxy(d)
     local bucket = SA.DrawPool[kind] or {}
     if #bucket >= DRAW_POOL_CAP then
-        pcall(removeDrawing, d)
+        SA.DrawRemove(d)
         return false
     end
     bucket[#bucket + 1] = d
@@ -595,14 +641,14 @@ function SA.NewDraw(kind)
     -- Text is GUI-only (see textDraw above); never probe a native Text
     -- object, because its font enum cannot express Tahoma.
     if kind == "Text" then
-        return textDraw() or noopDraw()
+        return saRememberDraw(textDraw() or noopDraw())
     end
     local guiFirst = (CFG and CFG.forceGuiDrawing) == true or nativeOK[kind] == false
 
     -- Preferred backend: ScreenGui (forced, or native already proven bad).
     if guiFirst then
         local g = fallbackDraw(kind)
-        if g then return g end
+        if g then return saRememberDraw(g) end
         -- No GUI parent exists on this executor at all -> try native below
         -- instead of returning a dead no-op object.
     end
@@ -612,16 +658,16 @@ function SA.NewDraw(kind)
     -- disappear on an executor that only supports Drawing.
     if nativeAvailable(kind, guiFirst) then
         local ok, obj = pcall(function() return Drawing.new(kind) end)
-        if ok and obj then return obj end
+        if ok and obj then return saRememberDraw(obj) end
         nativeOK[kind] = false
         drawLastError = "Drawing.new(" .. kind .. ") failed at runtime"
     end
 
     if not guiFirst then
         local g = fallbackDraw(kind)
-        if g then return g end
+        if g then return saRememberDraw(g) end
     end
-    return noopDraw()
+    return saRememberDraw(noopDraw())
 end
 
 -- Called when a native object's property write fails at runtime: force
@@ -671,3 +717,6 @@ function SA.DrawDiag()
         "last=" .. drawLastError,
     }, " | ")
 end
+
+-- The complete unload sweep lives in the low-register 06 part so this
+-- drawing factory stays under Luau's conservative per-part register budget.

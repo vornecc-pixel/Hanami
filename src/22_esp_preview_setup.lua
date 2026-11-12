@@ -250,7 +250,7 @@ if pvSec and pvSec.holder then
     -- Rebuild the model after every respawn (the old Atlanta preview
     -- died here because it assumed a live character + Animate script).
     pcall(function()
-        _G.__saEspPreviewCharConn = lp.CharacterAdded:Connect(function()
+        _G.__saEspPreviewCharConn = SA.Connect(lp.CharacterAdded, function()
             task.spawn(function()
                 task.wait(0.6)
                 if SA.Alive and CFG.espPreview then SA.EspPreviewRefresh() end

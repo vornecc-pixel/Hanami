@@ -58,6 +58,18 @@ local function hideSnap()
     clearSnapTarget()
 end
 
+function SA.SnaplineDispose()
+    local n = 0
+    local function one(d)
+        if d then SA.DrawRemove(d); n = n + 1 end
+    end
+    one(snapLine); one(snapDot); one(leadLine); one(leadDot)
+    snapLine, snapDot, leadLine, leadDot = nil, nil, nil, nil
+    CFG.snapLineEnabled = false
+    clearSnapTarget()
+    return n
+end
+
 local function snapOrigin()
     -- The snapline ALWAYS starts at the same mouse / crosshair reference
     -- point as the FOV circle. Legacy Center / Bottom origins are gone.
