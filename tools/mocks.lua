@@ -1177,6 +1177,21 @@ farPlayer.Parent = Players
 MOCK_TEAM_RED = { Name = "Red" }
 MOCK_TEAM_BLUE = { Name = "Blue" }
 
+-- Optional staff / admin surfaces for the read-only detector tests. These
+-- are ordinary replicated properties, set only by a test, then cleared by
+-- mock_staff_reset() so the rest of the suite sees plain players.
+MOCK_STAFF_MODEL = nil
+function mock_staff_reset()
+    for _, plr in ipairs({ otherPlayer, farPlayer }) do
+        for _, key in ipairs({ "AdminESP", "AdminRole", "AdminGod", "FustTester",
+                               "AdminMovedAt", "StaffRank", "GroupRank" }) do
+            plr:SetAttribute(key, nil)
+        end
+        plr.Team = nil
+    end
+    MOCK_STAFF_MODEL = nil
+end
+
 -- One R15-style hat accessory whose Handle must be silenced + restored.
 MOCK_HITBOX_ACCESSORY = Instance.new("Accessory")
 MOCK_HITBOX_ACCESSORY.Name = "Hat"

@@ -198,6 +198,7 @@ local newKeys = {
     "gunInfiniteAmmo", "gunMoveShoot",
     "displayBrightnessEnabled", "displayBrightness",
     "uiTheme", "uiFont",
+    "espStaffDetect", "unknownHumanoidScan",
 }
 for _, key in ipairs(newKeys) do
     ok(CFG[key] ~= nil, "missing CFG." .. key)
@@ -254,9 +255,9 @@ do
             "inline picker owner: " .. colorKey)
         pickerCount = pickerCount + 1
     end
-    eq(pickerCount, 48, "48 inline colourpickers")
-    eq(count(SA.INLINE_COLOR_OWNER), 48, "one owner per colourpicker")
-    eq(count(library.__saInlinePickers), 48, "no separate colour section")
+    eq(pickerCount, 50, "50 inline colourpickers")
+    eq(count(SA.INLINE_COLOR_OWNER), 50, "one owner per colourpicker")
+    eq(count(library.__saInlinePickers), 50, "no separate colour section")
 
     -- 9 additional full Atlanta presets (10 total) and 10 font picks.
     ok(#SA.UI_THEME_NAMES >= 9, "9+ named theme presets")
@@ -479,7 +480,7 @@ for _, name in ipairs(SA.ListProfiles()) do
 end
 ok(profileFound == false, "deleted profile gone from list")
 ok(type(SA.ListProfiles()) == "table", "profile list state")
-contains(rtDetail, "48 colours", "colour round-trip detail")
+contains(rtDetail, "50 colours", "colour round-trip detail")
 
 -- Save / Load / Export / Import must preserve the exact inline picker
 -- colours even on library builds that omit hn_col_* from get_config().
@@ -493,7 +494,7 @@ function saColorProfileRegression()
     near(ESP_COLORS[key].R * 255, 12, 0.6, "custom picker colour applied")
     local saved, saveErr = SA.SaveProfile("Colour Probe")
     ok(saved == true, "save colour profile: " .. tostring(saveErr))
-    eq(SA.LastConfigResult.colors, 48, "save reports all 48 colours")
+    eq(SA.LastConfigResult.colors, 50, "save reports all 50 colours")
     local data = readfile(SA.ProfileDir .. "/Colour_Probe.cfg")
     local decoded = http_service:JSONDecode(data)
     ok(type(decoded.__saEspColors) == "table",
@@ -507,7 +508,7 @@ function saColorProfileRegression()
         "picker colour reset before load")
     local loaded, loadErr = SA.LoadProfile("Colour_Probe")
     ok(loaded == true, "load colour profile: " .. tostring(loadErr))
-    eq(SA.LastConfigResult.colors, 48, "load restores all 48 colours")
+    eq(SA.LastConfigResult.colors, 50, "load restores all 50 colours")
     near(ESP_COLORS[key].R * 255, 12, 0.6,
         "saved colour restored after load")
     near(library.flags[flag].Color.R * 255, 12, 0.6,
@@ -2808,6 +2809,10 @@ local keptStateAPIs = {
     "ApplyBestEsp", "ApplyCleanEsp", "BestEspState", "HideEspBillboard",
     "GetWeaponStatus", "EspHideDuplicateOverlays", "EspDuplicateCleanupState",
     "NearestWindowResetPosition",
+    "GetStaffRole", "StaffDetectState", "UnknownHumanoidKind",
+    "UnknownHumanoidEvidence", "UnknownHumanoidState",
+    "UnknownHumanoidListRaw", "ScanStep", "ScanPassNow",
+    "DetectorReadoutTick",
     "Connect", "TrackConnection", "DisconnectConnections", "ConnectionState",
     "DrawForget", "DrawRemove", "DrawState", "DrawDisposeAll",
     "DisposeHanamiGuis", "HanamiGuiState", "VisualState",
@@ -3089,6 +3094,213 @@ window.set_menu_visibility(true)
 MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
 mock_gun_reset()
 
+-- ── READ-ONLY DETECTORS: staff / admin ESP tag + unknown humanoids ────
+-- Both detectors only READ replicated properties: no attribute writes, no
+-- warnings / notifications, no aim or gun exclusion. OFF by default. The
+-- mock cannot stand in for a live Roblox server, so this is a harness check.
+function saDetectorRegression()
+    eq(SA.CFG_DEFAULTS.espStaffDetect, false, "staff detector ships OFF")
+    eq(SA.CFG_DEFAULTS.unknownHumanoidScan, false,
+        "unknown-humanoid detector ships OFF")
+
+    local plrs = Players:GetPlayers()
+    local otherPlr, farPlr = plrs[2], plrs[3]
+    mock_staff_reset()
+
+    -- Reading a plain player reports NONE and writes nothing.
+    local before = {}
+    for key, value in pairs(otherPlr:GetAttributes()) do before[key] = value end
+    local none = SA.GetStaffRole(otherPlr, otherPlr.Character)
+    eq(none.role, "NONE", "plain player is not staff")
+    eq(none.staff, false, "plain player staff flag OFF")
+    eq(none.adminFlag, nil, "plain player has no AdminESP flag")
+    local after = otherPlr:GetAttributes()
+    for key in pairs(after) do
+        eq(before[key], after[key], "staff read wrote attribute " .. key)
+    end
+    eq(after.AdminESP, nil, "staff read never creates AdminESP")
+
+    -- Every supported source, one at a time.
+    local cases = {
+        { attr = "FustTester",  value = true,       role = "STAFF" },
+        { attr = "AdminESP",   value = true,       role = "STAFF" },
+        { attr = "AdminMovedAt", value = 12,       role = "STAFF" },
+        { attr = "StaffPvP",   value = true,       role = "STAFF" },
+        { attr = "AdminRole",  value = "admin",    role = "ADMIN" },
+        { attr = "AdminGod",   value = true,       role = "ADMIN" },
+        { attr = "StaffRank",  value = "Moderator", role = "STAFF" },
+        { attr = "GroupRank",  value = "Administrator", role = "ADMIN" },
+    }
+    for _, case in ipairs(cases) do
+        otherPlr:SetAttribute(case.attr, case.value)
+        local info = SA.GetStaffRole(otherPlr, otherPlr.Character)
+        eq(info.role, case.role, case.attr .. " role")
+        eq(info.reason ~= nil, true, case.attr .. " reason recorded")
+        otherPlr:SetAttribute(case.attr, nil)
+    end
+    otherPlr:SetAttribute("AdminESP", true)
+    eq(SA.GetStaffRole(otherPlr).adminFlag, "AdminESP",
+        "AdminESP reported as its own flag")
+    otherPlr:SetAttribute("AdminESP", nil)
+
+    -- Team names: ordinary team NONE, staff team STAFF, admin team ADMIN.
+    otherPlr.Team = MOCK_TEAM_RED
+    eq(SA.GetStaffRole(otherPlr).role, "NONE", "normal team is not staff")
+    otherPlr.Team = { Name = "Staff" }
+    eq(SA.GetStaffRole(otherPlr).role, "STAFF", "staff team is STAFF")
+    otherPlr.Team = { Name = "Admin" }
+    eq(SA.GetStaffRole(otherPlr).role, "ADMIN", "admin team is ADMIN")
+    otherPlr.Team = nil
+
+    -- A character-side attribute is only a fallback host.
+    farPlr.Character:SetAttribute("AdminESP", true)
+    eq(SA.GetStaffRole(farPlr, farPlr.Character).role, "STAFF",
+        "character attribute fallback read")
+    farPlr.Character:SetAttribute("AdminESP", nil)
+
+    -- Snapshot counts other players only.
+    local empty = SA.StaffDetectState()
+    eq(empty.staff, 0, "clean server has no staff")
+    ok(empty.players >= 2, "staff snapshot counts other players")
+    otherPlr:SetAttribute("AdminGod", true)
+    local snap = SA.StaffDetectState()
+    eq(snap.staff, 1, "snapshot finds one staff member")
+    eq(snap.admins, 1, "AdminGod is an admin")
+    eq(snap.adminNames[1], otherPlr.Name, "admin snapshot name")
+    mock_staff_reset()
+
+    -- Aim / gun state must be untouched by either detector.
+    local aimBefore = SA.Target and SA.Target.model or nil
+    local npcBefore = CFG.targetNpcs
+    otherPlr:SetAttribute("AdminGod", true)
+    SA.StaffDetectState()
+    SA.UnknownHumanoidState()
+    SA.GetStaffRole(otherPlr, otherPlr.Character)
+    eq(SA.Target and SA.Target.model or nil, aimBefore,
+        "detectors never retarget aim")
+    eq(CFG.targetNpcs, npcBefore, "detectors never change gun targeting")
+    mock_staff_reset()
+
+    -- ESP tag text: hidden while OFF, then NONE / STAFF / ADMIN + ADMINESP.
+    quiet(function() window.set_menu_visibility(true) end)
+    local saved = {}
+    for _, key in ipairs({ "espEnabled", "espShowName", "espMaxDist",
+                           "espOnlyNearest", "espOnlyAimTarget",
+                           "espVisibleCheck", "espDataRefreshMs",
+                           "espStaffDetect" }) do
+        saved[key] = CFG[key]
+    end
+    CFG.espEnabled = true
+    CFG.espShowName = true
+    CFG.espMaxDist = 5000
+    CFG.espOnlyNearest = false
+    CFG.espOnlyAimTarget = false
+    CFG.espVisibleCheck = false
+    CFG.espDataRefreshMs = 16
+    CFG.espStaffDetect = false
+    frameTimes(12)
+    local function tagText(model)
+        for _, obj in pairs(espObjects) do
+            if obj.char == model then
+                local out = {}
+                for _, tag in ipairs(obj.tx and obj.tx.tags or {}) do
+                    out[#out + 1] = tostring(tag.text)
+                end
+                return table.concat(out, "|")
+            end
+        end
+        return nil
+    end
+    local offText = tagText(otherPlr.Character)
+    ok(offText ~= nil, "player ESP object exists for the tag regression")
+    ok(not offText:find("NONE", 1, true),
+        "staff tag hidden while the detector is OFF")
+    CFG.espStaffDetect = true
+    frameTimes(12)
+    contains(tagText(otherPlr.Character), "NONE",
+        "detector ON tags an ordinary player NONE")
+    otherPlr:SetAttribute("FustTester", true)
+    frameTimes(12)
+    contains(tagText(otherPlr.Character), "STAFF", "detector ON tag STAFF")
+    otherPlr:SetAttribute("AdminESP", true)
+    frameTimes(12)
+    contains(tagText(otherPlr.Character), "ADMINESP",
+        "AdminESP suffix on the role tag")
+    otherPlr:SetAttribute("AdminRole", "admin")
+    frameTimes(12)
+    contains(tagText(otherPlr.Character), "ADMIN", "detector ON tag ADMIN")
+    mock_staff_reset()
+
+    -- Both tag colours ship white with exactly one inline owner.
+    local palette = SA.EspColorSnapshot()
+    eq(palette.staffTag, "#FFFFFF", "staff tag colour ships white")
+    eq(palette.adminTag, "#FFFFFF", "admin tag colour ships white")
+    eq(SA.INLINE_COLOR_OWNER.staffTag, "espStaffDetect",
+        "staff tag colour inline owner")
+    eq(SA.INLINE_COLOR_OWNER.adminTag, "espStaffDetect",
+        "admin tag colour inline owner")
+    for _, key in ipairs({ "espEnabled", "espShowName", "espMaxDist",
+                           "espOnlyNearest", "espOnlyAimTarget",
+                           "espVisibleCheck", "espDataRefreshMs",
+                           "espStaffDetect" }) do
+        CFG[key] = saved[key]
+    end
+    frameTimes(2)
+
+    -- Unknown-humanoid registry: a hidden rig is UNKNOWN, real players and
+    -- known NPC classes are not, and nothing is excluded from aim.
+    local ghost = Instance.new("Model")
+    ghost.Name = "OddFigure"
+    ghost.Parent = workspace
+    local ghostPart = Instance.new("Part")
+    ghostPart.Name = "HumanoidRootPart"
+    ghostPart.Parent = ghost
+    local ghostHead = Instance.new("Part")
+    ghostHead.Name = "Head"
+    ghostHead.Parent = ghost
+    local ghostHum = Instance.new("Humanoid")
+    ghostHum.Parent = ghost
+    ghost:SetAttribute("Bait", true)
+
+    SA.ScanPassNow()
+    local raw = SA.UnknownHumanoidListRaw()
+    local listed = false
+    for _, m in ipairs(raw) do
+        if m == ghost then listed = true end
+        ok(m ~= otherPlr.Character, "player character is not UNKNOWN")
+    end
+    ok(listed, "unknown humanoid appears in the read-only registry")
+    local st = SA.UnknownHumanoidState()
+    eq(st.count, 1, "unknown humanoid count")
+    eq(st.names[1], "OddFigure", "unknown humanoid name")
+    eq(st.withEvidence, 1, "game-tagged evidence reported")
+    contains(st.evidence[1], "Bait", "evidence names the attribute")
+    eq(st.enabled, false, "unknown detector reports OFF by default")
+    CFG.unknownHumanoidScan = true
+    eq(SA.UnknownHumanoidState().enabled, true, "unknown detector reports ON")
+    CFG.unknownHumanoidScan = false
+    eq(SA.UnknownHumanoidKind(ghost), nil, "unmatched rig has no known class")
+    eq(SA.UnknownHumanoidKind(npcChar), nil, "known class never UNKNOWN")
+    eq(SA.UnknownHumanoidEvidence(ghost), "Bait", "evidence read is passive")
+    for _, m in ipairs(raw) do
+        ok(m ~= npcChar and m ~= npcChar2, "known NPC is not UNKNOWN")
+    end
+
+    -- Readout never prints, and a destroyed rig drops out of the list.
+    local savedPrint, savedWarn = print, warn
+    local consoleHits = 0
+    print = function() consoleHits = consoleHits + 1 end
+    warn = function() consoleHits = consoleHits + 1 end
+    local readoutOk = pcall(SA.DetectorReadoutTick)
+    print, warn = savedPrint, savedWarn
+    ok(readoutOk, "detector readout tick is safe")
+    eq(consoleHits, 0, "detectors write nothing to the console")
+    ghost:Destroy()
+    SA.ScanPassNow()
+    eq(SA.UnknownHumanoidState().count, 0, "destroyed unknown rig drops out")
+end
+saDetectorRegression()
+
 -- ── full unload / next-run preparation ──────────────────────────────
 if run == 1 then
     -- Prepare a real startup auto-load for the NEXT re-execute. The live
@@ -3205,6 +3417,7 @@ else
     eq(_G.__saPlayerRemovingConn, nil, "PlayerRemoving hook cleared")
     eq(_G.__saCrateEvents, nil, "crate hooks cleared")
     eq(_G.__saAtlantaBlur, nil, "Atlanta blur global cleared")
+    eq(_G.__saUnknownHumanoids, nil, "unknown-humanoid registry cleared")
     eq(count(SA.AllKeybinds), 0, "keybind registry cleared")
     eq(SA.PinnedTarget, nil, "pinned target cleared")
     ok(SA.FullUnload() == false, "unload is one-shot")

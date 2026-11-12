@@ -26,6 +26,9 @@ bindToggle(playerSec, "Show Weapon", "espShowTool",
     "Reads equipped Tool / ItemId / Weapon attributes")
 bindToggle(playerSec, "Show State", "espShowState",
     "Reads Knocked / Downed / Dead / State attributes, else HumanoidStateType")
+bindToggle(playerSec, "Staff / Admin Detector", "espStaffDetect",
+    "Read-only ESP tag: STAFF / ADMIN / NONE plus the AdminESP flag. No warnings, no attribute writes.")
+local saStaffLabel = playerSec:label({ name = "staff 0 · admins 0" })
 bindSlider(playerSec, "Max Distance (studs)", "espMaxDist", 200, 5000, 10, "")
 addButton(playerSec, "Rebuild Player ESP", function()
     local list = {}
@@ -240,11 +243,22 @@ bindToggle(declutterSec, "Show Live On-Screen Count", "espShowLiveCount")
 local saEspCountLabel = declutterSec:label({ name = "players 0 · npcs 0 · crates 0" })
 
 local saEspCountLast = 0
+local saStaffLast = 0
 bindRender(function()
     if not SA.Alive then return end
     local now = tick()
     if now - saEspCountLast < 0.2 then return end
     saEspCountLast = now
+    -- Staff detector readout: one live read of the replicated role data.
+    if now - saStaffLast >= 1 then
+        saStaffLast = now
+        pcall(function()
+            local st = SA.StaffDetectState()
+            saStaffLabel.set(string.format("staff %d · admins %d  (of %d players)",
+                st.staff, st.admins, st.players))
+        end)
+        if SA.DetectorReadoutTick then pcall(SA.DetectorReadoutTick) end
+    end
     pcall(function()
         local v = SA.EspPassStats()
         if CFG.espShowLiveCount then

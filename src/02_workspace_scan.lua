@@ -97,6 +97,26 @@ end
 function SA.ScanNow() beginPass() end
 function SA.WorkspacePass() return scanPass end
 
+-- Deterministic single step of the shared walker. The long-lived task
+-- yields between steps; the committed Fengari harness cannot yield, so it
+-- drives passes through this instead. Returns true while work remains.
+function SA.ScanStep()
+    if not scanning then return false end
+    local ok, more = pcall(stepPass)
+    if not (ok and more) then finishPass(); return false end
+    return true
+end
+
+-- Drive one whole pass to completion (bounded), for toggles / tests that
+-- need a fresh registry immediately. Never used on the render thread.
+function SA.ScanPassNow()
+    beginPass()
+    for _ = 1, 4096 do
+        if not SA.ScanStep() then break end
+    end
+    return SA.WorkspacePass()
+end
+
 -- One long-lived task per script generation. Stale generations exit so
 -- re-executing the loader does not leave two walkers running.
 task.spawn(function()

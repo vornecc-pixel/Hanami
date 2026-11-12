@@ -156,6 +156,211 @@ function SA.ScanEntity(model, hum)
     return info
 end
 
+-- ────────────────────────────────────────────────────────────────────
+-- STAFF / ADMIN ROLE TAG (read-only)
+-- Two public sources, both replicated to the client:
+--   1. Fust StaffState player attributes (the StaffState.KEYS list) and
+--      the AdminMovedAt heuristic.
+--   2. Public rank text: team name plus ordinary replicated attributes.
+-- This classifier only READS them for an ESP tag. It never warns, never
+-- notifies, never writes an attribute and never changes aim / gun / world
+-- state. Missing data simply means "no evidence" for that source.
+-- ────────────────────────────────────────────────────────────────────
+local STAFF_ATTR_KEYS = {
+    "AdminRole", "AdminESP", "AdminFly", "AdminGhost", "AdminMasterOff",
+    "FustTester", "StaffPvP", "StaffPvPLockUntil", "StaffPvPExempt",
+    "AdminGod", "FustStaffAv",
+}
+-- Attributes that mean ADMIN on their own (AdminESP is only a flag).
+local ADMIN_ATTR_KEYS = {
+    AdminRole = true, AdminGod = true, AdminMasterOff = true,
+    AdminFly = true, AdminGhost = true,
+}
+local PUBLIC_RANK_KEYS = { "StaffRank", "GroupRank", "Rank", "Role", "TeamRole" }
+local STAFF_RANK_WORDS = {
+    "staff", "mod", "moderator", "admin", "administrator", "owner",
+    "developer", "manager", "tester", "supervisor",
+}
+local ADMIN_RANK_WORDS = { "admin", "administrator", "owner", "developer" }
+-- Only teams that literally say "admin" upgrade the tag to ADMIN; a
+-- "Staff" / "Moderator" team stays STAFF.
+local ADMIN_TEAM_NAMES = {
+    Admin = true, Admins = true, ["Admin Team"] = true,
+    Administrators = true,
+}
+
+local function staffWordHit(text, words)
+    local s = tostring(text or ""):lower()
+    if s == "" then return false end
+    for _, word in ipairs(words) do
+        if s:find(word, 1, true) then return true end
+    end
+    return false
+end
+
+local function staffPublicRank(plr)
+    local team = plr.Team
+    local teamName = team and team.Name or nil
+    if teamName and ADMIN_TEAM_NAMES[teamName] then
+        return "team " .. tostring(teamName), true
+    end
+    if staffWordHit(teamName, STAFF_RANK_WORDS) then
+        -- A team named exactly "Admin" is matched above; every other staff
+        -- word (Staff / Moderator / Tester) stays STAFF.
+        return "team " .. tostring(teamName), false
+    end
+    for _, key in ipairs(PUBLIC_RANK_KEYS) do
+        local ok, value = pcall(function() return plr:GetAttribute(key) end)
+        if ok and value ~= nil and value ~= false and value ~= "" then
+            local text = tostring(value)
+            if staffWordHit(text, STAFF_RANK_WORDS) then
+                return key .. "=" .. text, staffWordHit(text, ADMIN_RANK_WORDS)
+            end
+        end
+    end
+    return nil, false
+end
+
+-- Returns { staff, admin, role = "STAFF"/"ADMIN"/"NONE", reason, adminFlag }.
+-- `plr` is the Player instance (attributes replicate there); `model` is an
+-- optional fallback attribute host for games that mirror them on the rig.
+function SA.GetStaffRole(plr, model)
+    local out = { staff = false, admin = false, role = "NONE",
+        reason = nil, adminFlag = nil }
+    if not plr then return out end
+    local hosts = { plr }
+    if model then hosts[#hosts + 1] = model end
+    local attrHits, adminFlag = {}, nil
+    for _, host in ipairs(hosts) do
+        for _, key in ipairs(STAFF_ATTR_KEYS) do
+            local ok, value = pcall(function() return host:GetAttribute(key) end)
+            if ok and value ~= nil and value ~= false then
+                attrHits[#attrHits + 1] = key
+                if key == "AdminESP" and adminFlag == nil then adminFlag = key end
+            end
+        end
+    end
+    local moved = false
+    pcall(function() moved = plr:GetAttribute("AdminMovedAt") ~= nil end)
+    local rankReason, rankAdmin = staffPublicRank(plr)
+    local attrAdmin = false
+    for _, key in ipairs(attrHits) do
+        if ADMIN_ATTR_KEYS[key] then attrAdmin = true end
+    end
+    if #attrHits > 0 then
+        out.staff = true
+        out.reason = attrHits[1]
+    elseif moved then
+        out.staff = true
+        out.reason = "AdminMovedAt"
+    elseif rankReason then
+        out.staff = true
+        out.reason = rankReason
+    end
+    out.admin = out.staff and (attrAdmin or rankAdmin == true)
+    if out.admin then out.role = "ADMIN"
+    elseif out.staff then out.role = "STAFF" end
+    out.adminFlag = adminFlag
+    return out
+end
+
+-- Detector snapshot for the ESP tab / tests. It reads the live player list,
+-- so nothing the UI shows can go stale.
+function SA.StaffDetectState()
+    local out = { players = 0, staff = 0, admins = 0,
+        names = {}, adminNames = {} }
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= lp then
+            out.players = out.players + 1
+            local ok, info = pcall(SA.GetStaffRole, plr, plr.Character)
+            if ok and info and info.staff then
+                out.staff = out.staff + 1
+                out.names[#out.names + 1] = plr.Name
+                if info.admin then
+                    out.admins = out.admins + 1
+                    out.adminNames[#out.adminNames + 1] = plr.Name
+                end
+            end
+        end
+    end
+    return out
+end
+-- ────────────────────────────────────────────────────────────────────
+-- UNKNOWN HUMANOID DETECTOR (read-only, Misc)
+-- Every humanoid that is not a real player and not a known NPC class is
+-- reported as UNKNOWN — never labelled LiveBait, never excluded from aim,
+-- never warned about. The Bait / LiveBait attributes are only *reported*
+-- as extra evidence when the game has already replicated them; nothing is
+-- written and no behaviour depends on them.
+-- ────────────────────────────────────────────────────────────────────
+local KNOWN_NPC_PATTERNS = {
+    "Guard", "Scavenger", "Soldier", "Sleeper_", "Dino", "Raptor", "Rex",
+    "Boar", "Deer", "Bear", "Wolf", "Chicken", "Horse", "Stag", "Pig",
+    "Cow", "Sheep", "Zombie", "Bandit", "Raider", "Hostile",
+}
+local unknownList = _G.__saUnknownHumanoids or {}
+_G.__saUnknownHumanoids = unknownList
+
+-- A short class label for the report. Any unmatched humanoid is UNKNOWN.
+function SA.UnknownHumanoidKind(model)
+    if not model then return nil end
+    local name = tostring(model.Name or "")
+    for _, pat in ipairs(KNOWN_NPC_PATTERNS) do
+        if name:find(pat, 1, true) then return pat end
+    end
+    return nil
+end
+
+-- Read-only attribute evidence. Returns "Bait" / "LiveBait" / nil.
+function SA.UnknownHumanoidEvidence(model)
+    if not model then return nil end
+    for _, key in ipairs({ "Bait", "LiveBait" }) do
+        local ok, value = pcall(function() return model:GetAttribute(key) end)
+        if ok and value ~= nil and value ~= false then return key end
+    end
+    return nil
+end
+
+local function validUnknownHumanoid(d)
+    if not d or not d:IsA("Model") then return false end
+    if not d:FindFirstChildOfClass("Humanoid") then return false end
+    if not (d:FindFirstChild("Head") or d:FindFirstChild("HumanoidRootPart")) then
+        return false
+    end
+    if Players:GetPlayerFromCharacter(d) ~= nil then return false end
+    if SA.IsNpcModel and SA.IsNpcModel(d) then return false end
+    return SA.UnknownHumanoidKind(d) == nil
+end
+
+local function commitUnknownHumanoids(found)
+    for i = #unknownList, 1, -1 do unknownList[i] = nil end
+    for _, m in ipairs(found) do unknownList[#unknownList + 1] = m end
+end
+
+SA.RegisterScanHandler("unknownHumanoids", validUnknownHumanoid,
+    commitUnknownHumanoids)
+
+function SA.UnknownHumanoidListRaw() return unknownList end
+
+-- Snapshot for the Misc tab / tests. `withEvidence` counts the models the
+-- game itself already tagged (reported only, never acted on).
+function SA.UnknownHumanoidState()
+    local out = { count = 0, withEvidence = 0, names = {}, evidence = {},
+        enabled = CFG.unknownHumanoidScan == true }
+    for _, m in ipairs(unknownList) do
+        if m.Parent and m:FindFirstChildOfClass("Humanoid") then
+            out.count = out.count + 1
+            out.names[#out.names + 1] = tostring(m.Name)
+            local ev = SA.UnknownHumanoidEvidence(m)
+            if ev then
+                out.withEvidence = out.withEvidence + 1
+                out.evidence[#out.evidence + 1] = tostring(m.Name) .. " " .. ev
+            end
+        end
+    end
+    return out
+end
+
 -- Roster used by the scan buttons (all players + all discovered NPCs).
 function SA.Roster()
     local out = {}

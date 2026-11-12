@@ -464,6 +464,9 @@ local ESP_DEFAULT_COLORS = {
     fov                  = Color3.fromRGB(255, 255, 255),
     fovManip             = Color3.fromRGB(255, 255, 255),
     target               = Color3.fromRGB(255, 255, 255),
+    -- staff / admin ESP tag (read-only role detector)
+    staffTag             = Color3.fromRGB(255, 255, 255),
+    adminTag             = Color3.fromRGB(255, 255, 255),
 }
 local ESP_COLORS = _G.__saEspColors or {}
 for k, v in pairs(ESP_DEFAULT_COLORS) do
@@ -646,6 +649,9 @@ SA.INLINE_COLOR_BINDINGS = {
         { "Snap VIS", "snapVisible" }, { "Snap WALL", "snapHidden" },
     },
     snapShowLead = { { "Lead", "lead" } },
+    espStaffDetect = {
+        { "Staff tag", "staffTag" }, { "Admin tag", "adminTag" },
+    },
 }
 SA.INLINE_COLOR_OWNER = {}
 for controlKey, rows in pairs(SA.INLINE_COLOR_BINDINGS) do
@@ -828,6 +834,9 @@ local SA_CFG_SHIPPED = {
     -- Reports the nearest player, their distance in metres and held tool.
     nearestWindow    = false,
     showPlayerWarning = false,  -- crosshair warning when any player is within 100 m
+    -- READ-ONLY detectors (no warnings, no aim / gun changes, no writes).
+    espStaffDetect    = false,  -- ESP role tag: STAFF / ADMIN / NONE + AdminESP
+    unknownHumanoidScan = false,-- Misc: unknown humanoid count + name list
 
     -- V16.46-style gun mods (client-local named fields + visual probes)
     gmEnabled               = false,
@@ -988,6 +997,7 @@ for k, v in pairs({
     espPreview = false, espPreviewSpin = false, espPreviewSpeed = 25,
     espPreviewKind = "Player", espPreviewTarget = false,
     nearestWindow = false,
+    espStaffDetect = false, unknownHumanoidScan = false,
     npcUseTypeColors = false,
     gmEnabled = false,
     gunNoSpread = false, gunShotProbe = false,
@@ -1118,6 +1128,8 @@ CFG.espCleanMode      = CFG.espCleanMode == true
 CFG.manipNpcs         = CFG.manipNpcs == true
 CFG.crateFovAware     = CFG.crateFovAware == true
 CFG.showPlayerWarning = CFG.showPlayerWarning == true
+CFG.espStaffDetect    = CFG.espStaffDetect == true
+CFG.unknownHumanoidScan = CFG.unknownHumanoidScan == true
 CFG.forceHead         = CFG.forceHead == true
 CFG.triggerbot        = CFG.triggerbot == true
 CFG.autoFire          = CFG.autoFire == true

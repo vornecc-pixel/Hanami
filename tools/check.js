@@ -89,6 +89,10 @@ const requiredDist = [
   'SA.DrawDisposeAll', 'SA.DisposeHanamiGuis', 'SA.HanamiGuiState',
   'SA.VisualState', 'SA.FovDispose', 'SA.SnaplineDispose',
   'SA.FullUnloadState',
+  'SA.GetStaffRole', 'SA.StaffDetectState', 'SA.UnknownHumanoidKind',
+  'SA.UnknownHumanoidEvidence', 'SA.UnknownHumanoidState',
+  'SA.UnknownHumanoidListRaw', 'SA.ScanStep', 'SA.ScanPassNow',
+  'SA.DetectorReadoutTick',
   'SA.EspPassAllowed', 'SA.EspPassStats', 'SA.PerfEffectiveRebuildMs',
   'SA.PerfEffectiveEntityCap', 'SA.DrawPoolStats', 'SA.DrawWriteFailures',
   'SA.GunDiff', 'SA.ApplyGunOverrides', 'SA.SyncGunDefs',
@@ -184,8 +188,9 @@ const newKeys = [
   'gunInfiniteAmmo', 'gunMoveShoot',
   'displayBrightnessEnabled', 'displayBrightness',
   'uiTheme', 'uiFont',
+  'espStaffDetect', 'unknownHumanoidScan',
 ];
-assert(newKeys.length === 75, `expected 75 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 77, `expected 77 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -402,6 +407,7 @@ assert(read('src/25_ui_misc.lua').includes('function SA.FullUnload(reason)'),
 for (const needle of [
   'SA.DrawDisposeAll', 'SA.DisposeHanamiGuis', 'SA.DisconnectConnections',
   '_G.__saConnections, _G.__saDrawGui = nil, nil',
+  '_G.__saUnknownHumanoids = nil',
 ]) {
   assert(read('src/25_ui_misc.lua').includes(needle),
     `FullUnload missing ${needle}`);
@@ -409,6 +415,40 @@ for (const needle of [
 assert(read('tools/mocks.lua').includes('function library:button(opts)')
   && read('tools/mocks.lua').includes('name = "Unload Menu"'),
   'mock Atlanta built-in Unload Menu button missing');
+
+// The two detectors must stay read-only: no attribute writes, no
+// notification / console output, and no aim or gun exclusion path.
+const detectorsSource = read('src/04_entity_info.lua');
+assert(detectorsSource.includes('function SA.GetStaffRole(plr, model)'),
+  'src/04_entity_info.lua: staff / admin classifier missing');
+assert(detectorsSource.includes('function SA.StaffDetectState()'),
+  'src/04_entity_info.lua: staff detector snapshot missing');
+assert(detectorsSource.includes('function SA.UnknownHumanoidState()'),
+  'src/04_entity_info.lua: unknown-humanoid snapshot missing');
+assert(detectorsSource.includes(
+  'SA.RegisterScanHandler("unknownHumanoids"'),
+  'src/04_entity_info.lua: unknown-humanoid registry not on the shared walker');
+for (const banned of [
+  'SetAttribute', 'STAFF IN SERVER', '__fustSuiteNotify', 'LiveBait =',
+  'targets.Other', 'S.baitSuspects', 'AdminMovedAt =',
+  'GetDescendants', 'Heartbeat',
+]) {
+  assert(!detectorsSource.includes(banned),
+    `src/04_entity_info.lua detector writes / notifies / brute-forces: ${banned}`);
+}
+const espUiSource = read('src/22_ui_esp.lua');
+assert(espUiSource.includes('"Staff / Admin Detector"')
+  && espUiSource.includes('"espStaffDetect"'),
+  'ESP tab: staff / admin detector toggle missing');
+const miscUiSource = read('src/25_ui_misc.lua');
+assert(miscUiSource.includes('"Unknown Humanoid Detector"')
+  && miscUiSource.includes('"hn_unknownHumanoidScan"'),
+  'Misc tab: unknown-humanoid detector toggle missing');
+assert(read('src/13_esp_players_refresh.lua').includes('SA.GetStaffRole(plr, char)'),
+  'player ESP refresh does not read the staff role tag');
+assert(read('src/18_esp_fx_draw.lua').includes('espC("adminTag")')
+  && read('src/18_esp_fx_draw.lua').includes('espC("staffTag")'),
+  'staff / admin tag colour path missing');
 
 // Inline colour picks must survive native profile save / load / import.
 for (const needle of [
@@ -465,8 +505,8 @@ const palette = config.slice(
 );
 const colorArgs = Array.from(palette.matchAll(/Color3\.fromRGB\(([^)]*)\)/g),
   (m) => m[1].trim());
-assert(colorArgs.length === 48,
-  `expected 48 ESP palette colours, found ${colorArgs.length}`);
+assert(colorArgs.length === 50,
+  `expected 50 ESP palette colours, found ${colorArgs.length}`);
 assert(colorArgs.every((rgb) => rgb === '255, 255, 255'),
   'every customizable colour must default white');
 const bindings = config.slice(
@@ -476,8 +516,8 @@ const bindings = config.slice(
 const boundColors = Array.from(
   bindings.matchAll(/\{\s*"[^"]+"\s*,\s*"([A-Za-z0-9_]+)"\s*\}/g),
   (m) => m[1]);
-assert(boundColors.length === 48 && new Set(boundColors).size === 48,
-  'expected 48 unique inline colourpicker bindings');
+assert(boundColors.length === 50 && new Set(boundColors).size === 50,
+  'expected 50 unique inline colourpicker bindings');
 const espUi = read('src/22_ui_esp.lua');
 const aimingUi = read('src/21_ui_aiming.lua');
 assert(!/COLOR_GROUPS|colorCol|groupNames|lbl:colorpicker/.test(espUi),
@@ -544,7 +584,8 @@ for (const name of files) {
 }
 const requiredDescriptions = {
   'src/04_entity_info.lua': ['equipped', 'holstered', 'weapon status',
-    'tool child fallback', 'shared metres'],
+    'tool child fallback', 'shared metres', 'staff', 'admin',
+    'unknown humanoid'],
   'src/12_esp_players.lua': ['player esp', 'ghost billboardgui', 'purge',
     're-execution', 'registry-aware removal'],
   'src/01_config.lua': ['themes', 'fonts', 'white', 'startup off',
@@ -603,7 +644,7 @@ const requiredDescriptions = {
     'npc', 'hrp fallback', 'self-healing', 'restore'],
   'src/22_esp_preview.lua': ['real-model', 'side-by-side', 'clean'],
   'src/22_ui_esp.lua': ['declutter', 'live count', 'clean', 'crate fov',
-    'esp-only best startup',
+    'esp-only best startup', 'staff / admin detector',
     'inline', 'no colour mini-tabs'],
   'src/24_ui_visual.lua': ['fov reference', 'independent', 'thick snapline',
     'snapline size', 'theme', 'font', 'profile card', 'avatar', 'headshot',
@@ -612,6 +653,7 @@ const requiredDescriptions = {
     'npc', 'warning', 'fire assist', 'esp data', 'frame budget',
     'utilities'],
   'src/25_ui_misc.lua': ['theme', 'font', 'profile', 'colour profiles',
+    'detectors', 'unknown-humanoid', 'name line',
     'self-check', 'full unload', 'drag position', 'both unload paths',
     'full unload state', 'draw sweep', 'connection sweep',
     'npc manipulation', 'warning', 'fire assist', 'crate fov', 'force head',
@@ -629,6 +671,13 @@ const requiredDocs = [
   '## BETTER quality-of-life pass',
   'Native Atlanta config profiles',
   'Real full unload',
+  'Read-only staff / admin and unknown-humanoid detectors',
+  'Staff / Admin Detector',
+  'SA.GetStaffRole()',
+  'SA.StaffDetectState()',
+  'Unknown Humanoid Detector',
+  'SA.UnknownHumanoidState()',
+  'SA.UnknownHumanoidListRaw()',
   'both unload paths',
   'plain menu hide',
   'Unload Menu',
@@ -691,8 +740,8 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '5,710 assertions',
-  'all 75 new CFG keys',
+  '5,973 assertions',
+  'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
   '10 popular script-community font picks',

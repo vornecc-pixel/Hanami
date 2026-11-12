@@ -240,6 +240,10 @@ local function drawEntityInner(cam, o, opt)
             tagColor = opt.checkVisible and opt.visColor or tagColor
         elseif tag.kind == "state" and opt.typeColor and not CFG.espRainbow then
             tagColor = opt.typeColor
+        elseif tag.kind == "staff" then
+            -- Role tags always use their own inline picker: STAFF and ADMIN
+            -- stay distinguishable instead of inheriting the box colour.
+            tagColor = tag.admin and espC("adminTag") or espC("staffTag")
         end
         local side = CFG.espTagSide == true
         showText(o, "txTag" .. i, tag.text,

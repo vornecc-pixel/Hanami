@@ -100,6 +100,16 @@ local function refreshOnePlayer(plr, o, cam)
     if CFG.espShowHealthText then
         tags[#tags + 1] = { text = hpText, kind = "hp" }
     end
+    -- Read-only staff / admin role tag. "NONE" is shown for ordinary
+    -- players so the toggle answers "admin or not" for every slot; the
+    -- AdminESP suffix is the separate replicated flag. Nothing here warns,
+    -- notifies, writes an attribute or touches aim / gun state.
+    if CFG.espStaffDetect then
+        local role = SA.GetStaffRole(plr, char)
+        local text = role.role
+        if role.adminFlag then text = text .. " · ADMINESP" end
+        tags[#tags + 1] = { text = text, kind = "staff", admin = role.admin == true }
+    end
     o.tx = {
         name   = CFG.espShowName and plr.Name or nil,
         dist   = CFG.espShowDist and string.format("%dm", math.floor(dist / (SA.STUDS_PER_METER or 3.571))) or nil,

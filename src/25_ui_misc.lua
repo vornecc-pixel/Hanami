@@ -63,6 +63,50 @@ addButton(actSec, "Reset ESP Colours", function()
     end
 end)
 
+-- ── MISC : Detectors (read-only) ───────────────────────────────────
+-- The staff / admin side lives in ESP → Player ESP. This section reports
+-- the OTHER half: humanoids that are neither a real player nor a known NPC
+-- class. They are labelled UNKNOWN only — never "LiveBait", never removed
+-- from silent aim, never warned about. If the game has already replicated
+-- a Bait / LiveBait attribute, it is shown as evidence and nothing else.
+local unknownSec = actCol:section({ name = "Detectors (read-only)" })
+local unknownToggle = unknownSec:toggle({
+    name = "Unknown Humanoid Detector", flag = "hn_unknownHumanoidScan",
+    enabled = CFG.unknownHumanoidScan, default = CFG.unknownHumanoidScan,
+    tooltip = "Read-only count + names of non-player, non-known-NPC humanoids. No warnings, no aim changes.",
+    callback = function(v)
+        CFG.unknownHumanoidScan = v == true
+        if v then
+            SA.RequestScan()
+        else
+            local raw = SA.UnknownHumanoidListRaw()
+            for i = #raw, 1, -1 do raw[i] = nil end
+        end
+    end,
+})
+library.config_flags["hn_unknownHumanoidScan"] = function(v)
+    setToggle(unknownToggle, v)
+end
+local unknownStatus = unknownSec:label({ name = "unknown humanoids 0" })
+local unknownNames = unknownSec:label({ name = "detector OFF" })
+addButton(unknownSec, "Rescan Unknown Humanoids", function()
+    SA.RequestScan()
+end)
+
+function SA.DetectorReadoutTick()
+    local st = SA.UnknownHumanoidState()
+    if CFG.unknownHumanoidScan then
+        local names = #st.names > 0 and table.concat(st.names, ", ") or "none"
+        if #names > 90 then names = names:sub(1, 87) .. "..." end
+        unknownStatus.set(string.format(
+            "unknown humanoids %d  ·  game-tagged %d", st.count, st.withEvidence))
+        unknownNames.set("UNKNOWN: " .. names)
+    else
+        unknownStatus.set("unknown humanoids 0")
+        unknownNames.set("detector OFF")
+    end
+end
+
 -- ────────────────────────────────────────────────────────────────────
 -- BETTER 1 · NATIVE CONFIG PROFILES
 -- Atlanta's Configurations panel already calls library:get_config() /
@@ -576,6 +620,7 @@ function SA.FullUnload(reason)
     _G.__saPlayerAddedConn, _G.__saPlayerRemovingConn = nil, nil
     _G.__saCrateEvents, _G.__saEspPreviewCharConn = nil, nil
     _G.__saAtlantaBlur, _G.__saManipPopup = nil, nil
+    _G.__saUnknownHumanoids = nil
     _G.__saPlayerWarning = nil
     pcall(function() if SA.EspFontRegistryReset then SA.EspFontRegistryReset() end end)
 
