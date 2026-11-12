@@ -4208,6 +4208,60 @@ function saEspBoxFloorRegression()
 end
 saEspBoxFloorRegression()
 
+-- ── A target BEHIND the camera is never "inside the FOV" ────────────
+-- WorldToViewportPoint's second return only means "inside the viewport
+-- rectangle"; it is TRUE for a point behind the camera, whose X/Y mirror
+-- through the screen centre. Both membership helpers used to trust it, so
+-- a player the user had turned away from still projected to a pixel near
+-- the crosshair and counted as inside the circle — silent aim / snapline
+-- locked onto and highlighted somebody behind the player, and the ESP
+-- target highlight flipped with it. Z <= 0 is the only correct rejection.
+function saEspBehindCameraRegression()
+    local savedProj = MOCK_REAL_PROJECTION
+    local savedFov, savedDeg, savedMode = CFG.fov, CFG.fovDegrees, CFG.fovMode
+    local savedMouse = UserInputService.GetMouseLocation
+    MOCK_REAL_PROJECTION = true
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)   -- looks down -Z
+    MOCK_CAMERA.FieldOfView = 70
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    CFG.fovMode = "Pixels"
+    CFG.fov = 400
+
+    local front = Vector3.new(0, 3, -50)
+    local spF, okF = MOCK_CAMERA:WorldToViewportPoint(front)
+    ok((tonumber(spF.Z) or 0) > 0, "front target has positive depth")
+    ok(SA.FovPointInside(MOCK_CAMERA, front, spF, okF),
+        "a target in front and inside the circle is accepted")
+
+    -- Off-axis BEHIND the camera: the mirror puts it near the centre, so
+    -- the old pixel test said "inside". It must not.
+    local back = Vector3.new(6, 3, 50)
+    local spB, okB = MOCK_CAMERA:WorldToViewportPoint(back)
+    eq((tonumber(spB.Z) or 0) <= 0, true,
+        "behind-camera target has non-positive depth")
+    eq(SA.FovPointInside(MOCK_CAMERA, back, spB, okB), false,
+        "a target behind the camera is never inside the FOV")
+
+    -- The widened hitbox path had the same hole (it never looked at Z at
+    -- all): a target straddling the camera plane must not pass.
+    eq(SA.FovSegmentInside(MOCK_CAMERA, back, back, spB, spB,
+        Vector2.new(640, 360), 400), false,
+        "a segment with both ends behind the camera is rejected")
+    eq(SA.FovSegmentInside(MOCK_CAMERA, front, back, spF, spB,
+        Vector2.new(640, 360), 400), true,
+        "a segment from a visible head to a hidden root still counts")
+
+    MOCK_REAL_PROJECTION = savedProj
+    UserInputService.GetMouseLocation = savedMouse
+    CFG.fov, CFG.fovDegrees, CFG.fovMode = savedFov, savedDeg, savedMode
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    mock_cam_clear_look(MOCK_CAMERA)
+end
+saEspBehindCameraRegression()
+
+
 -- ── A turning camera must carry every tag with it ───────────────────
 -- The "ESP gets stuck when the camera turns too much" report: whatever a
 -- turn does to building, slicing or refreshing, a tag that IS drawn must

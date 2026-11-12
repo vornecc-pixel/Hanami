@@ -302,6 +302,15 @@ assert(!allSource.includes('side and (g.y + (i - 1) * rowH)'),
 assert(allSource.includes('COLD START GUARD'),
   'src/19_render_loop.lua: cold-start build guard missing');
 
+// A target behind the camera projects to a MIRRORED pixel, and
+// WorldToViewportPoint's onScreen flag is true there. Both FOV
+// membership helpers must reject non-positive depth or silent aim /
+// snapline lock onto people the player has turned away from.
+assert(allSource.includes('if (tonumber(sp.Z) or 0) <= 0 then return false end'),
+  'src/02_shared.lua: FovPointInside must reject behind-camera points');
+assert(allSource.includes('if zHead ~= nil and zHead <= 0 then spHead = nil end'),
+  'src/02_shared.lua: FovSegmentInside must reject behind-camera endpoints');
+
 // FOV circle is the sole non-ESP startup exception: ON, solid, visible,
 // mouse reference, with a separate 1-10 snapline size control.
 const fovStart = config.indexOf('SA.FOV_STARTUP = {');
@@ -858,7 +867,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,471 assertions',
+  '6,489 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',

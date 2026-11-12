@@ -122,6 +122,16 @@ function SA.FovPointInside(camera, worldPos, sp, onScreen, aimPx, radius)
         return dot >= math.cos(math.rad(SA.FovDegrees()))
     end
     if onScreen == false or not sp then return false end
+    -- BEHIND-CAMERA GUARD. WorldToViewportPoint's second return only
+    -- means "inside the viewport rectangle" — it is TRUE for a point
+    -- behind the camera, whose X/Y are mirrored through the screen
+    -- centre. Without this test a target the player has turned away from
+    -- still projected to a pixel near the crosshair and counted as
+    -- "inside the FOV" once per half-turn, so silent aim / the snapline
+    -- locked onto and highlighted somebody behind the player — and the
+    -- ESP target highlight + nearest-set membership flipped with it.
+    -- Z <= 0 is the only correct rejection.
+    if (tonumber(sp.Z) or 0) <= 0 then return false end
     local dx, dy = sp.X - aim.X, sp.Y - aim.Y
     return (dx * dx + dy * dy) <= rad * rad
 end
@@ -158,6 +168,16 @@ function SA.FovSegmentInside(camera, headPos, rootPos, spHead, spRoot,
     local aim = aimPx or SA.AimPoint()
     local rad = radius or SA.FovRadius()
     local r2 = rad * rad
+    if not spHead and not spRoot then return false end
+    -- A behind-camera endpoint projects to a MIRRORED pixel (see the
+    -- guard in SA.FovPointInside). Mirroring the segment too produced a
+    -- phantom "inside the circle" result for a target the player had
+    -- turned away from, which is the same half-turn lock-on bug on the
+    -- widened hitbox path. Drop any endpoint that is not in front.
+    local zHead = spHead and (tonumber(spHead.Z) or 0) or nil
+    local zRoot = spRoot and (tonumber(spRoot.Z) or 0) or nil
+    if zHead ~= nil and zHead <= 0 then spHead = nil end
+    if zRoot ~= nil and zRoot <= 0 then spRoot = nil end
     if not spHead and not spRoot then return false end
     if not spHead or not spRoot then
         local p = spHead or spRoot
