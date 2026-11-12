@@ -844,6 +844,22 @@ local SA_CFG_SHIPPED = {
     snapLineThickness = 3,
     snapShowLead      = false,
 
+    -- ARMOR VIEWER (Fust gear inspector). Starts OFF and does nothing
+    -- until switched on: it only READS replicated attributes, never writes
+    -- to another player's character.
+    armorViewer        = false,
+    armorShowIcons     = false,   -- item icon per row (falls back to an abbreviation)
+    armorShowTotals    = false,   -- per-region protection header
+    armorOnlyInFov     = false,   -- list only players inside the aim circle
+    armorMaxDist       = 500,     -- studs; 0 = unlimited
+    armorScanSec       = 2,       -- seconds between refreshes
+    armorSortMode      = "Nearest",
+    armorWindowX       = 260,
+    armorWindowY       = 120,
+    armorWindowW       = 360,
+    armorWindowH       = 470,
+    armorLockPos       = false,
+
     -- crate esp
     crateEnabled       = false,
     crateFovAware      = false,  -- dot outside FOV; name + distance + outline highlight inside
@@ -1047,6 +1063,11 @@ for k, v in pairs({
     crateEnabled = false, crateFovAware = false,
     crateShowMilitary = false, crateShowElite = false,
     crateShowLoot = false, crateShowOpened = false, crateLooseDetect = false,
+    armorViewer = false, armorShowIcons = false, armorShowTotals = false,
+    armorOnlyInFov = false, armorMaxDist = 500,
+    armorScanSec = 2, armorSortMode = "Nearest", armorLockPos = false,
+    armorWindowX = 260, armorWindowY = 120,
+    armorWindowW = 360, armorWindowH = 470,
     crateHighlight = false, crateInvertState = false, crateLidDetect = false,
     crateMaxDist = 3000,
     showFov = false, fovFilled = false, fovTransparency = 1, fovThickness = 3,
@@ -1185,6 +1206,23 @@ CFG.fovSegments       = saClampNum(CFG.fovSegments, 8, 128, 64)
 CFG.snapLineEnabled   = CFG.snapLineEnabled == true
 CFG.snapLineOrigin    = "FOV Reference"
 CFG.snapLineThickness = saClampNum(CFG.snapLineThickness, 1, 10, 3)
+
+-- ARMOR VIEWER: a saved profile can carry any of these, so clamp them all
+-- before the panel ever reads them.
+CFG.armorViewer       = CFG.armorViewer == true
+CFG.armorShowIcons    = CFG.armorShowIcons == true
+CFG.armorShowTotals   = CFG.armorShowTotals == true
+CFG.armorOnlyInFov    = CFG.armorOnlyInFov == true
+CFG.armorLockPos      = CFG.armorLockPos == true
+CFG.armorMaxDist      = saClampNum(CFG.armorMaxDist, 0, 5000, 500)
+CFG.armorScanSec      = saClampNum(CFG.armorScanSec, 0.5, 10, 2)
+CFG.armorSortMode     = ({ Nearest=true, Distance=true, Name=true,
+                           ["Most Armor"]=true })[CFG.armorSortMode]
+                        and CFG.armorSortMode or "Nearest"
+CFG.armorWindowW      = saClampNum(CFG.armorWindowW, 280, 720, 360)
+CFG.armorWindowH      = saClampNum(CFG.armorWindowH, 240, 900, 470)
+CFG.armorWindowX      = saClampNum(CFG.armorWindowX, -4000, 4000, 260)
+CFG.armorWindowY      = saClampNum(CFG.armorWindowY, -4000, 4000, 120)
 
 -- Clamp every new BETTER input too: a stale / hand-edited saved profile
 -- must never put a dropdown outside its items or a slider outside range.

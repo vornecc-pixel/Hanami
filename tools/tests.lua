@@ -4347,6 +4347,198 @@ function saSnaplineMemoRegression()
 end
 saSnaplineMemoRegression()
 
+-- ── ARMOR VIEWER: data layer ────────────────────────────────────────
+-- The reference script require()'d ReplicatedStorage.Fust.ItemIcons at
+-- module scope. That is a hard crash in any game without the module, and
+-- the panel should still work without icons. Every accessor here is
+-- optional, so the viewer must survive with no Fust at all.
+function saArmorViewerRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "armorViewer", "armorOnlyInFov", "armorMaxDist",
+        "armorSortMode", "armorShowIcons", "armorShowTotals" }) do
+        savedFlags[k] = CFG[k]
+    end
+
+    -- Build a FustWear folder exactly the way the game replicates it.
+    local nearest = nil
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl.Name == "NearestGuy" then nearest = pl end
+    end
+    ok(nearest ~= nil, "armor: NearestGuy present")
+    local char = nearest and nearest.Character
+    ok(char ~= nil, "armor: NearestGuy has a character")
+    local wear = Instance.new("Folder")
+    wear.Name = "FustWear"
+    wear.Parent = char
+    local function add(name, itemId, slot)
+        local part = Instance.new("Part")
+        part.Name = name
+        part.Parent = wear
+        if itemId then part:SetAttribute("ItemId", itemId) end
+        if slot then part:SetAttribute("WASlot", slot) end
+    end
+    add("helm", "heavy_plate_helmet", "head")
+    add("jack", "heavy_plate_jacket", "torso_armor")
+    add("boots", "combat_boots", "feet")
+    -- Same item twice: two meshes, one item. Must not double-count.
+    add("helm_dup", "heavy_plate_helmet", "head")
+    -- No attributes at all: unknown item, not a crash.
+    add("mystery_hat")
+
+    local worn, regions = SA.ArmorAnalyze(char)
+    eq(#worn, 4, "armor: duplicate mesh collapses to one item")
+    eq(regions.Head, 55, "armor: head total")
+    eq(regions.Torso, 47, "armor: torso total")
+    eq(regions.Feet, 12, "armor: feet total")
+    eq(regions.Legs, 0, "armor: legs total")
+    eq(SA.ArmorTotal(regions), 114, "armor: grand total")
+    local unknown = nil
+    for _, item in ipairs(worn) do
+        if item.id == "mystery_hat" then unknown = item end
+        ok(item.prot >= 0, "armor: prot is never negative")
+    end
+    ok(unknown ~= nil and unknown.known == false,
+        "armor: an unlisted item is reported as unknown, not +0%")
+
+    -- Mesh-name suffix fallback (no ItemId / WASlot attributes at all).
+    local c2 = Instance.new("Model")
+    c2.Name = "ArmorFallbackProbe"
+    c2.Parent = workspace
+    local w2 = Instance.new("Folder")
+    w2.Name = "FustWear"
+    w2.Parent = c2
+    local s1 = Instance.new("Part")
+    s1.Name = "road_sign_jacket_torso_armor"
+    s1.Parent = w2
+    local s2 = Instance.new("Part")
+    s2.Name = "night_vision_goggles_head"
+    s2.Parent = w2
+    local w3, r3 = SA.ArmorAnalyze(c2)
+    eq(#w3, 2, "armor: suffix fallback finds both items")
+    eq(r3.Torso, 25, "armor: suffix fallback resolves the torso item")
+    eq(r3.Head, 10, "armor: suffix fallback resolves the head item")
+    c2:Destroy()
+
+    -- A character with no FustWear must be an empty result, never an error.
+    local empty = SA.ArmorAnalyze(Instance.new("Model"))
+    eq(#empty, 0, "armor: no FustWear yields no items")
+    eq(#SA.ArmorAnalyze(nil), 0, "armor: nil character is safe")
+
+    -- ── FOV awareness + nearest-crosshair ordering ──
+    MOCK_REAL_PROJECTION = true
+    MOCK_CAMERA.CFrame = CFrame.new(0, 3, 0)
+    MOCK_CAMERA.FieldOfView = 70
+    mock_cam_clear_look(MOCK_CAMERA)
+    mock_cam_look(MOCK_CAMERA, Vector3.new(10, 1, 0))
+    local savedMouse = UserInputService.GetMouseLocation
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    CFG.fovMode, CFG.fov = "Pixels", 400
+    setFlags({ armorMaxDist = 0, armorOnlyInFov = false,
+        armorSortMode = "Nearest" })
+    SA.EspGeomInvalidate(); pcall(SA.PreviewTargetReset)
+    mock_frame(0.016)
+
+    local targets = SA.ArmorTargets()
+    ok(#targets >= 2, "armor: target list non-empty")
+    -- Ordered by pixel distance from the aim point.
+    for i = 2, #targets do
+        if targets[i - 1].inFov == targets[i].inFov then
+            if not targets[i - 1].behind and not targets[i].behind then
+                ok(targets[i - 1].px <= targets[i].px + 0.001,
+                    "armor: nearest-crosshair ordering is monotonic")
+            end
+        end
+    end
+    -- FOV membership must agree with the circle's own helper.
+    local cam = ws.CurrentCamera
+    for _, t in ipairs(targets) do
+        if t.root then
+            local sp, onScr = cam:WorldToViewportPoint(t.root.Position)
+            local expect = SA.FovPointInside(cam, t.root.Position, sp, onScr,
+                SA.AimPoint(), SA.FovRadius()) == true
+            eq(t.inFov, expect, "armor: inFov matches SA.FovPointInside")
+        end
+    end
+
+    -- Looking away must flip everyone to behind=true / inFov=false rather
+    -- than leaving them "near the crosshair" through the mirrored pixel.
+    mock_cam_look(MOCK_CAMERA, Vector3.new(-12, 1, 0))
+    mock_frame(0.016)
+    local away = SA.ArmorTargets()
+    for _, t in ipairs(away) do
+        if t.behind then
+            eq(t.inFov, false, "armor: a behind-camera player is never in FOV")
+        end
+    end
+
+    -- The FOV filter really removes out-of-circle players.
+    setFlags({ armorOnlyInFov = true })
+    local filtered = SA.ArmorTargets()
+    for _, t in ipairs(filtered) do
+        eq(t.inFov, true, "armor: onlyInFov list contains only in-FOV entries")
+    end
+    setFlags({ armorOnlyInFov = false })
+
+    -- Max distance excludes far players.
+    setFlags({ armorMaxDist = 1 })
+    local closeOnly = SA.ArmorTargets()
+    for _, t in ipairs(closeOnly) do
+        ok(t.dist <= 1.001, "armor: max distance is enforced")
+    end
+
+    -- ── the window ──
+    CFG.armorViewer = true
+    local built = SA.ArmorViewerRefresh()
+    ok(built == true, "armor: panel builds and refreshes")
+    local st = SA.ArmorViewerState()
+    eq(st.built, true, "armor: state reports built")
+    ok(st.scans >= 1, "armor: state counts scans")
+    ok(st.rows > 0, "armor: rows were rendered")
+    eq(st.errors, 0, "armor: no errors during a refresh")
+
+    -- Geometry is clamped: a saved profile cannot push the panel off
+    -- screen or give it a negative size.
+    CFG.armorWindowW, CFG.armorWindowH = 99999, -50
+    CFG.armorWindowX, CFG.armorWindowY = -99999, -99999
+    SA.ArmorViewerResetGeometry()
+    local st2 = SA.ArmorViewerState()
+    ok(st2.window.w >= 280 and st2.window.w <= 720,
+        "armor: width clamped into range")
+    ok(st2.window.h >= 240 and st2.window.h <= 900,
+        "armor: height clamped into range")
+    ok(st2.window.x >= -st2.window.w + 80, "armor: x kept reachable")
+    ok(st2.window.y >= 0, "armor: y kept on screen")
+
+    -- The toggle must gate ALL work: 30 frames with it OFF builds nothing.
+    SA.ArmorViewerDispose()
+    CFG.armorViewer = false
+    local before = SA.ArmorViewerState().scans
+    for _ = 1, 30 do mock_frame(0.016) end
+    eq(SA.ArmorViewerState().scans, before,
+        "armor: disabled toggle performs no scans")
+    eq(SA.ArmorViewerState().built, false,
+        "armor: disabled toggle does not build the panel")
+
+    -- And ON builds immediately, without waiting out the scan interval.
+    CFG.armorViewer = true
+    mock_frame(0.016)
+    eq(SA.ArmorViewerState().built, true,
+        "armor: enabling builds on the first frame")
+    ok(SA.ArmorViewerState().scans >= 1,
+        "armor: enabling scans immediately (no empty panel)")
+
+    SA.ArmorViewerDispose()
+    wear:Destroy()
+    UserInputService.GetMouseLocation = savedMouse
+    MOCK_REAL_PROJECTION = false
+    mock_cam_clear_look(MOCK_CAMERA)
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saArmorViewerRegression()
+
+
 
 
 -- ── A turning camera must carry every tag with it ───────────────────

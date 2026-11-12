@@ -573,6 +573,7 @@ function SA.FullUnload(reason)
     pcall(function() if SA.DisposeManipPopup then SA.DisposeManipPopup() end end)
     pcall(function() if SA.DisposePlayerWarning then SA.DisposePlayerWarning() end end)
     pcall(function() if SA.DisposeFireAssist then SA.DisposeFireAssist() end end)
+    pcall(function() if SA.ArmorViewerDispose then SA.ArmorViewerDispose() end end)
     pcall(function() if SA.FustBowDispose then SA.FustBowDispose() end end)
     pcall(function() if SA.GunDispose then SA.GunDispose() end end)
     pcall(function() if SA.DrawDisposeAll then SA.DrawDisposeAll() end end)
@@ -691,6 +692,35 @@ end)
 addButton(sysSec, "Unload Everything (FULL)", function()
     SA.FullUnload("Unload Everything (FULL)")
 end)
+
+-- ── MISC : Armor Viewer (Fust gear inspector) ──────────────────────
+-- Read-only: it inspects the FustWear folder the game replicates on each
+-- character. Nothing here writes to another player.
+local armorCol = MiscTab:column()
+local armorSec = armorCol:section({ name = "Armor Viewer" })
+bindToggle(armorSec, "Armor Viewer", "armorViewer",
+    "Show a resizable panel with every player's Fust gear and protection")
+bindToggle(armorSec, "In FOV Only", "armorOnlyInFov",
+    "List only players inside the aim circle")
+bindToggle(armorSec, "Show Icons", "armorShowIcons",
+    "Item icon per row (needs the game's ItemIcons module; falls back to an abbreviation)")
+bindToggle(armorSec, "Show Region Totals", "armorShowTotals",
+    "Per-region protection header for each player")
+bindSlider(armorSec, "Max Distance", "armorMaxDist", 0, 5000, 50, " studs")
+bindSlider(armorSec, "Scan Interval", "armorScanSec", 0.5, 10, 0.5, " s")
+bindDropdown(armorSec, "Sort By", "armorSortMode",
+    { "Nearest", "Distance", "Name", "Most Armor" })
+bindToggle(armorSec, "Lock Window", "armorLockPos",
+    "Keep the panel where it was dropped")
+addButton(armorSec, "Refresh Now", function()
+    pcall(SA.ArmorViewerRefresh)
+end)
+addButton(armorSec, "Reset Window Position", function()
+    CFG.armorWindowX, CFG.armorWindowY = 260, 120
+    CFG.armorWindowW, CFG.armorWindowH = 360, 470
+    if SA.ArmorViewerResetGeometry then pcall(SA.ArmorViewerResetGeometry) end
+end)
+
 
 -- ── Initialisation (from the Atlanta template) ─────────────────────
 Aiming.open_tab()
