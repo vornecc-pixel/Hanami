@@ -48,6 +48,7 @@ local PARTS = {
     "16_esp_crates.lua",
     "16_esp_crates_registry.lua",
     "17_esp_crates_refresh.lua",
+    "17_z_crate_fov.lua",
     "18_esp_fx_colours.lua",
     "18_esp_fx_draw.lua",
     "18_esp_fx_frame.lua",

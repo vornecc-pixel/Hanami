@@ -2638,6 +2638,216 @@ saNpcFovTransitionRegression()
 -- Crate ESP uses the same raw FOV reference. Its outside-circle dot must
 -- disappear on entry and return on exit, without a stuck world-anchored label.
 function saCrateFovTransitionRegression()
+
+-- ── Crate FOV must never disturb PLAYER ESP, and must never strobe ────
+-- Reported symptom: turning FOV-Aware Crate ESP on made the player ESP
+-- "turn off or disable", and the on-player FOV boxing stayed stuck. Root
+-- causes covered here:
+--   * crateFovAware was part of the SHARED draw signature, so toggling it
+--     ran a global EspStyleSweep that hid + rebuilt every PLAYER object;
+--   * the crate branch read the PLAYER FOV snapshot and mutating the
+--     Highlight inside the shared styling pass;
+--   * membership had no hysteresis, so an edge crate flipped state on
+--     consecutive frames.
+function saCratePlayerIndependenceRegression()
+    quiet(function() SA.ResetToDefaults() end)
+    setFlags({
+        espEnabled = true, npcEspEnabled = false, crateEnabled = false,
+        crateFovAware = false, crateMaxDist = 5000, espMaxDist = 5000,
+        crateShowMilitary = true, crateShowElite = true,
+        crateShowLoot = true, crateShowOpened = true,
+        espShowBox = true, espShowName = true, espShowDist = true,
+        espCleanMode = false, espShowFill = false, espShowOffscreen = false,
+        espShowTracer = false, perfMode = false, fov = 300,
+        fovCenterMode = "Mouse", dataRefresh = true,
+        masterEnabled = false, gunEnabled = false, snapLineEnabled = false,
+        crateHighlight = false,
+    })
+    local savedMouse = UserInputService.GetMouseLocation
+    UserInputService.GetMouseLocation = function()
+        return Vector2.new(640, 360)
+    end
+    SA.EspFrameBudgetReset()
+    SA.EspGeomInvalidate()
+    frameTimes(8)
+
+    local playersBuilt, cratesBuilt = 0, 0
+    for _ in pairs(espObjects) do playersBuilt = playersBuilt + 1 end
+    ok(playersBuilt >= 1, "crate independence: player ESP built before the test")
+    local playerBefore = SA.EspVisibleCount.players
+    ok(playerBefore >= 1, "crate independence: players are drawn")
+
+    -- Snapshot every player object so any reset is visible afterwards.
+    local snapshot = {}
+    for plr, o in pairs(espObjects) do
+        snapshot[plr] = {
+            geomKey = o.geomKey, geomCache = o.geomCache,
+            fxFrame = o.fxFrame, visible = o.visible,
+        }
+    end
+    local sweepsBefore = SA.EspPerf.styleSweeps or 0
+
+    -- Turn crate ESP + FOV mode ON, exactly like the user does.
+    setFlags({ crateEnabled = true, crateFovAware = true })
+    frameTimes(6)
+    for _ in pairs(crateObjects) do cratesBuilt = cratesBuilt + 1 end
+    ok(cratesBuilt >= 1, "crate independence: crate ESP built")
+
+    -- 1. Player objects must not have been swept or rebuilt.
+    eq(SA.EspPerf.styleSweeps or 0, sweepsBefore,
+        "crate independence: crate FOV toggle runs NO global style sweep")
+    local rebuilt = 0
+    for plr, o in pairs(espObjects) do
+        local before = snapshot[plr]
+        if before then
+            if o.geomKey ~= before.geomKey then rebuilt = rebuilt + 1 end
+            if o.geomCache ~= before.geomCache then rebuilt = rebuilt + 1 end
+        end
+    end
+    eq(rebuilt, 0, "crate independence: no player geometry was invalidated")
+    ok(SA.EspVisibleCount.players >= 1,
+        "crate independence: player ESP is still drawing after the toggle")
+    eq(CFG.espEnabled, true, "crate independence: player ESP flag untouched")
+    eq(SA.EspHiddenPass.players, false,
+        "crate independence: the player hidden pass never armed")
+    -- And the state probe must report that, so a future regression is
+    -- visible without guessing: transitions must NOT climb per frame.
+    local probe = SA.CrateFovState()
+    eq(probe.playerEsp, true, "crate independence: probe reports player ESP on")
+    eq(probe.playerHiddenPass, false,
+        "crate independence: probe reports no player hidden pass")
+    local transitionsA = probe.transitions
+    frameTimes(20)
+    local transitionsB = SA.CrateFovState().transitions
+    eq(transitionsB, transitionsA,
+        "crate FOV: a static camera causes zero circle crossings")
+
+    -- 2. Player objects must still be styled every frame (not frozen).
+    local playerFxFrames = {}
+    for plr, o in pairs(espObjects) do playerFxFrames[plr] = o.fxFrame end
+    frameTimes(4)
+    local advanced = 0
+    for plr, o in pairs(espObjects) do
+        if playerFxFrames[plr] and o.fxFrame ~= playerFxFrames[plr] then
+            advanced = advanced + 1
+        end
+    end
+    ok(advanced >= 1,
+        "crate independence: player styling keeps advancing every frame")
+
+    -- 3. Crate membership is crate-owned state with hysteresis.
+    local crateObj = nil
+    for _, o in pairs(crateObjects) do crateObj = o; break end
+    ok(crateObj ~= nil, "crate independence: crate object available")
+    crateObj.visible, crateObj.dist = true, 20
+    crateObj.pos = Vector3.new(0, 0, 0)
+    crateObj.kind, crateObj.opened = "Loot", false
+    crateObj.geomKey, crateObj.geomCache = nil, nil
+    crateObj.geomForceFresh = true
+    o = nil
+
+    -- ── HYSTERESIS, tested on the classifier itself ──
+    -- A frame-level test cannot discriminate here: the projection is
+    -- cached per camera key, so a "jittering" mock would only ever be
+    -- re-classified when the whole geometry cache is dropped. The
+    -- classifier is therefore driven directly with a synthetic
+    -- projection sitting half a pixel either side of the circle edge —
+    -- the exact real-world flicker — and the radius is read from the
+    -- live SA.FovRadius() it uses internally.
+    local aim = SA.AimPoint()
+    local radius = SA.FovRadius()
+    local savedW2v = MOCK_CAMERA.WorldToViewportPoint
+    ok(type(SA.CrateFovClassify) == "function",
+        "crate FOV: the crate-owned classifier exists")
+    local probe = { highlight = nil }
+    local function classifyAt(x, y)
+        local g = { ok = true, onScreen = true,
+            raw = Vector3.new(x, y, 1) }
+        local inside = SA.CrateFovClassify(probe, g)
+        return inside, probe.crateInside
+    end
+    -- Start comfortably INSIDE so the release margin is armed.
+    classifyAt(aim.X, aim.Y)
+    eq(probe.crateInside, true, "crate FOV: classifier arms inside the circle")
+    -- Now sit half a pixel OUTSIDE the radius: hysteresis must hold it in.
+    local heldFlips = 0
+    local last = probe.crateInside
+    for i = 1, 10 do
+        local jitter = (i % 2 == 0) and 0.5 or -0.5
+        classifyAt(aim.X + radius + jitter, aim.Y)
+        if probe.crateInside ~= last then
+            heldFlips = heldFlips + 1
+            last = probe.crateInside
+        end
+    end
+    eq(heldFlips, 0,
+        "crate FOV: half-pixel edge jitter never strobes the label")
+    eq(probe.crateInside, true,
+        "crate FOV: the jittering edge crate stays inside")
+    -- Well outside the release margin it must finally leave.
+    classifyAt(aim.X + radius * 2, aim.Y)
+    eq(probe.crateInside, false,
+        "crate FOV: beyond the release margin the crate leaves")
+    -- And once outside it re-enters only at the EXACT radius (no margin).
+    classifyAt(aim.X + radius + 0.5, aim.Y)
+    eq(probe.crateInside, false,
+        "crate FOV: a crate outside re-enters only at the exact radius")
+    classifyAt(aim.X + radius - 0.5, aim.Y)
+    eq(probe.crateInside, true,
+        "crate FOV: a crate half a pixel inside re-enters immediately")
+    -- A crate behind the camera or off screen is never inside.
+    classifyAt(aim.X, aim.Y)
+    eq(probe.crateInside, true, "crate FOV: re-armed for the off-screen case")
+    local behind = { ok = true, onScreen = true,
+        raw = Vector3.new(aim.X, aim.Y, -5) }
+    SA.CrateFovClassify(probe, behind)
+    eq(probe.crateInside, false, "crate FOV: a crate behind the camera is out")
+    local offscreen = { ok = true, onScreen = true,
+        raw = Vector3.new(5000, 5000, 1) }
+    SA.CrateFovClassify(probe, offscreen)
+    eq(probe.crateInside, false, "crate FOV: an off-screen crate is out")
+    eq(probe.crateOnScreen, false, "crate FOV: off-screen state recorded")
+
+    -- Well inside the circle it is stable and shows the label.
+    MOCK_CAMERA.WorldToViewportPoint = function(self, worldPos)
+        return Vector3.new(aim.X, aim.Y, 1), true
+    end
+    SA.EspGeomInvalidate()
+    frameTimes(4)
+    eq(crateObj.crateInside, true, "crate FOV: a centred crate is inside")
+    ok(crateObj.crateOnScreen == true, "crate FOV: centred crate is on screen")
+
+    -- Well outside it drops the label and shows a dot instead.
+    MOCK_CAMERA.WorldToViewportPoint = function(self, worldPos)
+        return Vector3.new(aim.X + radius * 3, aim.Y, 1), true
+    end
+    SA.EspGeomInvalidate()
+    frameTimes(4)
+    eq(crateObj.crateInside, false,
+        "crate FOV: a crate outside the circle leaves past the release margin")
+    ok(crateObj.fx and crateObj.fx.cratefovdot
+        and crateObj.fx.cratefovdot.Visible == true,
+        "crate FOV: outside crate draws its dot")
+
+    -- 4. Turning the crate mode back OFF restores the plain crate look and
+    --    STILL does not sweep the player objects.
+    local sweepsBeforeOff = SA.EspPerf.styleSweeps or 0
+    setFlags({ crateFovAware = false })
+    frameTimes(4)
+    eq(SA.EspPerf.styleSweeps or 0, sweepsBeforeOff,
+        "crate independence: disabling crate FOV also runs no global sweep")
+    ok(SA.EspVisibleCount.players >= 1,
+        "crate independence: players still drawn after crate FOV OFF")
+    eq(crateObj.crateInside, nil,
+        "crate independence: crate FOV state cleared when the mode is off")
+
+    MOCK_CAMERA.WorldToViewportPoint = savedW2v
+    UserInputService.GetMouseLocation = savedMouse
+    SA.EspGeomInvalidate()
+    quiet(function() SA.ResetToDefaults() end)
+    frameTimes(3)
+end
+saCratePlayerIndependenceRegression()
     quiet(function() SA.ResetToDefaults() end)
     setFlags({
         espEnabled = false, npcEspEnabled = false, crateEnabled = true,

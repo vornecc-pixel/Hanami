@@ -469,9 +469,33 @@ assert(!/o\.geomForceFresh = true/.test(
   drawSrc.slice(drawSrc.indexOf('if o.espFovState ~= fovState'), drawSrc.indexOf('if o.espFovState ~= fovState') + 600)),
   'FOV transition must not defer geometry by a frame');
 // NPC ESP is FOV-independent by request: the NPC branch builds a neutral
-// snapshot instead of reading the aim circle.
-assert(drawSrc.includes('if pal == "npc" then'),
-  'NPC ESP must have its own non-FOV snapshot branch');
+// snapshot instead of reading the aim circle. CRATES share that branch --
+// the crate FOV mode owns its own classifier (SA.CrateFovClassify) and
+// must never read the player pipeline's circle snapshot.
+assert(drawSrc.includes('if pal == "npc" or pal == "crate" then'),
+  'NPC and crate ESP must have their own non-FOV snapshot branch');
+assert(!/local crateInsideFov = fov\.onScreen and fov\.inside/.test(drawSrc),
+  'crate FOV must not read the player circle snapshot');
+assert(read('src/17_z_crate_fov.lua').includes('SA.CrateFovClassify = crateFovClassify'),
+  'the crate FOV classifier must be crate-owned (17_z_crate_fov.lua)');
+assert(!read('src/18_esp_fx_frame.lua').includes('local function crateFovClassify'),
+  'the crate classifier must not live in the shared frame pass');
+// crateFovAware must never re-enter the shared (player-affecting) draw
+// signature: that is what made toggling the crate mode reset player ESP.
+const chamsFrameSrc = read('src/18_esp_fx_frame.lua');
+const sigStart = chamsFrameSrc.indexOf('local drawSig = table.concat({');
+const sigEnd = chamsFrameSrc.indexOf('}, "|")', sigStart);
+assert(sigStart > 0 && sigEnd > sigStart,
+  'could not locate the shared ESP draw signature');
+const sigBody = chamsFrameSrc.slice(sigStart, sigEnd);
+// Only the CODE counts: strip line comments first, so the explanatory
+// "crateFovAware is NOT here on purpose" note cannot mask a regression.
+const sigCode = sigBody.split('\n')
+  .map((line) => line.replace(/--.*$/, '')).join('\n');
+assert(!sigCode.includes('crateFovAware'),
+  'crateFovAware must not be in the shared draw signature');
+assert(sigBody.includes('tostring(CFG.espShowBox)'),
+  'shared draw signature lost the player style flags');
 // The snapline preview is player-only.
 const sharedSrc = read('src/02_shared.lua');
 assert(sharedSrc.includes('playersOnly'),
@@ -894,7 +918,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '9,392 assertions',
+  '9,474 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -975,7 +999,7 @@ const requiredDocs = [
   'ESP-only best preset',
   'uiTheme',
   'uiFont',
-  '48-part list',
+  '49-part list',
   '### Armor Console',
   'SA.ArmorAnalyze',
   'SA.ArmorTargets()',

@@ -45,6 +45,17 @@ local function showText(o, key, text, x, y, w, h, anchor, align, size,
     d.Visible = true
 end
 
+-- Where an outside-FOV crate dot goes. On screen: its real pixel. Off
+-- screen: a point on the VIEWPORT border toward the crate (not the FOV
+-- circle's edge, which collapsed every crate onto the same ring pixel).
+-- The player-facing FOV snapshot is not involved at all.
+local function crateFovAnchor(fov, g, px)
+    if fov.onScreen then return fov.point end
+    local raw = g and g.raw
+    if not raw or (tonumber(raw.Z) or 0) <= 0 then return px end
+    return px
+end
+
 local function setFxLine(o, key, x1, y1, x2, y2, color, t, thick, legacy)
     local l
     -- `legacy` only means "prefer the prebuilt Instance line". A client
@@ -112,12 +123,18 @@ local function drawEntityInner(cam, o, opt)
     -- circle.
     local pal = p or "player"
     local fov
-    if pal == "npc" then
+    if pal == "npc" or pal == "crate" then
         local raw = g and g.raw
         local onScr0 = g ~= nil and g.onScreen == true
         local point0 = raw and Vector2.new(raw.X, raw.Y)
             or Vector2.new((cam.ViewportSize or Vector2.new(1280, 720)).X / 2,
                            (cam.ViewportSize or Vector2.new(1280, 720)).Y / 2)
+        -- CRATES too: the crate FOV mode computes its own circle test
+        -- (crateFovState / SA.CrateFovInside) from the real projection.
+        -- Running the player circle snapshot here meant a crate's draw
+        -- depended on the PLAYER FOV state, so toggling the crate mode
+        -- rewrote the player-side pipeline and the two fought over the
+        -- same pooled draws. One entity kind, one FOV owner.
         fov = { point = point0, clamped = point0, dir = Vector2.new(0, 1),
                 center = point0, radius = 1, onScreen = onScr0,
                 inside = false, outside = false, edge = point0,
@@ -131,7 +148,12 @@ local function drawEntityInner(cam, o, opt)
     local fovC, fovR, dir = fov.center, fov.radius, fov.dir
     local outsideFov = fov.outside
     local crateFov = p == "crate" and CFG.crateFovAware == true
-    local crateInsideFov = fov.onScreen and fov.inside
+    -- The crate circle test is its OWN hysteresis-gated state, computed
+    -- once per entity per refresh pass (17_esp_crates_refresh.lua). It
+    -- never reads the player's fov snapshot and it never flips per frame,
+    -- so a crate sitting on the circle edge cannot strobe, and a camera
+    -- turn cannot make the crate branch disagree with the player branch.
+    local crateInsideFov = crateFov and (o.crateInside == true) or false
 
     local boxCol = fxColor(p, base, seed, "Box")
     local fillCol = fxColor(p, base, seed, "Fill")
@@ -215,32 +237,59 @@ local function drawEntityInner(cam, o, opt)
     local cx = g.x + g.w / 2
     local cache = o.instApplied
 
-    -- FOV-AWARE CRATE ESP: outside the aim circle draw ONLY a dot; inside
-    -- the circle draw name + distance and an outline-only Highlight.
+    -- FOV-AWARE CRATE ESP: outside the circle = ONE dot, at the crate's
+    -- real projection (never the clamped edge, which used to pile every
+    -- off-screen crate into the same border pixel). Inside the circle =
+    -- name + distance + an outline-only Highlight.
+    --
+    -- This branch writes ONLY draws; it never flips o.highlight.Enabled
+    -- here, because a pooled Highlight that is disabled from inside the
+    -- styling pass is what produced the "crate mode turned my ESP off"
+    -- look: the same Highlight instance is reused per object, and an
+    -- early `return` after disabling it skipped hideUnusedFx's bookkeeping
+    -- for the rest of the object. Enable/disable now happens exactly once
+    -- per circle crossing in 17_esp_crates_refresh.lua.
     if crateFov then
-        local counts = SA.CrateFovCount
-        if not counts then
-            counts = { inside = 0, outside = 0, dots = 0, highlights = 0 }
-            SA.CrateFovCount = counts
-        end
         if not crateInsideFov then
-            counts.outside = counts.outside + 1
+            -- Outside the circle: release the Highlight explicitly. It is
+            -- a Roblox Instance, not a pooled Drawing, so it is not part
+            -- of the "fov" draw group that hideFxGroup clears; without
+            -- this an in-circle outline would stay lit on the crate.
+            if o.highlight then
+                SA.ApplyInstProp(cache, o.highlight, "Enabled", false)
+            end
             local dot = getDraw(o, "cratefovdot", "Circle")
             if dot then
                 setDrawGroup(o, "cratefovdot", "fov")
-                dot.Position = px
+                dot.Position = crateFovAnchor(fov, g, px)
                 dot.Radius = 4
                 dot.Color = base
                 dot.Transparency = t
                 dot.Visible = true
-                counts.dots = counts.dots + 1
-            end
-            if o.highlight then
-                SA.ApplyInstProp(cache, o.highlight, "Enabled", false)
             end
             return
         end
-        counts.inside = counts.inside + 1
+        -- Inside: a small box + name + distance, all from this frame's
+        -- geometry, so the crate is legible instead of a bare highlight.
+        -- The previous state's edge dot is released HERE, on the frame
+        -- that enters the circle. The refresh pass can run on a 3-frame
+        -- cadence, so a crossing must not wait for it to drop the dot.
+        local staleDot = o.fx and o.fx.cratefovdot
+        if staleDot then
+            pcall(function() staleDot.Visible = false end)
+        end
+        local x, y, w, h = g.x, g.y, g.w, g.h
+        if showBox then
+            setFxLine(o, "box1", x, y, x + w, y, base, t, thick, false)
+            setFxLine(o, "box2", x, y + h, x + w, y + h, base, t, thick, false)
+            setFxLine(o, "box3", x, y, x, y + h, base, t, thick, false)
+            setFxLine(o, "box4", x + w, y, x + w, y + h, base, t, thick, false)
+        elseif o.lines then
+            for _, k in ipairs(BOX_KEYS) do
+                local l = o.lines[k]
+                if l then SA.ApplyInstProp(cache, l, "Visible", false) end
+            end
+        end
         showText(o, "txName", tx.name, cx, g.y - 4,
             fxTextWidth(ts, tx.name), rowH + 2,
             Vector2.new(0.5, 1), "Center", ts + 1, nameCol, false,
@@ -250,6 +299,9 @@ local function drawEntityInner(cam, o, opt)
             Vector2.new(0.5, 0), "Center", math.max(ts - 2, 6),
             fxColor(p, base, seed, "Distance"), false,
             outline, t, g.onScreen)
+        -- Inside the circle the Highlight IS the outline marker. Marking
+        -- it as used every frame keeps hideUnusedFx from switching it off
+        -- immediately after this pass enabled it.
         if o.highlight then
             markHighlight(o)
             SA.ApplyInstProp(cache, o.highlight, "Enabled", true)
@@ -258,7 +310,6 @@ local function drawEntityInner(cam, o, opt)
             SA.ApplyInstProp(cache, o.highlight, "FillTransparency", 1)
             SA.ApplyInstProp(cache, o.highlight, "OutlineTransparency",
                 math.clamp(t, 0, 1))
-            counts.highlights = counts.highlights + 1
         end
         return
     end

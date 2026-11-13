@@ -202,7 +202,8 @@ end
 
 -- ── BETTER: ESP decluttering / FPS pass ──────────────────────────────
 SA.EspVisibleCount = { players = 0, npcs = 0, crates = 0 }
-SA.CrateFovCount = { inside = 0, outside = 0, dots = 0, highlights = 0 }
+SA.CrateFovCount = SA.CrateFovCount
+    or { inside = 0, outside = 0, dots = 0, highlights = 0 }
 local espNearestSet = {}
 local espNearBuilt, espNearCount, espNearFrame = false, nil, -1
 local espTeamSetMode, espTeamSetFrame = nil, -1
@@ -336,19 +337,6 @@ function SA.EspFovState()
     }
 end
 
-function SA.CrateFovState()
-    local c = SA.CrateFovCount or {}
-    return {
-        enabled = CFG.crateFovAware == true,
-        crateEsp = CFG.crateEnabled == true,
-        radius = SA.FovRadius and SA.FovRadius() or nil,
-        center = SA.AimPoint and SA.AimPoint() or nil,
-        inside = c.inside or 0,
-        outside = c.outside or 0,
-        dots = c.dots or 0,
-        highlights = c.highlights or 0,
-    }
-end
 
 
 function SA.EspPassStats()
@@ -513,6 +501,13 @@ local function drawCrateFx(o, cam, origin, fovC, fovR, seed, cachedGeom)
         or (o.kind == "Elite" and espC("crateElite") or espC("crateLoot")))
     local g = cachedGeom or SA.EspGeom(o, cam, o.pos, o.pos, "crate")
     if not g then pcall(hideFx, o); return end
+    -- Classify BEFORE styling so this frame's branch and the counters
+    -- agree, and a circle crossing is applied in the frame it happens.
+    if CFG.crateFovAware == true then
+        crateFovClassify(o, g)
+    else
+        o.crateInside, o.crateOnScreen = nil, nil
+    end
     safeDrawEntity(cam, o, {
         enabled = true, pal = "crate", base = base, visColor = base,
         seed = seed, dist = o.dist or 0, maxDist = CFG.crateMaxDist,
@@ -596,27 +591,14 @@ end
 -- complete: every stale draw is erased first, then every entity is
 -- redrawn from fresh geometry in the same pass.
 local pendingStyleSweep = nil
+-- Crate-only pooling cleanup. Kept separate so a crate toggle can never
+-- invalidate a player object's geometry or drawings.
+local pendingCrateSweep = nil
 
 -- FOV / viewport transitions are handled PER ENTITY by the state key in
 -- 18_esp_fx_draw.lua, and style changes by the one-shot SA.EspStyleSweep.
 -- Nothing here invalidates every geometry cache: doing that per entity is
 -- exactly what used to thrash the whole pass while silent aim was ON.
-
-local function countCrateFovFromCache(cam, o, fovC, fovR)
-    if CFG.crateFovAware == false then return end
-    local g = o.geomCache
-    if not g or not g.raw then return end
-    -- Raw projection, not screenPoint()'s clamped border pixel.
-    local fov = SA.EspFovSnapshot(cam, g, fovC, fovR)
-    local c = SA.CrateFovCount
-    if not fov.onScreen or fov.outside then
-        c.outside = c.outside + 1
-        c.dots = c.dots + 1
-    else
-        c.inside = c.inside + 1
-        if o.highlight then c.highlights = c.highlights + 1 end
-    end
-end
 
 function SA.ApplyEspFx(cam)
     if not cam then return end
@@ -686,7 +668,12 @@ function SA.ApplyEspFx(cam)
         tostring(CFG.espShowTool), tostring(CFG.espShowState),
         tostring(CFG.espTextOutline), tostring(CFG.espTagBackdrop),
         tostring(CFG.espTagSide), tostring(CFG.espHighlightTarget),
-        tostring(CFG.crateFovAware), tostring(CFG.crateHighlight),
+        -- crateHighlight is folded in below only for the CRATE objects;
+        -- see the crate-only sweep. crateFovAware is NOT here on purpose:
+        -- -- it changes crate drawing alone, and putting it in the shared
+        -- signature made every PLAYER object hide + rebuild whenever the
+        -- crate mode was toggled (the "crate FOV turns my player ESP off"
+        -- report), because the sweep is global.
     }, "|")
     if SA.EspDrawSignature ~= drawSig then
         -- ONE sweep over the whole ESP set for a real toggle change, not
@@ -703,6 +690,23 @@ function SA.ApplyEspFx(cam)
         local why = pendingStyleSweep
         pendingStyleSweep = nil
         pcall(SA.EspStyleSweep, why)
+    end
+    -- CRATE-ONLY settings get a crate-only sweep: a pooled crate draw is
+    -- recycled, but no PLAYER object is touched. This is what keeps the
+    -- crate FOV / chams toggles from resetting the player ESP.
+    local crateSig = tostring(CFG.crateFovAware) .. "|"
+        .. tostring(CFG.crateHighlight) .. "|"
+        .. tostring(CFG.crateShowMilitary) .. "|"
+        .. tostring(CFG.crateShowElite) .. "|"
+        .. tostring(CFG.crateShowLoot) .. "|"
+        .. tostring(CFG.crateShowOpened)
+    if SA.EspCrateDrawSignature ~= crateSig then
+        SA.EspCrateDrawSignature = crateSig
+        pendingCrateSweep = "crate style"
+    end
+    if pendingCrateSweep then
+        pendingCrateSweep = nil
+        pcall(SA.EspCrateSweep)
     end
     local geomBudget = SA.EspGeometryBudget and SA.EspGeometryBudget()
         or { stride = 1, bucket = 0 }
@@ -797,6 +801,8 @@ function SA.ApplyEspFx(cam)
     end
 
     if crateOn then
+        local crateFovOn = CFG.crateFovAware == true
+        local crateCounts = SA.CrateFovCount
         for _, o in pairs(crateObjects) do
             seed = seed + 0.137
             local skip = not dueGeometry(nil, false, o)
@@ -805,6 +811,22 @@ function SA.ApplyEspFx(cam)
             if not ok then pcall(hideFx, o)
             elseif o.visible and o.pos then
                 SA.EspVisibleCount.crates = SA.EspVisibleCount.crates + 1
+            end
+            -- Counters come from the crate's OWN cached membership, so
+            -- they cost one boolean read and no projection. Nothing is
+            -- projected a second time just to feed a counter.
+            if crateFovOn and o.visible then
+                if o.crateInside then
+                    crateCounts.inside = crateCounts.inside + 1
+                    if o.highlight and o.highlight.Enabled then
+                        crateCounts.highlights = crateCounts.highlights + 1
+                    end
+                else
+                    crateCounts.outside = crateCounts.outside + 1
+                    if o.fx and o.fx.cratefovdot and o.fx.cratefovdot.Visible then
+                        crateCounts.dots = crateCounts.dots + 1
+                    end
+                end
             end
             if skip then
                 SA.EspPerf.geometrySkips = SA.EspPerf.geometrySkips + 1

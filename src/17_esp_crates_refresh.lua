@@ -4,9 +4,37 @@
 -- the loader hoists column-1 `local`s to beat Luau's 200-local cap.
 -- ==================================================================
 
+-- ── CRATE FOV STATE (crate-owned, never the player pipeline) ─────────
+-- The crate FOV mode must not borrow the PLAYER draw pipeline's circle
+-- test. It used to: the crate branch ran SA.EspFovSnapshot() with the
+-- player's centre / radius inside the shared styling pass, so the crate
+-- mode was coupled to the player-side FOV state and toggling it rewrote
+-- shared state the player objects also read. Membership is now OWNED by
+-- the crate object (`o.crateInside`) and computed from the crate's own
+-- cached projection, with a release margin so an edge crate cannot
+-- strobe between frames.
+--
+-- Only the TRANSITION bookkeeping lives here: the Highlight is released
+-- once when a crate leaves the circle, and the pooled edge dot is cleared
+-- on the crossing. The per-frame test itself is SA.CrateFovClassify().
+local crateFovTransitions = 0
+
+local function setCrateFovState(o, inside, onScreen)
+    local prev = o.crateInside
+    local prevScreen = o.crateOnScreen
+    if prev == inside and prevScreen == onScreen then return end
+    o.crateInside, o.crateOnScreen = inside, onScreen
+    if prev == nil then return end          -- first pass: no transition
+    crateFovTransitions = crateFovTransitions + 1
+    if not inside and o.highlight then
+        pcall(function() o.highlight.Enabled = false end)
+    end
+end
+
 local function refreshCrateESP()
     local myRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
     local myPos = myRoot and myRoot.Position or nil
+    local fovOn = CFG.crateFovAware == true
 
     for model, o in pairs(crateObjects) do
         o.visible = false
@@ -27,6 +55,17 @@ local function refreshCrateESP()
                 if opened and not CFG.crateShowOpened then stateOk = false end
                 local show = allowed and stateOk and pos ~= nil and dist <= CFG.crateMaxDist
 
+                -- Crate FOV membership is OWNED by the crate object and
+                -- classified from its own cached projection every styling
+                -- frame (SA.CrateFovClassify). Nothing is projected again
+                -- here; this pass only reacts to the resulting state.
+                local inside = o.crateInside == true
+                if fovOn then
+                    setCrateFovState(o, inside, o.crateOnScreen == true)
+                else
+                    o.crateInside, o.crateOnScreen = nil, nil
+                end
+
                 if not show then
                     o.bb.Enabled = false; o.highlight.Enabled = false
                 else
@@ -35,7 +74,13 @@ local function refreshCrateESP()
                         or (kind == "Military" and ESP_COLORS.crateMilitary
                         or (kind == "Elite" and ESP_COLORS.crateElite or ESP_COLORS.crateLoot))
                     o.bb.Enabled = true
-                    o.highlight.Enabled = CFG.crateHighlight
+                    -- In FOV-aware mode the Highlight is the in-circle
+                    -- marker only; the styling pass draws the outline.
+                    if fovOn then
+                        o.highlight.Enabled = inside
+                    else
+                        o.highlight.Enabled = CFG.crateHighlight
+                    end
                     o.highlight.FillColor = base
                     o.highlight.OutlineColor = base
                     o.nameLbl.TextColor3 = base
@@ -59,6 +104,10 @@ end
 local function enableCrateESP()
     CFG.crateEnabled = true
     SA.RefreshCrates()   -- queues an early incremental walker pass
+end
+
+function SA.CrateFovTransitions()
+    return crateFovTransitions
 end
 
 local function disableCrateESP()
