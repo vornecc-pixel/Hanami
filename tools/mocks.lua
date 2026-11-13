@@ -1133,6 +1133,19 @@ local function make_character(name, x, toolName)
         local tool = Instance.new("Tool")
         tool.Name = toolName
         tool.Parent = char
+        -- Real tools always carry parts (Handle + meshes). Without one the
+        -- weapon-cham walk has nothing to decorate, so the mock models a
+        -- Handle plus one mesh part like a real gun.
+        local handle = Instance.new("Part")
+        handle.Name = "Handle"
+        handle.Size = Vector3.new(1, 1, 2)
+        handle.Position = Vector3.new(x or 0, 1, 0)
+        handle.Parent = tool
+        local barrel = Instance.new("Part")
+        barrel.Name = "Barrel"
+        barrel.Size = Vector3.new(0.4, 0.4, 3)
+        barrel.Position = Vector3.new(x or 0, 1, -1.5)
+        barrel.Parent = tool
     end
     char.PrimaryPart = hrp
     return char

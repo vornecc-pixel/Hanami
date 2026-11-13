@@ -186,6 +186,9 @@ const newKeys = [
   'armorConsoleMaxDist', 'armorConsoleScanSec', 'armorConsoleSort',
   'armorConsoleCorner', 'armorConsoleScale', 'armorConsoleTransparency',
   'armorConsoleMaxPlayers',
+  'handChams', 'handChamsStyle', 'handChamsIntensity', 'handChamsAura',
+  'handChamsSpikes', 'weaponChams', 'weaponChamsStyle',
+  'weaponChamsIntensity', 'weaponChamsAura', 'weaponChamsSpikes',
   'gunNoSpread', 'gunShotProbe', 'gunInspectDefs', 'gunInspectScripts',
   'gunInspectGunControl', 'gunInspectLiveGun', 'gunNoRecoil',
   'gunCameraKickFilter', 'gunFireRate', 'gunFireRateMultiplier',
@@ -195,7 +198,7 @@ const newKeys = [
   'espStaffDetect', 'unknownHumanoidScan',
   'fovMode', 'fovDegrees', 'fovHitbox', 'fovStyle', 'fovSegments',
 ];
-assert(newKeys.length === 92, `expected 82 new CFG keys, found ${newKeys.length}`);
+assert(newKeys.length === 102, `expected 82 new CFG keys, found ${newKeys.length}`);
 const config = read('src/01_config.lua');
 const shipped = config.slice(
   config.indexOf('SA_CFG_SHIPPED = {'),
@@ -656,8 +659,8 @@ const palette = config.slice(
 );
 const colorArgs = Array.from(palette.matchAll(/Color3\.fromRGB\(([^)]*)\)/g),
   (m) => m[1].trim());
-assert(colorArgs.length === 50,
-  `expected 50 ESP palette colours, found ${colorArgs.length}`);
+assert(colorArgs.length === 52,
+  `expected 52 ESP palette colours, found ${colorArgs.length}`);
 assert(colorArgs.every((rgb) => rgb === '255, 255, 255'),
   'every customizable colour must default white');
 const bindings = config.slice(
@@ -667,8 +670,8 @@ const bindings = config.slice(
 const boundColors = Array.from(
   bindings.matchAll(/\{\s*"[^"]+"\s*,\s*"([A-Za-z0-9_]+)"\s*\}/g),
   (m) => m[1]);
-assert(boundColors.length === 50 && new Set(boundColors).size === 50,
-  'expected 50 unique inline colourpicker bindings');
+assert(boundColors.length === 52 && new Set(boundColors).size === 52,
+  'expected 52 unique inline colourpicker bindings');
 const espUi = read('src/22_ui_esp.lua');
 const aimingUi = read('src/21_ui_aiming.lua');
 assert(!/COLOR_GROUPS|colorCol|groupNames|lbl:colorpicker/.test(espUi),
@@ -891,7 +894,7 @@ const requiredDocs = [
   'SA.PlayerWarningState()',
   'SA.FireAssistState()',
   'SA.ForceHeadState()',
-  '6,849 assertions',
+  '6,990 assertions',
   'all 77 new CFG keys',
   '## Themes, fonts, inline colours and OFF defaults',
   '9 additional themes',
@@ -972,7 +975,7 @@ const requiredDocs = [
   'ESP-only best preset',
   'uiTheme',
   'uiFont',
-  '47-part list',
+  '48-part list',
   '### Armor Console',
   'SA.ArmorAnalyze',
   'SA.ArmorTargets()',

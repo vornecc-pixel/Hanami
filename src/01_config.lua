@@ -507,6 +507,10 @@ local ESP_DEFAULT_COLORS = {
     fov                  = Color3.fromRGB(255, 255, 255),
     fovManip             = Color3.fromRGB(255, 255, 255),
     target               = Color3.fromRGB(255, 255, 255),
+    -- hand / weapon chams (local character cosmetics; white defaults,
+    -- overridable by the inline colour pickers like every other colour)
+    handChamsColor       = Color3.fromRGB(255, 255, 255),
+    weaponChamsColor     = Color3.fromRGB(255, 255, 255),
     -- staff / admin ESP tag (read-only role detector)
     staffTag             = Color3.fromRGB(255, 255, 255),
     adminTag             = Color3.fromRGB(255, 255, 255),
@@ -694,6 +698,10 @@ SA.INLINE_COLOR_BINDINGS = {
         { "Snap VIS", "snapVisible" }, { "Snap WALL", "snapHidden" },
     },
     snapShowLead = { { "Lead", "lead" } },
+    -- Hand / weapon cham tints are independent pickers on their own
+    -- toggle, exactly like every other colour in the script.
+    handChams = { { "Hand", "handChamsColor" } },
+    weaponChams = { { "Weapon", "weaponChamsColor" } },
     espStaffDetect = {
         { "Staff tag", "staffTag" }, { "Admin tag", "adminTag" },
     },
@@ -846,6 +854,20 @@ local SA_CFG_SHIPPED = {
     snapLineThickness = 3,
     snapShowLead      = false,
 
+
+    -- HAND / WEAPON CHAMS. Two independent features with the same option
+    -- set. Neither reads the other's flags, so styling the hands never
+    -- changes the weapon.
+    handChams          = false,
+    handChamsStyle     = "Corrupted",
+    handChamsIntensity = 1,
+    handChamsAura      = false,
+    handChamsSpikes    = false,
+    weaponChams        = false,
+    weaponChamsStyle   = "Corrupted",
+    weaponChamsIntensity = 1,
+    weaponChamsAura    = false,
+    weaponChamsSpikes  = false,
 
     -- crate esp
     crateEnabled       = false,
@@ -1063,6 +1085,10 @@ for k, v in pairs({
     crateEnabled = false, crateFovAware = false,
     crateShowMilitary = false, crateShowElite = false,
     crateShowLoot = false, crateShowOpened = false, crateLooseDetect = false,
+    handChams = false, handChamsStyle = "Corrupted",
+    handChamsIntensity = 1, handChamsAura = false, handChamsSpikes = false,
+    weaponChams = false, weaponChamsStyle = "Corrupted",
+    weaponChamsIntensity = 1, weaponChamsAura = false, weaponChamsSpikes = false,
     crateHighlight = false, crateInvertState = false, crateLidDetect = false,
     crateMaxDist = 3000,
     showFov = false, fovFilled = false, fovTransparency = 1, fovThickness = 3,
@@ -1243,6 +1269,22 @@ CFG.armorConsoleCorner      = ({ ["Top Left"]=true, ["Top Right"]=true,
 CFG.armorConsoleScale       = saClampNum(CFG.armorConsoleScale, 0.6, 1.8, 1)
 CFG.armorConsoleTransparency= saClampNum(CFG.armorConsoleTransparency, 0, 80, 12)
 CFG.armorConsoleMaxPlayers  = saClampNum(CFG.armorConsoleMaxPlayers, 1, 5, 3)
+
+-- HAND / WEAPON CHAMS
+CFG.handChams            = CFG.handChams == true
+CFG.weaponChams          = CFG.weaponChams == true
+CFG.handChamsAura        = CFG.handChamsAura == true
+CFG.weaponChamsAura      = CFG.weaponChamsAura == true
+CFG.handChamsSpikes      = CFG.handChamsSpikes == true
+CFG.weaponChamsSpikes    = CFG.weaponChamsSpikes == true
+CFG.handChamsIntensity   = saClampNum(CFG.handChamsIntensity, 0.2, 2, 1)
+CFG.weaponChamsIntensity = saClampNum(CFG.weaponChamsIntensity, 0.2, 2, 1)
+CFG.handChamsStyle       = ({ Corrupted=true, Solid=true, Neon=true,
+                              Wireframe=true, Ghost=true })[CFG.handChamsStyle]
+                           and CFG.handChamsStyle or "Corrupted"
+CFG.weaponChamsStyle     = ({ Corrupted=true, Solid=true, Neon=true,
+                              Wireframe=true, Ghost=true })[CFG.weaponChamsStyle]
+                           and CFG.weaponChamsStyle or "Corrupted"
 CFG.armorConsoleWidth       = saClampNum(CFG.armorConsoleWidth, 220, 520, 300)
 CFG.armorConsoleHeight      = saClampNum(CFG.armorConsoleHeight, 200, 1200, 560)
 CFG.showNoTargetReason = CFG.showNoTargetReason == true

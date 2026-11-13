@@ -46,6 +46,42 @@ bindSlider(fovSec, "Snapline Size / Thickness", "snapLineThickness", 1, 10, 1, "
 bindToggle(fovSec, "Show Lead Marker", "snapShowLead",
     "Ring = the exact point the ballistic solver will aim at (moving targets / bullet drop)")
 
+-- ── VISUAL : Hand / Weapon Chams ──────────────────────────────────
+-- Two SEPARATE features. Each block writes only its own flags, so styling
+-- the hands can never change the weapon and vice versa. They share the
+-- same option set on purpose, not a shared config.
+local chamCol = VisualTab:column()
+local handChamSec, weaponChamSec = chamCol:multi_section({
+    names = { "Hand Chams", "Weapon Chams" },
+})
+
+bindToggle(handChamSec, "Hand Chams", "handChams",
+    "Your own hands / arms only. Independent of Weapon Chams")
+bindDropdown(handChamSec, "Style", "handChamsStyle",
+    { "Corrupted", "Solid", "Neon", "Wireframe", "Ghost" })
+bindSlider(handChamSec, "Intensity", "handChamsIntensity", 0.2, 2, 0.1, "x")
+bindToggle(handChamSec, "Runic Aura", "handChamsAura",
+    "Floating glyph BillboardGui above each hand")
+bindToggle(handChamSec, "Wireframe Spikes", "handChamsSpikes",
+    "Red SelectionBox wireframe around each hand")
+addButton(handChamSec, "Disable Hand Chams", function()
+    SA.ChamsSet("hand", false)
+end)
+
+bindToggle(weaponChamSec, "Weapon Chams", "weaponChams",
+    "The equipped tool's parts only. Independent of Hand Chams")
+bindDropdown(weaponChamSec, "Style", "weaponChamsStyle",
+    { "Corrupted", "Solid", "Neon", "Wireframe", "Ghost" })
+bindSlider(weaponChamSec, "Intensity", "weaponChamsIntensity", 0.2, 2, 0.1, "x")
+bindToggle(weaponChamSec, "Runic Aura", "weaponChamsAura",
+    "Floating glyph BillboardGui above each weapon part")
+bindToggle(weaponChamSec, "Wireframe Spikes", "weaponChamsSpikes",
+    "Red SelectionBox wireframe around each weapon part")
+addButton(weaponChamSec, "Disable Weapon Chams", function()
+    SA.ChamsSet("weapon", false)
+end)
+weaponChamSec:label({ name = "Hand and weapon settings are independent: each keeps its own style, intensity, aura and spikes" })
+
 -- ── VISUAL : Utilities ────────────────────────────────────────────
 local utilCol = VisualTab:column()
 local utilSec = utilCol:section({ name = "Utilities" })

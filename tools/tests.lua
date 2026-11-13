@@ -255,9 +255,9 @@ do
             "inline picker owner: " .. colorKey)
         pickerCount = pickerCount + 1
     end
-    eq(pickerCount, 50, "50 inline colourpickers")
-    eq(count(SA.INLINE_COLOR_OWNER), 50, "one owner per colourpicker")
-    eq(count(library.__saInlinePickers), 50, "no separate colour section")
+    eq(pickerCount, 52, "52 inline colourpickers")
+    eq(count(SA.INLINE_COLOR_OWNER), 52, "one owner per colourpicker")
+    eq(count(library.__saInlinePickers), 52, "no separate colour section")
 
     -- 9 additional full Atlanta presets (10 total) and 10 font picks.
     ok(#SA.UI_THEME_NAMES >= 9, "9+ named theme presets")
@@ -480,7 +480,7 @@ for _, name in ipairs(SA.ListProfiles()) do
 end
 ok(profileFound == false, "deleted profile gone from list")
 ok(type(SA.ListProfiles()) == "table", "profile list state")
-contains(rtDetail, "50 colours", "colour round-trip detail")
+contains(rtDetail, "52 colours", "colour round-trip detail")
 
 -- Save / Load / Export / Import must preserve the exact inline picker
 -- colours even on library builds that omit hn_col_* from get_config().
@@ -494,7 +494,7 @@ function saColorProfileRegression()
     near(ESP_COLORS[key].R * 255, 12, 0.6, "custom picker colour applied")
     local saved, saveErr = SA.SaveProfile("Colour Probe")
     ok(saved == true, "save colour profile: " .. tostring(saveErr))
-    eq(SA.LastConfigResult.colors, 50, "save reports all 50 colours")
+    eq(SA.LastConfigResult.colors, 52, "save reports all 52 colours")
     local data = readfile(SA.ProfileDir .. "/Colour_Probe.cfg")
     local decoded = http_service:JSONDecode(data)
     ok(type(decoded.__saEspColors) == "table",
@@ -508,7 +508,7 @@ function saColorProfileRegression()
         "picker colour reset before load")
     local loaded, loadErr = SA.LoadProfile("Colour_Probe")
     ok(loaded == true, "load colour profile: " .. tostring(loadErr))
-    eq(SA.LastConfigResult.colors, 50, "load restores all 50 colours")
+    eq(SA.LastConfigResult.colors, 52, "load restores all 52 colours")
     near(ESP_COLORS[key].R * 255, 12, 0.6,
         "saved colour restored after load")
     near(library.flags[flag].Color.R * 255, 12, 0.6,
@@ -4471,6 +4471,114 @@ function saSnaplineRewriteRegression()
     for k, v in pairs(savedFlags) do CFG[k] = v end
 end
 saSnaplineRewriteRegression()
+
+-- ── HAND / WEAPON CHAMS ─────────────────────────────────────────────
+-- The two slots must be genuinely independent: enabling, styling or
+-- disabling one must never touch the other. And every part a cham paints
+-- must be restored exactly when it is turned off.
+function saChamsRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "handChams", "handChamsStyle", "handChamsIntensity",
+        "handChamsAura", "handChamsSpikes", "weaponChams", "weaponChamsStyle",
+        "weaponChamsIntensity", "weaponChamsAura", "weaponChamsSpikes" }) do
+        savedFlags[k] = CFG[k]
+    end
+    SA.ChamsDispose()
+
+    local char = lp.Character
+    ok(char ~= nil, "chams: local character exists")
+    local arm = char:FindFirstChild("Right Arm")
+    ok(arm ~= nil, "chams: local character has an arm")
+    local tool = char:FindFirstChildOfClass("Tool")
+    ok(tool ~= nil, "chams: local character holds a tool")
+    local handle = tool and tool:FindFirstChild("Handle")
+
+    -- Canvas of the untouched state, so restore can be verified exactly.
+    local armMat, armCol, armTr = arm.Material, arm.Color, arm.Transparency
+    local handleMat = handle and handle.Material
+
+    -- ── hand chams alone ──
+    setFlags({ handChams = true, weaponChams = false })
+    frameTimes(2)
+    local st = SA.ChamsState()
+    eq(st.hand.active, true, "chams: hand chams activate")
+    ok(st.hand.parts >= 2, "chams: hand chams cover both arms")
+    eq(st.weapon.active, false,
+        "chams: enabling hand chams does NOT enable weapon chams")
+    ok(arm.Material ~= armMat or arm.Color ~= armCol,
+        "chams: hand chams actually repaint the arm")
+
+    -- ── weapon chams on top, with a DIFFERENT style ──
+    setFlags({ weaponChams = true, weaponChamsStyle = "Solid",
+        handChamsStyle = "Corrupted" })
+    frameTimes(2)
+    st = SA.ChamsState()
+    eq(st.weapon.active, true, "chams: weapon chams activate")
+    ok(st.weapon.parts >= 1, "chams: weapon chams cover the tool parts")
+    eq(st.hand.active, true, "chams: weapon chams do not disturb hand chams")
+    ok(CFG.handChamsStyle ~= CFG.weaponChamsStyle,
+        "chams: the two slots hold different styles")
+
+    -- ── independence: turning the hands OFF leaves the weapon ON ──
+    setFlags({ handChams = false })
+    frameTimes(2)
+    st = SA.ChamsState()
+    eq(st.hand.active, false, "chams: hand chams deactivate")
+    eq(st.weapon.active, true,
+        "chams: disabling hand chams leaves weapon chams running")
+    eq(arm.Material, armMat, "chams: arm material restored exactly")
+    eq(arm.Color, armCol, "chams: arm colour restored exactly")
+    eq(arm.Transparency, armTr, "chams: arm transparency restored exactly")
+    if handle and handleMat ~= nil then
+        ok(handle.Material ~= handleMat,
+            "chams: the weapon is still painted while hands are off")
+    end
+
+    -- ── aura + spikes are per-slot artifacts, pooled not per-frame ──
+    setFlags({ weaponChamsAura = true, weaponChamsSpikes = true })
+    frameTimes(3)
+    st = SA.ChamsState()
+    ok(st.weapon.auras >= 1, "chams: runic aura creates one BillboardGui per part")
+    ok(st.weapon.boxes >= 1, "chams: spikes create one SelectionBox per part")
+    local aurasOnce = st.weapon.auras
+    frameTimes(10)
+    eq(SA.ChamsState().weapon.auras, aurasOnce,
+        "chams: auras are pooled, not recreated every frame")
+
+    -- ── everything off restores the character exactly ──
+    setFlags({ weaponChams = false, weaponChamsAura = false,
+        weaponChamsSpikes = false })
+    frameTimes(2)
+    st = SA.ChamsState()
+    eq(st.weapon.active, false, "chams: weapon chams deactivate")
+    eq(st.weapon.auras, 0, "chams: disabling removes every aura")
+    eq(st.weapon.boxes, 0, "chams: disabling removes every wireframe box")
+    if handle and handleMat ~= nil then
+        eq(handle.Material, handleMat,
+            "chams: weapon material restored exactly")
+    end
+
+    -- ── a disabled pair costs nothing and touches nothing ──
+    local restores = SA.ChamsState().hand.restores
+    frameTimes(20)
+    eq(SA.ChamsState().hand.restores, restores,
+        "chams: disabled slots perform no restore work")
+    eq(arm.Material, armMat, "chams: a disabled cham leaves the arm alone")
+
+    -- ── dispose is a hard stop ──
+    setFlags({ handChams = true, weaponChams = true })
+    frameTimes(2)
+    SA.ChamsDispose()
+    frameTimes(2)
+    st = SA.ChamsState()
+    eq(st.hand.active, false, "chams: dispose stops hand chams")
+    eq(st.weapon.active, false, "chams: dispose stops weapon chams")
+    eq(CFG.handChams, false, "chams: dispose clears the hand flag")
+
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saChamsRegression()
+
 
 
 
