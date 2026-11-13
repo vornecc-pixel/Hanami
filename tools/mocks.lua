@@ -248,8 +248,18 @@ Color3 = {
         return Color3.new((r or 0) / 255, (g or 0) / 255, (b or 0) / 255)
     end,
     fromHSV = function(h, sat, val)
-        -- Hue is irrelevant to the assertions; keep a deterministic value.
-        return Color3.new(val or 1, val or 1, val or 1)
+        -- Real HSV -> RGB. The chams' Prismatic_RGB theme sweeps the hue,
+        -- so a hue-blind mock would make it indistinguishable from a flat
+        -- colour and hide a genuinely broken theme.
+        h = (tonumber(h) or 0) % 1
+        sat = math.clamp(tonumber(sat) or 1, 0, 1)
+        val = math.clamp(tonumber(val) or 1, 0, 1)
+        local function channel(n)
+            local k = (n + h * 6) % 6
+            local v = val - val * sat * math.max(0, math.min(k, 4 - k, 1))
+            return math.clamp(v, 0, 1)
+        end
+        return Color3.new(channel(5), channel(3), channel(1))
     end,
 }
 
@@ -1420,6 +1430,56 @@ camera.FieldOfView = 70
 camera.Parent = WorkspaceService
 WorkspaceService.CurrentCamera = camera
 MOCK_CAMERA = camera
+
+-- ── Fust first-person viewmodels ────────────────────────────────────
+-- The FX studio paints Workspace.FustGunFX.FustGunViewmodel and
+-- Camera.FustToolViewmodel, not the third-person arms. Hand chams must
+-- find those too, so the mock provides both, with the same part naming a
+-- real rig uses (arms named "arm"/"hand", the gun parts named otherwise).
+local fustGunFX = Instance.new("Folder")
+fustGunFX.Name = "FustGunFX"
+fustGunFX.Parent = WorkspaceService
+
+local gunViewmodel = Instance.new("Model")
+gunViewmodel.Name = "FustGunViewmodel"
+gunViewmodel.Parent = fustGunFX
+
+local function vmPart(name, material, color, transparency)
+    local part = Instance.new("Part")
+    part.Name = name
+    part.Size = Vector3.new(0.4, 0.4, 1.2)
+    part.Material = material or Enum.Material.SmoothPlastic
+    part.Color = color or Color3.fromRGB(90, 90, 95)
+    part.Transparency = transparency or 0
+    return part
+end
+
+local vmHand = vmPart("RightArm", Enum.Material.SmoothPlastic, Color3.fromRGB(240, 200, 160))
+vmHand.Parent = gunViewmodel
+local vmSleeve = vmPart("LeftSleeve", Enum.Material.Fabric, Color3.fromRGB(40, 45, 50))
+vmSleeve.Parent = gunViewmodel
+local vmBody = vmPart("Receiver", Enum.Material.Metal, Color3.fromRGB(60, 60, 65))
+vmBody.Parent = gunViewmodel
+local vmBarrel = vmPart("Barrel", Enum.Material.Metal, Color3.fromRGB(35, 35, 40))
+vmBarrel.Parent = gunViewmodel
+local vmGhost = vmPart("MuzzleHidden", Enum.Material.Metal, Color3.fromRGB(1, 1, 1), 1)
+vmGhost.Parent = gunViewmodel
+MOCK_GUN_VIEWMODEL = gunViewmodel
+MOCK_VIEWMODEL_HAND = vmHand
+MOCK_VIEWMODEL_SLEEVE = vmSleeve
+MOCK_VIEWMODEL_BODY = vmBody
+MOCK_VIEWMODEL_BARREL = vmBarrel
+MOCK_VIEWMODEL_INVISIBLE = vmGhost
+
+local toolViewmodel = Instance.new("Model")
+toolViewmodel.Name = "FustToolViewmodel"
+toolViewmodel.Parent = camera
+local toolVmHand = vmPart("LeftHand", Enum.Material.SmoothPlastic, Color3.fromRGB(240, 200, 160))
+toolVmHand.Parent = toolViewmodel
+local toolVmGun = vmPart("ToolBody", Enum.Material.Metal, Color3.fromRGB(50, 50, 55))
+toolVmGun.Parent = toolViewmodel
+MOCK_TOOL_VIEWMODEL = toolViewmodel
+MOCK_TOOL_VM_GUN = toolVmGun
 
 -- The local Tool gets a Fust ItemId only inside the Fust bow tests;
 -- MOCK_FUST_TOOL above is that same Tool. The ReplicatedStorage.Fust

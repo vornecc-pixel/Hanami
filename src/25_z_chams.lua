@@ -2,11 +2,17 @@
 -- Hanami / 25_z_chams.lua
 -- HAND CHAMS + WEAPON CHAMS, each fully independent.
 --
--- Derived from the "1x1x1x1_CORRUPTED" cham snippet: pulsing
--- Obsidian / red Neon, occasional ForceField spike flashes with a red
--- wireframe box, and floating runic BillboardGui glyphs.
+-- Option set ported from the "FUST VIEWMODEL FX & ANIMATION STUDIO V10"
+-- snippet (16 themed engines, per-frame material / colour animation) and
+-- from the older "1x1x1x1_CORRUPTED" cham (wireframe spikes + runic
+-- glyph BillboardGuis).
 --
--- What changed from the snippet, and why:
+-- What is kept from the studio, and what was deliberately changed:
+--   * All 16 themes are here, unchanged in look: the 10 palette themes
+--     (Quantum_Void .. Matrix_Overload) plus the 6 procedural ones
+--     (Matrix_Glitch, Cosmic_Nebula, Cyber_Wave, Biohazard_Slime,
+--     Supernova_Flux). The studio's "1x1x1x1_Corrupted" is not a separate
+--     entry because our "Corrupted" style already IS that look.
 --   * It is TWO separate features with their OWN settings. Hand chams and
 --     weapon chams share the same option set but never read each other's
 --     flags, so styling the hands cannot touch the weapon.
@@ -17,13 +23,17 @@
 --     properties it restores on disable. Every touched part keeps a
 --     snapshot and is restored exactly (material, colour, transparency,
 --     reflection) when the style is turned off.
---   * It does not drive itself from math.random() per frame (the snippet
---     flashed ~8% of frames and rerolled glyphs constantly, which is
---     pure churn). Here the pulse is a deterministic function of time and
---     a per-part phase offset, and glyph text changes on a timed beat.
---   * It runs on ONE bindRender callback with an early exit, walks only
---     the local character's parts, and writes a property only when it
---     actually changes.
+--   * It does not drive itself from math.random() per frame (the snippets
+--     flashed on a random fraction of frames and rerolled glyphs
+--     constantly, which is pure churn). Here the pulse is a deterministic
+--     function of time and a per-part phase offset, and glyph text changes
+--     on a timed beat. Themes that looked random (Matrix_Glitch's
+--     "breakdown", Electric_Arc's jitter, the Corrupted spike flash) use a
+--     deterministic hash of (time bucket, part phase) instead, so the same
+--     part always flashes the same way and nothing flickers per frame.
+--   * It runs on ONE bindRender callback with an early exit, walks only the
+--     local character's parts, and writes a property only when it actually
+--     changes.
 -- ==================================================================
 
 -- Rune alphabet from the source snippet.
@@ -36,11 +46,36 @@ local CORRUPT_SPIKE  = Color3.fromRGB(25, 0, 5)
 local CORRUPT_WIRE   = Color3.fromRGB(255, 0, 30)
 local CORRUPT_WHITE  = Color3.fromRGB(255, 255, 255)
 
--- Every style a cham slot can use. Split into two groups so the UI can
--- label them; the engine only cares about the key.
-SA.CHAM_STYLES = {
-    "Corrupted", "Solid", "Neon", "Wireframe", "Ghost",
+-- The 10 themed palettes from the studio. Primary / Accent / Light and the
+-- tracer material the theme would use for bullet tracers.
+local CHAM_PALETTES = {
+    Quantum_Void    = { Primary = Color3.fromRGB(15, 0, 35),    Accent = Color3.fromRGB(180, 0, 255),  Light = Color3.fromRGB(220, 150, 255) },
+    Solar_Flare     = { Primary = Color3.fromRGB(255, 60, 0),   Accent = Color3.fromRGB(255, 180, 0),  Light = Color3.fromRGB(255, 255, 240) },
+    Cyber_Synthwave = { Primary = Color3.fromRGB(255, 0, 140),  Accent = Color3.fromRGB(0, 240, 255),  Light = Color3.fromRGB(255, 255, 255) },
+    Bio_Toxic       = { Primary = Color3.fromRGB(40, 160, 10),  Accent = Color3.fromRGB(140, 255, 0),  Light = Color3.fromRGB(200, 255, 100) },
+    Chrono_Shift    = { Primary = Color3.fromRGB(180, 140, 20), Accent = Color3.fromRGB(255, 215, 60), Light = Color3.fromRGB(255, 255, 220) },
+    Deep_Frost      = { Primary = Color3.fromRGB(0, 120, 220),  Accent = Color3.fromRGB(100, 220, 255), Light = Color3.fromRGB(230, 250, 255) },
+    Blood_Moon      = { Primary = Color3.fromRGB(40, 0, 8),     Accent = Color3.fromRGB(220, 0, 30),   Light = Color3.fromRGB(255, 80, 90) },
+    Electric_Arc    = { Primary = Color3.fromRGB(0, 80, 255),   Accent = Color3.fromRGB(120, 220, 255), Light = Color3.fromRGB(255, 255, 255) },
+    Prismatic_RGB   = { Primary = Color3.fromRGB(255, 0, 100),  Accent = Color3.fromRGB(0, 255, 200),  Light = Color3.fromRGB(255, 255, 255) },
+    Matrix_Overload = { Primary = Color3.fromRGB(0, 40, 10),    Accent = Color3.fromRGB(0, 255, 70),   Light = Color3.fromRGB(220, 255, 230) },
 }
+
+-- The procedural studio themes. Kept as a separate list because the
+-- engine branches on them rather than reading a palette.
+-- "1x1x1x1_Corrupted" is deliberately ABSENT: that is what our existing
+-- "Corrupted" style already renders, so importing it again would just put
+-- two identical entries in the dropdown.
+local CHAM_PROCEDURAL = {
+    "Matrix_Glitch", "Cosmic_Nebula",
+    "Cyber_Wave", "Biohazard_Slime", "Supernova_Flux",
+}
+
+-- SA.CHAM_STYLES / SA.CHAM_STYLE_SET are declared in 01_config.lua so the
+-- load-time clamp can validate a saved style against the same list the
+-- dropdown and this engine use. Nothing to redefine here.
+assert(SA.CHAM_STYLE_SET and SA.CHAM_STYLE_SET.Corrupted,
+    "chams: 01_config.lua must declare SA.CHAM_STYLES before this part")
 
 -- Which parts count as "hands" and which as "weapon".
 -- R15 hand parts, R6 arm parts and the classic Hand/RootPart tool grips.
@@ -95,12 +130,32 @@ local function chamGet(inst, prop, fallback)
     return value
 end
 
+-- ── DETERMINISM HELPERS ─────────────────────────────────────────────
+-- The snippets used math.random() inside the frame loop: a part flashed on
+-- ~8% of frames, so the look was different every time you looked at it and
+-- the property writes never settled. These helpers give the SAME
+-- pseudo-random-looking variation from a (time bucket, phase) pair, so a
+-- flashing theme is stable within its bucket and costs nothing per frame.
+-- Pure-arithmetic LCG: no bit32 / bit library assumption (Roblox has
+-- bit32, plain Lua 5.3 does not), and every product stays under 2^53 so
+-- Luau's floats stay exact.
+local function chamHash(a, b)
+    local n = ((a or 0) % 1048576) * 1103515 + ((b or 0) % 1048576) * 12345
+    n = (n % 2147483) * 48271 % 2147483
+    n = (n % 99991) * 16807 % 99991
+    return (n % 100000) / 100000
+end
+
 -- ── MATERIAL / COLOUR PER STYLE ─────────────────────────────────────
 -- Returns material, colour, transparency for a part at time `t`.
 -- `phase` is a per-part offset so the left and right hand never pulse in
--- lockstep -- that synchronised flashing is what made the snippet look
+-- lockstep -- that synchronised flashing is what made the original look
 -- like one solid blob rather than two moving hands.
+--
+-- Every theme uses the part's local Y (via `phase`) so the sweep / scan
+-- themes read as a wave travelling across the hand or down the gun.
 local function chamLook(style, t, phase, intensity, baseColor)
+    intensity = math.max(tonumber(intensity) or 1, 0.05)
     if style == "Solid" then
         return Enum.Material.SmoothPlastic, baseColor or CORRUPT_RED, 0
     end
@@ -119,55 +174,241 @@ local function chamLook(style, t, phase, intensity, baseColor)
         local col = (baseColor or CORRUPT_RED):Lerp(CORRUPT_WHITE, 0.5)
         return Enum.Material.ForceField, col, 0.35 + pulse * 0.25
     end
+
+    local pal = CHAM_PALETTES[style]
+
+    -- ── the 10 palette themes, straight from applyV8EngineFrame ──
+    if style == "Quantum_Void" then
+        local void = math.sin(t * 8 + phase)
+        if void > 0.4 then
+            return Enum.Material.ForceField, pal.Accent, 0.2
+        end
+        return Enum.Material.Glass, pal.Primary, 0.2
+    elseif style == "Solar_Flare" then
+        local flare = (math.sin(t * 14 + phase) + 1) * 0.5
+        if flare > 0.85 then
+            return Enum.Material.Neon, pal.Light, 0
+        elseif flare > 0.4 then
+            return Enum.Material.Neon, pal.Accent, 0
+        end
+        return Enum.Material.Neon, pal.Primary, 0
+    elseif style == "Cyber_Synthwave" then
+        local sweep = math.sin(t * 8 - phase * 12)
+        if sweep > 0.7 then
+            return Enum.Material.Neon, pal.Primary, 0
+        end
+        return Enum.Material.ForceField, pal.Accent, 0.35
+    elseif style == "Bio_Toxic" then
+        local boil = (math.sin(t * 12 + phase * 8)
+            + math.cos(t * 8 + phase * 8)) * 0.5
+        if boil > 0.3 then
+            return Enum.Material.Glass, pal.Accent, 0.15
+        end
+        return Enum.Material.Glass, pal.Primary, 0.15
+    elseif style == "Chrono_Shift" then
+        -- A 16 Hz tick, but bucketed: the material only flips on the beat.
+        if math.floor(t * 16 + phase) % 2 == 0 then
+            return Enum.Material.Foil, pal.Accent, 0.1
+        end
+        return Enum.Material.Glass, pal.Primary, 0.1
+    elseif style == "Deep_Frost" then
+        local crystal = (math.sin(t * 5 + phase * 10) + 1) * 0.5
+        return Enum.Material.Ice, pal.Primary:Lerp(pal.Accent, crystal), 0.2
+    elseif style == "Blood_Moon" then
+        local eclipse = math.sin(t * 9 + phase * 6)
+        if eclipse > 0.3 then
+            return Enum.Material.Neon, pal.Accent, 0
+        end
+        return Enum.Material.CorrodedMetal, pal.Primary, 0
+    elseif style == "Electric_Arc" then
+        -- Deterministic jitter on a ~10 Hz bucket instead of math.random().
+        local jitter = chamHash(math.floor(t * 10), math.floor(phase * 97)) < 0.2
+        if jitter then
+            return Enum.Material.ForceField, pal.Light, 0.4
+        end
+        return Enum.Material.Neon, pal.Primary, 0
+    elseif style == "Prismatic_RGB" then
+        local hue = (t * 0.4 + phase * 0.2) % 1
+        return Enum.Material.Neon, Color3.fromHSV(hue, 0.9, 1), 0
+    elseif style == "Matrix_Overload" then
+        local step = math.floor(t * 22 + phase * 7) % 3
+        if step == 0 then
+            return Enum.Material.Neon, pal.Light, 0.3
+        elseif step == 1 then
+            return Enum.Material.Neon, pal.Accent, 0
+        end
+        return Enum.Material.Neon, pal.Primary, 0
+
+    -- ── the 6 procedural themes, from applyV5EngineFrame ──
+    elseif style == "Matrix_Glitch" then
+        -- A "major breakdown" is the theme's whole character: it also
+        -- drives the wireframe flash and the chromatic fringe. Bucketed at
+        -- 6 Hz so it is stable for ~160 ms rather than per frame.
+        local bucket = math.floor(t * 6)
+        local breakdown = chamHash(bucket, math.floor(phase * 53)) < 0.08 * intensity
+        if breakdown then
+            if chamHash(bucket, 7) < 0.3 then
+                return Enum.Material.ForceField, Color3.fromRGB(240, 255, 245), 0.4
+            end
+            return Enum.Material.ForceField, Color3.fromRGB(0, 255, 70), 0.4
+        end
+        local pulse = math.sin(t * 18 + phase * 7)
+        if pulse > 0.65 then
+            return Enum.Material.Neon, Color3.fromRGB(0, 255, 70), 0
+        elseif pulse < -0.65 then
+            return Enum.Material.Glass, Color3.fromRGB(0, 60, 20), 0
+        end
+        return Enum.Material.SmoothPlastic, Color3.fromRGB(10, 35, 15), 0
+    elseif style == "Cosmic_Nebula" then
+        local wave = (t * 1.5 + phase * 3) % (math.pi * 2)
+        local r = (math.sin(wave) + 1) * 0.5
+        local g = (math.sin(wave + 2.09) + 1) * 0.5
+        local b = (math.sin(wave + 4.18) + 1) * 0.5
+        return Enum.Material.Glass,
+            Color3.new(0.1 + 0.7 * r, 0.05 + 0.3 * g, 0.4 + 0.6 * b),
+            0.15 + math.sin(t * 4 + phase) * 0.1
+    elseif style == "Cyber_Wave" then
+        local scan = math.sin(t * 8 - phase * 12)
+        if scan > 0.75 then
+            return Enum.Material.Neon, Color3.fromRGB(255, 0, 140), 0
+        end
+        return Enum.Material.ForceField, Color3.fromRGB(0, 240, 255), 0.35
+    elseif style == "Biohazard_Slime" then
+        local boil = (math.sin(t * 14 + phase * 10)
+            + math.cos(t * 9 + phase * 10)) * 0.5
+        if boil > 0.4 then
+            return Enum.Material.Glass, Color3.fromRGB(140, 255, 0), 0.05
+        end
+        return Enum.Material.Glass, Color3.fromRGB(50, 180, 20), 0.35
+    elseif style == "Supernova_Flux" then
+        local flare = (math.sin(t * 16 + phase) + 1) * 0.5
+        if flare > 0.85 then
+            return Enum.Material.Neon, Color3.fromRGB(255, 255, 240), 0
+        elseif flare > 0.4 then
+            return Enum.Material.Neon, Color3.fromRGB(255, 120, 0), 0
+        end
+        return Enum.Material.Neon, Color3.fromRGB(200, 20, 0), 0
+    end
+
     -- Corrupted (default): Obsidian / red Neon pulsing.
     local pulse = math.sin(t * 12 + phase)
-    if pulse > 0.4 * math.max(intensity, 0.05) then
-        return Enum.Material.Neon, CORRUPT_RED, 0
+    if pulse > 0.4 * intensity then
+        return Enum.Material.Neon, baseColor or CORRUPT_RED, 0
     end
     return Enum.Material.CorrodedMetal, CORRUPT_DARK, 0
 end
 
+-- Does this style ask for the wireframe spike box / chromatic fringe?
+-- Both the studio themes and the simple ones can request them; the flags
+-- stay per-slot so hands and weapon never share.
+local function chamWantsSpike(style, spikesFlag)
+    if spikesFlag then return true end
+    -- The Wireframe style is defined by its box, so it always draws one.
+    return style == "Wireframe"
+end
+
+-- The accent colour a theme uses for its wireframe / fringe / rune art.
+local function chamAccent(style, baseColor)
+    local pal = CHAM_PALETTES[style]
+    if pal then return pal.Accent end
+    if style == "Matrix_Glitch" then return Color3.fromRGB(0, 255, 240) end
+    return baseColor or CORRUPT_WIRE
+end
+
 -- ── PART DISCOVERY ──────────────────────────────────────────────────
+-- The studio's isHandPart(): any part whose name mentions an arm, hand,
+-- wrist, elbow or sleeve is "hands". Everything else on a viewmodel is
+-- treated as the weapon. Used only to split the two viewmodels, never to
+-- touch anybody else's character.
+local HAND_WORDS = { "arm", "hand", "wrist", "elbow", "sleeve", "glove" }
+
+local function chamIsHandName(name)
+    local lower = string.lower(name or "")
+    if HAND_PARTS[name] then return true end
+    for _, word in ipairs(HAND_WORDS) do
+        if string.find(lower, word, 1, true) then return true end
+    end
+    return false
+end
+
+local function chamIsPart(inst)
+    if not inst then return false end
+    local ok, res = pcall(function() return inst:IsA("BasePart") end)
+    return ok and res == true
+end
+
+local function chamPushPart(out, seen, part)
+    if seen[part] or not chamIsPart(part) then return end
+    -- Fully invisible parts are skipped: painting them would only write
+    -- properties nobody can see, and the studio skipped them too.
+    local tr = chamGet(part, "Transparency", 0)
+    if type(tr) == "number" and tr >= 1 then return end
+    seen[part] = true
+    out[#out + 1] = part
+end
+
+-- The Fust first-person viewmodels. In a first-person game these -- not
+-- the third-person character arms -- are what the player actually sees,
+-- so a cham that only painted Workspace arms would look like nothing
+-- happened. Both are optional: the walk is pcall'd and a missing model is
+-- simply skipped.
+local function chamViewmodels()
+    local out = {}
+    pcall(function()
+        local gunFX = Workspace:FindFirstChild("FustGunFX")
+        local gunVM = gunFX and gunFX:FindFirstChild("FustGunViewmodel")
+        if gunVM then out[#out + 1] = gunVM end
+        local camera = Workspace.CurrentCamera
+        local toolVM = camera and camera:FindFirstChild("FustToolViewmodel")
+        if toolVM then out[#out + 1] = toolVM end
+    end)
+    return out
+end
+
 -- Collect the local character's hand parts and the equipped tool's parts.
 -- Read-only walk; never mutates the hierarchy.
 local function chamCollect(slotName)
-    local out = {}
+    local out, seen = {}, {}
     local char = lp and lp.Character
-    if not char then return out end
 
-    if slotName == "hand" then
-        -- Every BasePart on the character whose name is a known hand /
-        -- arm name. R15 characters expose the hands directly; R6 ones
-        -- only have arms, so both are accepted.
-        local ok = pcall(function()
+    -- 1. the local character's own arms / hands (third person + R6)
+    if char and slotName == "hand" then
+        pcall(function()
             for _, part in ipairs(char:GetChildren()) do
                 if type(part.Name) == "string" and HAND_PARTS[part.Name] then
-                    local isPart = select(2, pcall(function()
-                        return part:IsA("BasePart")
-                    end))
-                    if isPart then out[#out + 1] = part end
+                    chamPushPart(out, seen, part)
                 end
             end
         end)
-        if not ok then return {} end
-    else
-        -- Weapon: the parts of the currently equipped Tool. A tool can
-        -- hold a mesh, a handle, or a whole model, so walk descendants.
+    end
+
+    -- 2. the equipped tool's parts (the real gun model)
+    if slotName == "weapon" and char then
         local tool = nil
-        pcall(function()
-            tool = char:FindFirstChildOfClass("Tool")
-        end)
+        pcall(function() tool = char:FindFirstChildOfClass("Tool") end)
         if tool then
             pcall(function()
-                if tool:IsA("BasePart") then out[#out + 1] = tool end
+                if chamIsPart(tool) then chamPushPart(out, seen, tool) end
                 for _, part in ipairs(tool:GetDescendants()) do
-                    local isPart = select(2, pcall(function()
-                        return part:IsA("BasePart")
-                    end))
-                    if isPart then out[#out + 1] = part end
+                    chamPushPart(out, seen, part)
                 end
             end)
         end
+    end
+
+    -- 3. the first-person viewmodels, split by part name exactly like the
+    --    studio's Target = "Hands" / "Weapon" split.
+    for _, vm in ipairs(chamViewmodels()) do
+        pcall(function()
+            for _, part in ipairs(vm:GetDescendants()) do
+                if chamIsPart(part) then
+                    local isHand = chamIsHandName(part.Name)
+                    if (slotName == "hand") == isHand then
+                        chamPushPart(out, seen, part)
+                    end
+                end
+            end
+        end)
     end
     return out
 end
@@ -298,11 +539,23 @@ local function chamTickSlot(name, t)
     -- Any style change invalidates the snapshot only for parts whose
     -- style-dependent artifacts differ; simplest correct behaviour is to
     -- restore first so the snapshot always describes the real part.
-    local style = CFG[prefix .. "Style"] or "Corrupted"
+    -- Resolve the style here as well as in the load-time clamp: a saved
+    -- profile / clipboard import can write a style name this build does
+    -- not have, and an unknown name would silently fall through chamLook
+    -- to the default look while the dropdown still showed the old value.
+    local style = CFG[prefix .. "Style"]
+    if not (type(style) == "string" and SA.CHAM_STYLE_SET[style]) then
+        style = "Corrupted"
+        CFG[prefix .. "Style"] = style
+        pcall(setFlag, prefix .. "Style", style)
+    end
     local intensity = tonumber(CFG[prefix .. "Intensity"]) or 1
     local auraOn = CFG[prefix .. "Aura"] == true
-    local wireOn = (style == "Wireframe") or CFG[prefix .. "Spikes"] == true
+    local wireOn = chamWantsSpike(style, CFG[prefix .. "Spikes"] == true)
     local baseColor = ESP_COLORS[prefix .. "Color"] or CORRUPT_RED
+    -- Wireframe / fringe / rune colour follows the theme, so a Solar_Flare
+    -- box is not red and a Matrix_Glitch one is not red either.
+    local accent = chamAccent(style, baseColor)
 
     local parts = chamCollect(name)
     if #parts == 0 then
@@ -370,10 +623,17 @@ local function chamTickSlot(name, t)
 
         -- Wireframe spike box: the snippet created one per random frame.
         -- Here it is a pooled instance that is simply shown or hidden.
-        if wireOn then
+        -- The studio's "breakdown" themes only draw their box on a
+        -- breakdown frame; a plain Wireframe style draws it always.
+        local showBox = wireOn
+        if wireOn and style == "Matrix_Glitch" then
+            showBox = chamHash(math.floor(t * 6), math.floor(phase * 53))
+                < 0.08 * math.max(intensity, 0.05)
+        end
+        if showBox then
             local box = chamEnsureBox(slot, part)
             if box then
-                chamSet(box, "Color3", CORRUPT_WIRE)
+                chamSet(box, "Color3", accent)
                 chamSet(box, "LineThickness",
                     0.04 * math.max(intensity, 0.05))
                 chamSet(box, "Visible", true)
@@ -393,7 +653,7 @@ local function chamTickSlot(name, t)
                     -- Text changes on a 3 Hz beat; bobbing is continuous.
                     if slot.lastTextBeat ~= math.floor(t * 3) then
                         lbl.Text = chamRuneText(t, seed + index)
-                        lbl.TextColor3 = CORRUPT_RED
+                        lbl.TextColor3 = accent
                     end
                     chamSet(gui, "ExtentsOffset", Vector3.new(
                         math.sin(t * 4 + phase) * 0.2 * intensity,
@@ -407,12 +667,32 @@ local function chamTickSlot(name, t)
         end
     end
     slot.lastTextBeat = math.floor(t * 3)
+    slot.style = style
     slot.active = true
     slot.reason = "active"
     slot.count = #parts
 end
 
 -- ── PUBLIC API ──────────────────────────────────────────────────────
+-- Clear whatever one slot has painted, without touching the other. The
+-- render loop used to clear a slot only while BOTH flags were off, so
+-- switching just the hands off (weapon still on) left the arms painted
+-- forever. Both the loop and ChamsState() go through here.
+local function chamSyncSlot(name, t)
+    local slot = chams[name]
+    local prefix = name == "hand" and "handChams" or "weaponChams"
+    local want = CFG[prefix] == true
+    if want then
+        chamTickSlot(name, t)
+        return
+    end
+    if slot.active or next(slot.parts) ~= nil
+        or next(slot.auras) ~= nil or next(slot.boxes) ~= nil then
+        chamClearSlot(slot)
+    end
+    slot.reason = "disabled"
+end
+
 function SA.ChamsSet(slotName, on)
     if slotName ~= "hand" and slotName ~= "weapon" then return false end
     local flag = slotName == "hand" and "handChams" or "weaponChams"
@@ -421,23 +701,27 @@ function SA.ChamsSet(slotName, on)
     return true
 end
 
+-- Explicit repaint: the UI's "apply now" path. The per-frame render loop
+-- already keeps both slots current, so this is only for a style change
+-- that should land before the next frame.
 function SA.ChamsRefresh()
     local t = tick()
-    chamTickSlot("hand", t)
-    chamTickSlot("weapon", t)
+    chamSyncSlot("hand", t)
+    chamSyncSlot("weapon", t)
     return SA.ChamsState()
 end
 
+-- Read-only: a state probe must never paint. It used to call the tick
+-- for both slots, so asking "are the chams on?" could repaint the arms
+-- after the flags had already been switched off.
 function SA.ChamsState()
-    local t = tick()
-    chamTickSlot("hand", t)
-    chamTickSlot("weapon", t)
     local function summary(slot)
         local auras, boxes = 0, 0
         for _ in pairs(slot.auras) do auras = auras + 1 end
         for _ in pairs(slot.boxes) do boxes = boxes + 1 end
         return {
             active = slot.active == true,
+            style = slot.style or "Corrupted",
             parts = slot.count or 0,
             auras = auras,
             boxes = boxes,
@@ -461,21 +745,19 @@ end
 -- ONE render callback for both slots, with an early exit so the disabled
 -- case (the default) costs two boolean reads per frame.
 bindRender(function(dt)
-    if CFG.handChams ~= true and CFG.weaponChams ~= true then
-        -- Still needs one pass to restore anything left over from the
-        -- frame the toggle went off.
-        if chams.hand.active or next(chams.hand.parts) ~= nil then
-            chamClearSlot(chams.hand)
-        end
-        if chams.weapon.active or next(chams.weapon.parts) ~= nil then
-            chamClearSlot(chams.weapon)
-        end
+    -- Each slot is gated on its OWN flag. Both off is the cheap case (two
+    -- boolean reads, then a next() check that is already empty).
+    if CFG.handChams ~= true and CFG.weaponChams ~= true
+        and not chams.hand.active and not chams.weapon.active
+        and next(chams.hand.parts) == nil and next(chams.weapon.parts) == nil
+        and next(chams.hand.auras) == nil and next(chams.weapon.auras) == nil
+        and next(chams.hand.boxes) == nil and next(chams.weapon.boxes) == nil then
         return
     end
     local ok, err = pcall(function()
         local t = tick()
-        if CFG.handChams == true then chamTickSlot("hand", t) end
-        if CFG.weaponChams == true then chamTickSlot("weapon", t) end
+        chamSyncSlot("hand", t)
+        chamSyncSlot("weapon", t)
     end)
     if not ok then
         chams.errors = chams.errors + 1

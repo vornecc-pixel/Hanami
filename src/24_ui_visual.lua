@@ -57,8 +57,13 @@ local handChamSec, weaponChamSec = chamCol:multi_section({
 
 bindToggle(handChamSec, "Hand Chams", "handChams",
     "Your own hands / arms only. Independent of Weapon Chams")
-bindDropdown(handChamSec, "Style", "handChamsStyle",
-    { "Corrupted", "Solid", "Neon", "Wireframe", "Ghost" })
+-- Every style SA.CHAM_STYLES exports, so the dropdown and the engine can
+-- never drift apart. 5 simple + 10 palette themes + 5 procedural themes.
+local CHAM_STYLE_ITEMS = {}
+for _, styleName in ipairs(SA.CHAM_STYLES) do
+    CHAM_STYLE_ITEMS[#CHAM_STYLE_ITEMS + 1] = styleName
+end
+bindDropdown(handChamSec, "Style", "handChamsStyle", CHAM_STYLE_ITEMS)
 bindSlider(handChamSec, "Intensity", "handChamsIntensity", 0.2, 2, 0.1, "x")
 bindToggle(handChamSec, "Runic Aura", "handChamsAura",
     "Floating glyph BillboardGui above each hand")
@@ -70,8 +75,7 @@ end)
 
 bindToggle(weaponChamSec, "Weapon Chams", "weaponChams",
     "The equipped tool's parts only. Independent of Hand Chams")
-bindDropdown(weaponChamSec, "Style", "weaponChamsStyle",
-    { "Corrupted", "Solid", "Neon", "Wireframe", "Ghost" })
+bindDropdown(weaponChamSec, "Style", "weaponChamsStyle", CHAM_STYLE_ITEMS)
 bindSlider(weaponChamSec, "Intensity", "weaponChamsIntensity", 0.2, 2, 0.1, "x")
 bindToggle(weaponChamSec, "Runic Aura", "weaponChamsAura",
     "Floating glyph BillboardGui above each weapon part")

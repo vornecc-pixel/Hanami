@@ -511,10 +511,30 @@ local ESP_DEFAULT_COLORS = {
     -- overridable by the inline colour pickers like every other colour)
     handChamsColor       = Color3.fromRGB(255, 255, 255),
     weaponChamsColor     = Color3.fromRGB(255, 255, 255),
+
     -- staff / admin ESP tag (read-only role detector)
     staffTag             = Color3.fromRGB(255, 255, 255),
     adminTag             = Color3.fromRGB(255, 255, 255),
 }
+
+-- Every cham style either slot can use. 5 simple looks, then the 10
+-- palette engines and the 5 procedural engines ported from the
+-- "FUST Viewmodel FX Studio" snippet. Declared here (not in the chams
+-- part) because the load-time clamp below validates a saved style
+-- against this exact list -- one source of truth for the dropdown, the
+-- clamp and the render engine.
+SA.CHAM_STYLES = {
+    "Corrupted", "Solid", "Neon", "Wireframe", "Ghost",
+    "Quantum_Void", "Solar_Flare", "Cyber_Synthwave", "Bio_Toxic",
+    "Chrono_Shift", "Deep_Frost", "Blood_Moon", "Electric_Arc",
+    "Prismatic_RGB", "Matrix_Overload",
+    "Matrix_Glitch", "Cosmic_Nebula",
+    "Cyber_Wave", "Biohazard_Slime", "Supernova_Flux",
+}
+SA.CHAM_STYLE_SET = {}
+for _, chamStyleName in ipairs(SA.CHAM_STYLES) do
+    SA.CHAM_STYLE_SET[chamStyleName] = true
+end
 local ESP_COLORS = _G.__saEspColors or {}
 for k, v in pairs(ESP_DEFAULT_COLORS) do
     if typeof(ESP_COLORS[k]) ~= "Color3" then ESP_COLORS[k] = v end
@@ -1279,11 +1299,13 @@ CFG.handChamsSpikes      = CFG.handChamsSpikes == true
 CFG.weaponChamsSpikes    = CFG.weaponChamsSpikes == true
 CFG.handChamsIntensity   = saClampNum(CFG.handChamsIntensity, 0.2, 2, 1)
 CFG.weaponChamsIntensity = saClampNum(CFG.weaponChamsIntensity, 0.2, 2, 1)
-CFG.handChamsStyle       = ({ Corrupted=true, Solid=true, Neon=true,
-                              Wireframe=true, Ghost=true })[CFG.handChamsStyle]
+-- Every style SA.CHAM_STYLES declares (the 5 simple ones plus the 15
+-- themed engines ported from the FX studio). A saved profile naming a
+-- style that no longer exists falls back to Corrupted instead of leaving
+-- the dropdown showing a value the engine cannot render.
+CFG.handChamsStyle       = SA.CHAM_STYLE_SET[CFG.handChamsStyle]
                            and CFG.handChamsStyle or "Corrupted"
-CFG.weaponChamsStyle     = ({ Corrupted=true, Solid=true, Neon=true,
-                              Wireframe=true, Ghost=true })[CFG.weaponChamsStyle]
+CFG.weaponChamsStyle     = SA.CHAM_STYLE_SET[CFG.weaponChamsStyle]
                            and CFG.weaponChamsStyle or "Corrupted"
 CFG.armorConsoleWidth       = saClampNum(CFG.armorConsoleWidth, 220, 520, 300)
 CFG.armorConsoleHeight      = saClampNum(CFG.armorConsoleHeight, 200, 1200, 560)

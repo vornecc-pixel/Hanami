@@ -4579,6 +4579,209 @@ function saChamsRegression()
 end
 saChamsRegression()
 
+-- The FX-studio theme port: every style the dropdown offers must actually
+-- render, must be genuinely different from its neighbours, and must never
+-- bleed into the other slot. Also proves the first-person Fust viewmodels
+-- are painted (that is what the player actually sees).
+function saChamThemeRegression()
+    local savedFlags = {}
+    for _, k in ipairs({ "handChams", "handChamsStyle", "handChamsIntensity",
+        "handChamsAura", "handChamsSpikes", "weaponChams", "weaponChamsStyle",
+        "weaponChamsIntensity", "weaponChamsAura", "weaponChamsSpikes" }) do
+        savedFlags[k] = CFG[k]
+    end
+    SA.ChamsDispose()
+
+    -- 21 styles: 5 simple + 10 palette + 5 procedural, no duplicates.
+    ok(#SA.CHAM_STYLES >= 20, "themes: full studio style list present")
+    local seenStyle, styleCount = {}, 0
+    for _, name in ipairs(SA.CHAM_STYLES) do
+        ok(not seenStyle[name], "themes: no duplicate style " .. tostring(name))
+        seenStyle[name] = true
+        styleCount = styleCount + 1
+        ok(SA.CHAM_STYLE_SET[name] == true, "themes: style set has " .. tostring(name))
+    end
+    ok(styleCount >= 20, "themes: counted every style")
+
+    -- The 10 palette engines from the snippet are all reachable.
+    for _, name in ipairs({ "Quantum_Void", "Solar_Flare", "Cyber_Synthwave",
+        "Bio_Toxic", "Chrono_Shift", "Deep_Frost", "Blood_Moon",
+        "Electric_Arc", "Prismatic_RGB", "Matrix_Overload" }) do
+        ok(SA.CHAM_STYLE_SET[name] == true, "themes: palette theme " .. name)
+    end
+    -- The 5 procedural ones (1x1x1x1_Corrupted is our Corrupted, not a copy).
+    for _, name in ipairs({ "Matrix_Glitch", "Cosmic_Nebula", "Cyber_Wave",
+        "Biohazard_Slime", "Supernova_Flux" }) do
+        ok(SA.CHAM_STYLE_SET[name] == true, "themes: procedural theme " .. name)
+    end
+    ok(SA.CHAM_STYLE_SET["1x1x1x1_Corrupted"] == nil,
+        "themes: the duplicated 1x1x1x1 entry is not shipped twice")
+    ok(SA.CHAM_STYLE_SET.Corrupted == true,
+        "themes: the existing Corrupted look is untouched")
+
+    local arm = lp.Character and lp.Character:FindFirstChild("Right Arm")
+    ok(arm ~= nil, "themes: arm available")
+    local vmHand = MOCK_VIEWMODEL_HAND
+    ok(vmHand ~= nil, "themes: first-person viewmodel hand available")
+    local vmSleeve = MOCK_VIEWMODEL_SLEEVE
+    local vmBody = MOCK_VIEWMODEL_BODY
+    local vmBarrel = MOCK_VIEWMODEL_BARREL
+    local handMat, handCol = vmHand.Material, vmHand.Color
+    local bodyMat, barrelMat = vmBody.Material, vmBarrel.Material
+
+    -- Every style must paint, and no style may throw.
+    local errsBefore = SA.ChamsState().errors
+    setFlags({ handChams = true, weaponChams = false, handChamsAura = false,
+        handChamsSpikes = false })
+    local sigOfStyle = {}
+    for _, name in ipairs(SA.CHAM_STYLES) do
+        setFlags({ handChamsStyle = name })
+        frameTimes(3)
+        local st = SA.ChamsState()
+        eq(st.hand.active, true, "themes: " .. name .. " paints the hands")
+        ok(st.hand.parts >= 2, "themes: " .. name .. " covers every hand part")
+        sigOfStyle[name] = tostring(vmHand.Material) .. "|"
+            .. tostring(vmHand.Color) .. "|"
+            .. string.format("%.2f", vmHand.Transparency)
+    end
+    eq(SA.ChamsState().errors, errsBefore,
+        "themes: no style threw inside the render pass")
+
+    -- Distinct looks: no two themes may render identically. Comparing a
+    -- single sampled frame would be flaky (Prismatic_RGB sweeps the hue),
+    -- so each theme keeps a 6-frame signature instead.
+    local signature = {}
+    local vmProbe = MOCK_VIEWMODEL_HAND
+    for _, name in ipairs(SA.CHAM_STYLES) do
+        setFlags({ handChamsStyle = name })
+        local frames = {}
+        for _ = 1, 6 do
+            frameTimes(1)
+            frames[#frames + 1] = tostring(vmProbe.Material) .. "/"
+                .. string.format("%.3f,%.3f,%.3f", vmProbe.Color.R,
+                    vmProbe.Color.G, vmProbe.Color.B) .. "/"
+                .. string.format("%.2f", vmProbe.Transparency)
+        end
+        signature[name] = table.concat(frames, " ")
+    end
+    local identicalPairs = 0
+    for i = 1, #SA.CHAM_STYLES do
+        for j = i + 1, #SA.CHAM_STYLES do
+            local a, b = SA.CHAM_STYLES[i], SA.CHAM_STYLES[j]
+            if signature[a] == signature[b] then
+                identicalPairs = identicalPairs + 1
+                ok(false, "themes: " .. a .. " and " .. b
+                    .. " render identically")
+            end
+        end
+    end
+    eq(identicalPairs, 0,
+        "themes: every one of the " .. #SA.CHAM_STYLES
+            .. " styles renders differently")
+    -- And the animated ones must actually animate across frames.
+    local animated = 0
+    for _, name in ipairs(SA.CHAM_STYLES) do
+        local frames = {}
+        for frame in signature[name]:gmatch("[^ ]+") do frames[frame] = true end
+        local n = 0
+        for _ in pairs(frames) do n = n + 1 end
+        if n > 1 then animated = animated + 1 end
+    end
+    ok(animated >= 10, "themes: the pulsing styles animate, got " .. animated)
+
+    -- Hand paints the viewmodel arms but NOT the gun parts of the same model.
+    setFlags({ handChamsStyle = "Solid" })
+    frameTimes(2)
+    ok(vmHand.Material ~= handMat or vmHand.Color ~= handCol,
+        "themes: hand chams repaint the first-person hand")
+    eq(vmSleeve.Material ~= nil, true, "themes: sleeve is a real part")
+    eq(vmBody.Material, bodyMat,
+        "themes: hand chams leave the viewmodel gun alone")
+    eq(vmBarrel.Material, barrelMat,
+        "themes: hand chams leave the viewmodel barrel alone")
+    eq(MOCK_VIEWMODEL_INVISIBLE.Material, Enum.Material.Metal,
+        "themes: an invisible part is skipped")
+
+    -- Weapon chams on the same viewmodel, a DIFFERENT theme, hands untouched.
+    setFlags({ weaponChams = true, weaponChamsStyle = "Matrix_Overload" })
+    frameTimes(2)
+    local st = SA.ChamsState()
+    eq(st.weapon.active, true, "themes: weapon chams paint the viewmodel")
+    ok(st.weapon.parts >= 2, "themes: weapon chams cover every gun part")
+    ok(vmBody.Material ~= bodyMat, "themes: the gun body was repainted")
+    ok(vmBarrel.Material ~= barrelMat, "themes: the barrel was repainted")
+    eq(vmHand.Material, Enum.Material.SmoothPlastic,
+        "themes: the weapon theme did not repaint the hand")
+
+    -- Turning the hands off leaves the weapon themed and restores exactly.
+    setFlags({ handChams = false })
+    frameTimes(2)
+    eq(vmHand.Material, handMat, "themes: viewmodel hand material restored")
+    eq(vmHand.Color, handCol, "themes: viewmodel hand colour restored")
+    ok(vmBody.Material ~= bodyMat,
+        "themes: weapon chams survive the hands being switched off")
+
+    -- Aura + spikes use the theme accent, not a hardcoded red.
+    setFlags({ weaponChamsAura = true, weaponChamsSpikes = true,
+        weaponChamsStyle = "Solar_Flare" })
+    frameTimes(3)
+    st = SA.ChamsState()
+    ok(st.weapon.auras >= 1, "themes: themed aura created")
+    ok(st.weapon.boxes >= 1, "themes: themed wireframe created")
+    local boxCount = st.weapon.boxes
+    frameTimes(10)
+    eq(SA.ChamsState().weapon.boxes, boxCount,
+        "themes: themed wireframes stay pooled")
+
+    -- Everything back off, and the viewmodel is exactly as it started.
+    setFlags({ weaponChams = false, weaponChamsAura = false,
+        weaponChamsSpikes = false })
+    frameTimes(2)
+    eq(vmBody.Material, bodyMat, "themes: gun body restored")
+    eq(vmBarrel.Material, barrelMat, "themes: gun barrel restored")
+    eq(vmHand.Material, handMat, "themes: hand restored after the theme pass")
+    ok(arm.Material == nil or arm.Material ~= Enum.Material.Neon,
+        "themes: no themed material left on the character arm")
+
+    -- A style written by an OLDER build (or a hand-edited import) must
+    -- fall back instead of rendering nothing. This is the same path a
+    -- saved profile takes: library:load_config() writes CFG directly, so
+    -- the engine has to resolve the style itself, not just at load.
+    setFlags({ handChams = true, handChamsStyle = "Matrix_Overload",
+        weaponChams = true, weaponChamsStyle = "Supernova_Flux" })
+    frameTimes(2)
+    eq(SA.ChamsState().hand.style, "Matrix_Overload", "themes: valid style kept")
+
+    CFG.handChamsStyle = "Not_A_Real_Theme"
+    CFG.weaponChamsStyle = "Also_Not_Real"
+    frameTimes(2)
+    eq(CFG.handChamsStyle, "Corrupted",
+        "themes: an unknown hand style resolves to Corrupted")
+    eq(CFG.weaponChamsStyle, "Corrupted",
+        "themes: an unknown weapon style resolves to Corrupted")
+    local fb = SA.ChamsState()
+    eq(fb.hand.style, "Corrupted", "themes: reported hand style is the fallback")
+    eq(fb.weapon.style, "Corrupted", "themes: reported weapon style is the fallback")
+    eq(fb.hand.active, true, "themes: the fallback style still renders the hands")
+    eq(fb.weapon.active, true, "themes: the fallback style still renders the weapon")
+
+    -- The flags still round-trip through a profile with the new styles.
+    setFlags({ handChamsStyle = "Quantum_Void", weaponChamsStyle = "Blood_Moon" })
+    frameTimes(2)
+    local themeName = "Cham Theme Profile"
+    ok(SA.SaveProfile(themeName) == true, "themes: save themed profile")
+    setFlags({ handChamsStyle = "Solid", weaponChamsStyle = "Ghost" })
+    ok(SA.LoadProfile(themeName) == true, "themes: load themed profile")
+    eq(CFG.handChamsStyle, "Quantum_Void", "themes: hand style round-tripped")
+    eq(CFG.weaponChamsStyle, "Blood_Moon", "themes: weapon style round-tripped")
+    pcall(function() SA.DeleteProfile(themeName) end)
+    SA.ChamsDispose()
+    frameTimes(2)
+
+    for k, v in pairs(savedFlags) do CFG[k] = v end
+end
+saChamThemeRegression()
+
 
 
 
