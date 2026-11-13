@@ -499,7 +499,14 @@ function saColorProfileRegression()
     local decoded = http_service:JSONDecode(data)
     ok(type(decoded.__saEspColors) == "table",
         "saved profile carries ESP colours")
-    eq(decoded.__saEspColors[key], "#0C2238", "saved picker hex")
+    -- The saved value now carries the picker's TRANSPARENCY as well, so
+    -- an alpha change survives a save/load (it used to be forced back to
+    -- 1 on restore). "#RRGGBB@<alpha>" - the @ is not a hex digit, so a
+    -- profile written by an older build still parses.
+    contains(decoded.__saEspColors[key], "#0C2238",
+        "saved picker hex")
+    contains(decoded.__saEspColors[key], "@",
+        "saved picker carries its transparency")
     local sidecar = readfile(SA.ProfileDir .. "/Colour_Probe.colors")
     contains(sidecar, key .. "=#0C2238", "colour sidecar")
     ESP_COLORS[key] = ESP_DEFAULT_COLORS[key]
@@ -3469,10 +3476,13 @@ function saDetectorRegression()
     contains(tagText(otherPlr.Character), "ADMIN", "detector ON tag ADMIN")
     mock_staff_reset()
 
-    -- Both tag colours ship white with exactly one inline owner.
+    -- Both tag colours ship white with exactly one inline owner. The
+    -- snapshot value carries "@<transparency>" so compare the hex part.
     local palette = SA.EspColorSnapshot()
-    eq(palette.staffTag, "#FFFFFF", "staff tag colour ships white")
-    eq(palette.adminTag, "#FFFFFF", "admin tag colour ships white")
+    eq(SA.EspColorParseValue(palette.staffTag), "#FFFFFF",
+        "staff tag colour ships white")
+    eq(SA.EspColorParseValue(palette.adminTag), "#FFFFFF",
+        "admin tag colour ships white")
     eq(SA.INLINE_COLOR_OWNER.staffTag, "espStaffDetect",
         "staff tag colour inline owner")
     eq(SA.INLINE_COLOR_OWNER.adminTag, "espStaffDetect",
@@ -5546,6 +5556,174 @@ do
     eq(SA.SanitizeAtlantaSource("return library, themes"),
         "return library, themes", "plain library source is unchanged")
 end
+
+-- ── CONFIG SAVE / LOAD fidelity ──────────────────────────────────────
+-- Reported: "when loading up a config or saving a config, it saves the
+-- color presets, toggles, and all what u turned on... it loads that up."
+-- Three defects made that false:
+--   1. a profile saved as "default" could never be loaded -- LoadProfile
+--      treated the name as "reset to shipped defaults", and the dropdown
+--      sits on exactly that name, so Save-then-Load threw everything away;
+--   2. every saved colourpicker came back fully OPAQUE because restore
+--      hardcoded transparency = 1;
+--   3. one flag that threw inside get_config() aborted the entire save.
+function saConfigFidelityRegression()
+    -- This test flips a lot of shared state, and the harness re-executes
+    -- the dist between runs 1..3, so everything it touches is snapshotted
+    -- here and restored at the end.
+    local savedCFG, savedColors = {}, {}
+    for k, v in pairs(CFG) do savedCFG[k] = v end
+    for k, v in pairs(ESP_COLORS or {}) do savedColors[k] = v end
+    quiet(function() SA.ResetToDefaults() end)
+    local savedDir = library.directory
+    -- The harness autoloads SA.GetLastProfile() at the top of run 2, so
+    -- remember whose marker we are about to overwrite and put it back.
+    local previousLast = SA.GetLastProfile()
+    local savedProfileDir, savedProfileLast = SA.ProfileDir, SA.ProfileLast
+    -- Keep the user's real profiles out of this test. SA.ProfileDir and
+    -- SA.ProfileLast were resolved from library.directory at load time, so
+    -- swapping library.directory alone is not enough.
+    library.directory = "HanamiCfgTest"
+    SA.ProfileDir = "HanamiCfgTest/configs"
+    SA.ProfileLast = "HanamiCfgTest/hanami_last_profile.txt"
+    pcall(function()
+        makefolder("HanamiCfgTest")
+        makefolder("HanamiCfgTest/configs")
+    end)
+
+    -- 1. THE "default" PROFILE. Turn a mix ON, save over `default`, and
+    --    load it back. This is the exact button flow the user described.
+    local probes = {
+        { flag = "hn_espShowBox", value = true },
+        { flag = "hn_espShowName", value = true },
+        { flag = "hn_handChams", value = true },
+        { flag = "hn_weaponChams", value = true },
+        { flag = "hn_handChamsStyle", value = "Quantum_Void" },
+        { flag = "hn_weaponChamsStyle", value = "Supernova_Flux" },
+        { flag = "hn_handChamsIntensity", value = 1.7 },
+        { flag = "hn_fovMode", value = "Degrees" },
+        { flag = "hn_fovDegrees", value = 42 },
+        { flag = "hn_nearestTopN", value = 4 },
+        { flag = "hn_triggerbot", value = true },
+        { flag = "hn_hitboxEnabled", value = true },
+        { flag = "hn_crateFovAware", value = true },
+    }
+    for _, p in ipairs(probes) do
+        local setter = library.config_flags[p.flag]
+        ok(type(setter) == "function", "fidelity: setter for " .. p.flag)
+        pcall(setter, p.value)
+    end
+    local colourKey = "playerBox"
+    local colourFlag = "hn_col_" .. colourKey
+    library.config_flags[colourFlag](
+        Color3.fromRGB(17, 34, 51), 0.35)
+    frameTimes(2)
+
+    ok(SA.SaveProfile("default") == true,
+        "fidelity: profile named `default` saves")
+    ok(SA.ProfileExists("default") == true,
+        "fidelity: the saved `default` file is on disk")
+
+    -- Flip everything to the opposite value.
+    for _, p in ipairs(probes) do
+        local setter = library.config_flags[p.flag]
+        local opposite
+        if type(p.value) == "boolean" then opposite = not p.value
+        elseif type(p.value) == "number" then opposite = 1
+        else opposite = "Corrupted" end
+        pcall(setter, opposite)
+    end
+    library.config_flags[colourFlag](Color3.fromRGB(255, 255, 255), 1)
+    frameTimes(2)
+    near(ESP_COLORS[colourKey].R * 255, 255, 1,
+        "fidelity: colour was reset before load")
+
+    local okLoad, loadErr = SA.LoadProfile("default")
+    eq(okLoad, true, "fidelity: loading `default` succeeds: "
+        .. tostring(loadErr))
+    frameTimes(2)
+
+    -- THE regression: a saved `default` must actually load, not reset.
+    for _, p in ipairs(probes) do
+        local key = p.flag:sub(4)
+        eq(tostring(CFG[key]), tostring(p.value),
+            "fidelity: " .. key .. " came back from the `default` profile")
+    end
+
+    -- 2. COLOUR + TRANSPARENCY. The hex must come back AND the alpha must
+    --    come back; forcing 1 back is the bug.
+    local swatch = library.flags[colourFlag]
+    ok(type(swatch) == "table", "fidelity: colour picker flag exists")
+    eq(swatch.Color:ToHex(), "#112233", "fidelity: saved colour restored")
+    near(swatch.Transparency, 0.35, 0.001,
+        "fidelity: saved colour TRANSPARENCY restored")
+    near(ESP_COLORS[colourKey].R * 255, 17, 1,
+        "fidelity: ESP_COLORS colour restored")
+
+    -- An OLD profile with no @alpha still loads its colour, and does not
+    -- get stomped to opaque by our own reader.
+    local legacyHex, legacyAlpha = SA.EspColorParseValue("#0A141E")
+    eq(legacyHex, "#0A141E", "fidelity: legacy value parses the hex")
+    eq(legacyAlpha, nil, "fidelity: legacy value has no alpha")
+    local roundHex, roundAlpha = SA.EspColorParseValue("#0A141E@0.5")
+    eq(roundHex, "#0A141E", "fidelity: current value parses the hex")
+    near(roundAlpha, 0.5, 0.001, "fidelity: current value parses the alpha")
+
+    -- 3. A BROKEN FLAG MUST NOT ABORT THE SAVE. Corrupt one picker, save,
+    --    and confirm a file with real flags still lands on disk.
+    local brokenFlag = "hn_col_playerName"
+    library.flags[brokenFlag] = { Color = "not_a_color", Transparency = 0 }
+    local okBroken, brokenErr = SA.SaveProfile("Broken Save")
+    eq(okBroken, true, "fidelity: save survives one broken flag: "
+        .. tostring(brokenErr))
+    local brokenPath = SA.ProfileDir .. "/Broken_Save.cfg"
+    local brokenData = readfile(brokenPath)
+    ok(type(brokenData) == "string" and #brokenData > 2,
+        "fidelity: the broken-flag save still wrote a profile")
+    library.flags[brokenFlag] = {
+        Color = ESP_DEFAULT_COLORS.playerName, Transparency = 1,
+    }
+
+    -- 4. RESET TO DEFAULTS must beat a saved `default` file.
+    quiet(function() SA.ResetToDefaults() end)
+    pcall(function()
+        delfile(SA.ProfileDir .. "/default.cfg")
+        delfile(SA.ProfileDir .. "/default.colors")
+    end)
+    ok(SA.ProfileExists("default") == false,
+        "fidelity: reset removed the saved default")
+    local okReset = SA.LoadProfile("default")
+    eq(okReset, true, "fidelity: `default` is still loadable with no file")
+    eq(CFG.espShowBox, SA.CFG_DEFAULTS.espShowBox,
+        "fidelity: no file means shipped defaults")
+
+    -- Restore every piece of shared state this test touched, so the
+    -- auto-load assertions at the top of run 2 still see their fixture.
+    for k, v in pairs(savedCFG) do CFG[k] = v end
+    for k, v in pairs(savedColors) do ESP_COLORS[k] = v end
+    for _, p in ipairs(probes) do
+        local setter = library.config_flags[p.flag]
+        if setter then pcall(setter, savedCFG[p.flag:sub(4)]) end
+    end
+    library.config_flags[colourFlag](
+        savedColors[colourKey] or ESP_DEFAULT_COLORS[colourKey], 1)
+    pcall(SA.ApplyTheme, CFG.uiTheme)
+    pcall(SA.ApplyFont, CFG.uiFont)
+    pcall(SA.ResetKeybindDefaults)
+    library.directory = savedDir
+    SA.ProfileDir, SA.ProfileLast = savedProfileDir, savedProfileLast
+    pcall(function()
+        local data = previousLast and readfile(SA.ProfileDir .. "/"
+            .. previousLast .. ".cfg") or nil
+        if type(data) == "string" and data ~= "" then
+            writefile(SA.ProfileLast, previousLast)
+        end
+    end)
+    eq(SA.GetLastProfile(), previousLast,
+        "fidelity: last-profile marker restored for the next run")
+    frameTimes(2)
+end
+saConfigFidelityRegression()
 
 eq(callback_errors, 0, "mock callback errors")
 eq(event_errors, 0, "mock event errors")

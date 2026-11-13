@@ -175,31 +175,75 @@ end
 
 function SA.SaveProfile(name)
     name = saCfgSafeName(name)
-    local encoded = nil
-    local ok, err = pcall(function()
+    -- Everything used to run inside ONE pcall, so a single flag that threw
+    -- during get_config() (a picker holding a non-Color3, a widget a
+    -- rebuild left behind) aborted the whole save with "save failed" and
+    -- NOTHING was written -- every other setting was lost with it.
+    -- The directory and the list update stay fatal; serialising a single
+    -- flag does not.
+    local okDir, dirErr = pcall(function()
         makefolder(library.directory or "Atlanta")
         makefolder(SA.ProfileDir)
-        encoded = SA.EspColorEncode(library:get_config())
+    end)
+    if not okDir then return false, tostring(dirErr) end
+
+    local encoded = nil
+    local okGet, raw = pcall(function() return library:get_config() end)
+    if okGet and type(raw) == "string" then
+        encoded = SA.EspColorEncode(raw)
+    else
+        -- Last resort: still write a file so a profile exists, with the
+        -- colours we know about. Never silently do nothing.
+        local js = SA.EspJson()
+        if js then
+            local okEnc, enc = pcall(function()
+                return js:JSONEncode({ __saEspColors = SA.EspColorSnapshot() })
+            end)
+            encoded = okEnc and enc or "{}"
+        else
+            encoded = "{}"
+        end
+    end
+    if type(encoded) ~= "string" or encoded == "" then encoded = "{}" end
+
+    local okWrite, writeErr = pcall(function()
         writefile(SA.ProfileDir .. "/" .. name .. ".cfg", encoded)
         writefile(SA.ProfileDir .. "/" .. name .. ".colors", SA.EspColorText())
         writefile(SA.ProfileLast, name)
         library:config_list_update()
     end)
-    if not ok then return false, tostring(err) end
+    if not okWrite then return false, tostring(writeErr) end
     CFG.configName, CFG.configProfile = name, name
     local colorCount = SA.EspColorCount()
     SA.LastConfigResult = { profile = name, flags = SA.FlagCount(),
-                            colors = colorCount, bytes = encoded and #encoded or nil }
+                            colors = colorCount, bytes = #encoded,
+                            getConfigOk = okGet == true }
     return true
+end
+
+-- Does this profile have a file on disk? "default" is special: it means
+-- the shipped defaults ONLY when nothing was ever saved under that name.
+function SA.ProfileExists(name)
+    name = saCfgSafeName(name)
+    local ok, data = pcall(function()
+        return readfile(SA.ProfileDir .. "/" .. name .. ".cfg")
+    end)
+    return ok and type(data) == "string" and data ~= ""
 end
 
 function SA.LoadProfile(name)
     name = saCfgSafeName(name)
-    -- "default" is always loadable: it means the shipped defaults. Without
-    -- this the fresh-session dropdown sits on `default`, which has no file
-    -- on disk, so Load failed with "profile not found" until the user
-    -- happened to pick a saved name -- the "nothing loads" symptom.
-    if name == "default" then
+    -- "default" used to ALWAYS mean "reset to shipped defaults", even
+    -- after the user saved a real profile named `default` -- and the
+    -- profile dropdown sits on `default`, so the obvious flow
+    -- (turn things on -> Save Profile -> Load Profile) silently threw
+    -- every setting away. A saved `default.cfg` now loads like any other
+    -- profile; the reset branch only applies when no file exists.
+    --
+    -- Reset to Defaults still does what it says: the button deletes any
+    -- saved `default.cfg` / `default.colors` and applies the shipped
+    -- defaults, so the next Load cannot undo the reset.
+    if name == "default" and not SA.ProfileExists("default") then
         local okReset = pcall(SA.ResetToDefaults)
         if not okReset then return false, "reset to defaults failed" end
         CFG.configName, CFG.configProfile = "default", "default"
@@ -729,7 +773,17 @@ end)
 addButton(profileSec, "Delete Profile", function()
     SA.DeleteProfile(CFG.configProfile)
 end)
-addButton(profileSec, "Reset to Defaults", function() SA.ResetToDefaults() end)
+addButton(profileSec, "Reset to Defaults", function()
+    -- A saved `default.cfg` outranks the shipped defaults on Load, so the
+    -- reset must also drop that file — otherwise "Reset to Defaults" would
+    -- be undone by the very next Load.
+    pcall(function()
+        delfile(SA.ProfileDir .. "/default.cfg")
+        delfile(SA.ProfileDir .. "/default.colors")
+    end)
+    SA.ResetToDefaults()
+    pcall(function() library:config_list_update() end)
+end)
 addButton(profileSec, "Export Config to Clipboard", function() SA.ExportConfig() end)
 addButton(profileSec, "Import Config from Clipboard", function()
     local data = nil

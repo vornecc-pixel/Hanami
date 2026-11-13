@@ -590,10 +590,40 @@ function SA.EspColorFromHex(hex)
     if not r then return nil end
     return Color3.fromRGB(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
 end
+-- A colourpicker row is a PAIR: Colour AND Transparency. The old snapshot
+-- stored only the hex string, and restore forced transparency back to 1,
+-- so every saved picker came back opaque. The snapshot now carries both:
+--   "#RRGGBB@<transparency>"   current format
+--   "#RRGGBB"                  older profile; transparency stays untouched
+-- The `@` separator is not a hex digit, so an old value still parses.
+function SA.EspColorTransparency(k)
+    local flag = library and library.flags and library.flags["hn_col_" .. k]
+    if type(flag) == "table" and type(flag.Transparency) == "number" then
+        return math.clamp(flag.Transparency, 0, 1)
+    end
+    return nil
+end
+function SA.EspColorValue(k)
+    local hex = SA.EspColorHex(ESP_COLORS[k] or ESP_DEFAULT_COLORS[k])
+    local alpha = SA.EspColorTransparency(k)
+    if alpha == nil then return hex end
+    return string.format("%s@%s", hex,
+        tostring(math.floor(alpha * 1000 + 0.5) / 1000))
+end
+function SA.EspColorParseValue(value)
+    local hex, alpha = tostring(value or ""):match("^(#[0-9A-Fa-f]+)%s*@%s*([%d%.]+)$")
+    if hex then
+        local a = tonumber(alpha)
+        if a and a >= 0 and a <= 1 then return hex, a end
+    end
+    local only = tostring(value or ""):match("^(#[0-9A-Fa-f]+)$")
+    if only then return only, nil end
+    return nil, nil
+end
 function SA.EspColorSnapshot()
     local out = {}
     for k in pairs(ESP_DEFAULT_COLORS or {}) do
-        out[k] = SA.EspColorHex(ESP_COLORS[k] or ESP_DEFAULT_COLORS[k])
+        out[k] = SA.EspColorValue(k)
     end
     return out
 end
@@ -605,13 +635,18 @@ end
 function SA.EspColorRestore(saved)
     if type(saved) ~= "table" then return 0 end
     local n = 0
-    for k, hex in pairs(saved) do
+    for k, value in pairs(saved) do
         if ESP_DEFAULT_COLORS[k] ~= nil then
+            local hex, alpha = SA.EspColorParseValue(value)
             local c = SA.EspColorFromHex(hex)
             if c then
                 ESP_COLORS[k] = c
                 local setter = library.config_flags["hn_col_" .. k]
-                if setter then pcall(setter, c, 1) end
+                -- A profile saved before transparency was stored keeps
+                -- whatever the picker currently has instead of being
+                -- forced back to fully opaque.
+                if alpha == nil then alpha = SA.EspColorTransparency(k) or 1 end
+                if setter then pcall(setter, c, alpha) end
                 n = n + 1
             end
         end
@@ -629,9 +664,11 @@ end
 function SA.EspColorFromText(text)
     local out = {}
     for line in tostring(text or ""):gmatch("[^\r\n]+") do
-        local k, hex = line:match(
-            "^%s*([A-Za-z0-9_]+)%s*=%s*(#[0-9A-Fa-f]+)%s*$")
-        if k and hex then out[k] = hex end
+        -- Accept both "#RRGGBB" and "#RRGGBB@0.35" so sidecars written by
+        -- an older build still load.
+        local k, value = line:match(
+            "^%s*([A-Za-z0-9_]+)%s*=%s*(#[0-9A-Fa-f]+[%s@%d%.]*)%s*$")
+        if k and value then out[k] = (value:gsub("%s+$", "")) end
     end
     return out
 end
